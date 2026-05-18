@@ -476,7 +476,7 @@ public sealed partial class CanvasViewport
             // Code text with syntax highlighting
             float codeX = (float)bodyRect.X + (float)CodeGutterW;
             DrawScopeGuides(lineText, codeX, lineY, bodyRect);
-            DrawSyntaxLine(block, srcLine, lineText, codeX, lineY, bodyRect);
+            DrawEditorLine(lineText, codeX, lineY, bodyRect);
         }
 
         if (maxScroll > 0)
@@ -523,36 +523,9 @@ public sealed partial class CanvasViewport
             GetBrush(WpfColor.FromArgb(145, 120, 132, 150)));
     }
 
-    private void DrawSyntaxLine(RenderBlock block, int srcLine, string lineText, float startX, float lineY, Rect bodyRect)
+    private void DrawEditorLine(string lineText, float startX, float lineY, Rect bodyRect)
     {
         DrawText(lineText, startX, lineY, (float)(bodyRect.Right - startX - 14), 11.5f, WpfColor.FromRgb(45, 55, 72));
-
-        if (block.SemanticTokens is null || block.SemanticTokens.Count == 0)
-        {
-            return;
-        }
-
-        // Find tokens on this line
-        var lineTokens = block.SemanticTokens
-            .Where(t => t.Line == srcLine)
-            .OrderBy(t => t.Column)
-            .ToList();
-
-        if (lineTokens.Count == 0)
-        {
-            return;
-        }
-
-        foreach (var token in lineTokens)
-        {
-            int colIndex = Math.Max(0, token.Column - 1);
-            string tokenText = NormalizeCodeLine(token.Text);
-            if (string.IsNullOrWhiteSpace(tokenText)) continue;
-            if (colIndex >= lineText.Length) continue;
-            WpfColor tokenColor = TokenColor(token.Kind);
-            float x = startX + colIndex * (float)CodeCharW;
-            DrawText(tokenText, x, lineY, tokenText.Length * (float)CodeCharW + 8, 11.5f, tokenColor);
-        }
     }
 
     private void DrawScopeGuides(string lineText, float codeX, float lineY, Rect bodyRect)
@@ -679,9 +652,9 @@ public sealed partial class CanvasViewport
 
     private IDWriteTextFormat GetTextFormat(float size)
     {
-        string key = $"Consolas:{size:F1}";
+        string key = $"JetBrainsMono:{size:F1}";
         if (_textFormats.TryGetValue(key, out var fmt)) return fmt;
-        fmt = _dwrite!.CreateTextFormat("JetBrains Mono NL Light", DWriteFontWeight.Light, DWriteFontStyle.Normal, DWriteFontStretch.Normal, size);
+        fmt = _dwrite!.CreateTextFormat("JetBrains Mono NL", DWriteFontWeight.Normal, DWriteFontStyle.Normal, DWriteFontStretch.Normal, size);
         fmt.WordWrapping = WordWrapping.NoWrap;
         _textFormats[key] = fmt;
         return fmt;
