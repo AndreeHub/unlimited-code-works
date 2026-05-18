@@ -21,3 +21,23 @@ public sealed partial class FileExplorerItemViewModel : ObservableObject
 
     public ObservableCollection<FileExplorerItemViewModel> Children { get; } = new();
 }
+
+public sealed partial class SymbolExplorerItemViewModel : ObservableObject
+{
+    [ObservableProperty] private bool _isExpanded;
+
+    public SymbolExplorerItemViewModel(string name, string detail, int? startLine = null, int? endLine = null)
+    {
+        Name = name;
+        Detail = detail;
+        StartLine = startLine;
+        EndLine = endLine;
+    }
+
+    public string Name { get; }
+    public string Detail { get; }
+    public int? StartLine { get; }
+    public int? EndLine { get; }
+
+    public ObservableCollection<SymbolExplorerItemViewModel> Children { get; } = new();
+}

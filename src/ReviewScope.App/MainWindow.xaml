@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:canvas="clr-namespace:ReviewScope.Canvas;assembly=ReviewScope.Canvas"
         xmlns:controls="clr-namespace:ReviewScope.App.Controls"
-        Title="ReviewScope" Height="900" Width="1500"
+        Title="unlimited-code-works" Height="900" Width="1500"
         MinHeight="720" MinWidth="1180"
         WindowStyle="SingleBorderWindow"
         Background="{StaticResource ShellBg}"
@@ -30,10 +30,10 @@
 
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0">
                     <Border Width="20" Height="20" CornerRadius="4" Background="{StaticResource AccentSoft}" Margin="0,0,8,0">
-                        <TextBlock Text="RS" Foreground="{StaticResource AccentBrush}" FontSize="9" FontWeight="Bold"
+                        <TextBlock Text="UCW" Foreground="{StaticResource AccentBrush}" FontSize="8" FontWeight="Bold"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
-                    <TextBlock Text="ReviewScope" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"
+                    <TextBlock Text="unlimited-code-works" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"
                                VerticalAlignment="Center"/>
                     <Border Width="1" Height="22" Background="{StaticResource PanelBorder}" Margin="14,0"/>
                     <TextBlock Text="{Binding WorkspacePath}" FontSize="12" Foreground="{StaticResource SubtleForeground}"
@@ -136,10 +136,21 @@
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
                             <TextBox Grid.Row="0" Text="Filter symbols..." Foreground="{StaticResource MutedForeground}" Margin="0,0,0,10"/>
-                            <StackPanel Grid.Row="1">
-                                <TextBlock Text="Open a code file on the canvas to inspect extracted functions."
-                                           TextWrapping="Wrap" Foreground="{StaticResource SubtleForeground}" FontSize="12"/>
-                            </StackPanel>
+                            <TreeView Grid.Row="1" ItemsSource="{Binding SymbolRoots}">
+                                <TreeView.ItemTemplate>
+                                    <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                        <StackPanel Margin="0,2">
+                                            <TextBlock Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}" FontSize="11"/>
+                                            <TextBlock Text="{Binding Detail}" Foreground="{StaticResource MutedForeground}" FontSize="9"/>
+                                        </StackPanel>
+                                    </HierarchicalDataTemplate>
+                                </TreeView.ItemTemplate>
+                                <TreeView.ItemContainerStyle>
+                                    <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
+                                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                    </Style>
+                                </TreeView.ItemContainerStyle>
+                            </TreeView>
                         </Grid>
                     </TabItem>
 
@@ -193,8 +204,10 @@
                     <TabItem Header="Selection">
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel Margin="14,12">
-                                <TextBlock Text="Canvas" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
-                                <TextBlock Text="{Binding SelectedSession.Name}" FontSize="12" Foreground="{StaticResource SubtleForeground}" Margin="0,4,0,18"/>
+                                <TextBlock Text="{Binding SelectedObjectTitle}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                <TextBlock Text="{Binding SelectedObjectKind}" FontSize="12" Foreground="{StaticResource SubtleForeground}" Margin="0,4,0,4"/>
+                                <TextBlock Text="{Binding SelectedObjectPath}" FontSize="11" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding SelectedObjectLineRange}" FontSize="11" Foreground="{StaticResource MutedForeground}" Margin="0,2,0,18"/>
 
                                 <TextBlock Text="Details" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" Margin="0,0,0,10"/>
                                 <Grid Margin="0,0,0,16">
@@ -206,6 +219,7 @@
                                         <RowDefinition Height="28"/>
                                         <RowDefinition Height="28"/>
                                         <RowDefinition Height="28"/>
+                                        <RowDefinition Height="28"/>
                                     </Grid.RowDefinitions>
                                     <TextBlock Text="Blocks" Foreground="{StaticResource SubtleForeground}" FontSize="12"/>
                                     <TextBlock Grid.Column="1" Text="{Binding Scene.Blocks.Count}" Foreground="{StaticResource ForegroundBrush}" FontSize="12"/>
@@ -213,6 +227,8 @@
                                     <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Scene.Connections.Count}" Foreground="{StaticResource ForegroundBrush}" FontSize="12"/>
                                     <TextBlock Grid.Row="2" Text="Notes" Foreground="{StaticResource SubtleForeground}" FontSize="12"/>
                                     <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Scene.Annotations.Count}" Foreground="{StaticResource ForegroundBrush}" FontSize="12"/>
+                                    <TextBlock Grid.Row="3" Text="Layer" Foreground="{StaticResource SubtleForeground}" FontSize="12"/>
+                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SelectedSwimLane.Name, TargetNullValue=--}" Foreground="{StaticResource ForegroundBrush}" FontSize="12"/>
                                 </Grid>
 
                                 <Button Style="{StaticResource ToolButton}" Content="Find References" HorizontalAlignment="Left"/>

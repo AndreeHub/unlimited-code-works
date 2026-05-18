@@ -54,6 +54,7 @@ public sealed partial class MainWindowViewModel
         _activeSession = session;
         SelectedSession = session;
         Scene = BuildSceneFromSession(session);
+        UpdateSelectedObject(Scene);
         StatusMessage = $"Session: {session.Name}";
         if (hydrateCode)
             await HydrateCodeBlocksAsync();
@@ -131,6 +132,7 @@ public sealed partial class MainWindowViewModel
 
         if (!changed) return;
         Scene = Scene with { Blocks = updatedBlocks };
+        UpdateSelectedObject(Scene);
         await PersistSessionAsync();
     }
 

@@ -66,11 +66,64 @@ public sealed partial class MainWindowViewModel
             var folder = new FileExplorerItemViewModel(group.Key, null, isFile: false) { IsExpanded = true };
             foreach (var file in group.OrderBy(f => f.RelativePath, StringComparer.OrdinalIgnoreCase))
             {
-                var fileItem = new FileExplorerItemViewModel(
-                    Path.GetFileName(file.FilePath), file.FilePath, isFile: true);
-                folder.Children.Add(fileItem);
+                AddFileToExplorer(folder, file);
             }
             ExplorerRoots.Add(folder);
         }
-}
+
+        SymbolRoots.Clear();
+        SelectedSymbolsHeader = "Symbols";
+    }
+
+    private static void AddFileToExplorer(FileExplorerItemViewModel projectRoot, WorkspaceFileSummary file)
+    {
+        string rel = file.RelativePath;
+        string projectMarker = file.ProjectName.Replace('\\', '/');
+        int markerIndex = rel.IndexOf(projectMarker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex >= 0)
+            rel = rel[(markerIndex + projectMarker.Length)..].TrimStart('/');
+
+        string[] segments = rel.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0)
+        {
+            projectRoot.Children.Add(new FileExplorerItemViewModel(Path.GetFileName(file.FilePath), file.FilePath, isFile: true));
+            return;
+        }
+
+        var parent = projectRoot;
+        foreach (string segment in segments.Take(segments.Length - 1))
+        {
+            var folder = parent.Children.FirstOrDefault(c => c.IsFolder && c.Name.Equals(segment, StringComparison.OrdinalIgnoreCase));
+            if (folder is null)
+            {
+                folder = new FileExplorerItemViewModel(segment, null, isFile: false);
+                parent.Children.Add(folder);
+            }
+            parent = folder;
+        }
+
+        parent.Children.Add(new FileExplorerItemViewModel(segments[^1], file.FilePath, isFile: true));
+    }
+
+    public async Task LoadSymbolsForFileAsync(string filePath)
+    {
+        SymbolRoots.Clear();
+        SelectedSymbolsHeader = $"Symbols: {Path.GetFileName(filePath)}";
+
+        var structure = await _fileStructure.GetFileStructureAsync(filePath, CancellationToken.None);
+        if (structure is null || structure.Types.Count == 0)
+        {
+            SymbolRoots.Add(new SymbolExplorerItemViewModel("No symbols found", "Try another source file"));
+            return;
+        }
+
+        foreach (var type in structure.Types)
+        {
+            var typeItem = new SymbolExplorerItemViewModel($"{type.Kind} {type.Name}", $"Lines {type.StartLine}-{type.EndLine}", type.StartLine, type.EndLine);
+            foreach (var method in type.Methods)
+                typeItem.Children.Add(new SymbolExplorerItemViewModel(method.Signature, method.Kind, method.StartLine, method.EndLine));
+            typeItem.IsExpanded = true;
+            SymbolRoots.Add(typeItem);
+        }
+    }
 }

@@ -26,6 +26,13 @@ namespace ReviewScope.Canvas;
 
 public sealed partial class CanvasViewport
 {
+    private void ApplySceneChange(RenderScene scene)
+    {
+        SetCurrentValue(SceneProperty, scene);
+        if (BlockMovedCommand?.CanExecute(scene) == true)
+            BlockMovedCommand.Execute(scene);
+    }
+
     private void RebuildSnapshot()
     {
         _connectionGeoms.Clear();

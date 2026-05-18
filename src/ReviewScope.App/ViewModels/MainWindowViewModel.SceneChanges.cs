@@ -19,6 +19,7 @@ public sealed partial class MainWindowViewModel
     public async Task OnSceneChangedByCanvas(RenderScene newScene)
     {
         Scene = newScene;
+        UpdateSelectedObject(newScene);
         await PersistSessionAsync();
-}
+    }
 }

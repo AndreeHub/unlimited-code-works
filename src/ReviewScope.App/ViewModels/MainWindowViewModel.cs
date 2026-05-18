@@ -41,6 +41,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _selectedAnnotationContent = string.Empty;
     [ObservableProperty] private Guid? _editingAnnotationId;
     [ObservableProperty] private CanvasBackgroundMode _backgroundMode = CanvasBackgroundMode.Dots;
+    [ObservableProperty] private RenderBlock? _selectedBlock;
+    [ObservableProperty] private RenderSwimLane? _selectedSwimLane;
+    [ObservableProperty] private string _selectedObjectTitle = "Canvas";
+    [ObservableProperty] private string _selectedObjectKind = "Review canvas";
+    [ObservableProperty] private string _selectedObjectPath = string.Empty;
+    [ObservableProperty] private string _selectedObjectLineRange = string.Empty;
+    [ObservableProperty] private string _selectedSymbolsHeader = "Symbols";
 
     [RelayCommand]
     public void ToggleBackground()
@@ -53,6 +60,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public ObservableCollection<FileExplorerItemViewModel> ExplorerRoots { get; } = new();
     public ObservableCollection<ReviewSession> Sessions { get; } = new();
+    public ObservableCollection<SymbolExplorerItemViewModel> SymbolRoots { get; } = new();
 
     // ---- Swim-lane colors ----
     private static readonly string[] LaneColors = { "#4A90D9", "#63D2A5", "#D49A4A", "#C07AB8", "#E05252", "#7CB8E0" };
@@ -79,4 +87,41 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private static double MeasureUnfocusedFileBlockHeight(int lineCount) =>
         Math.Min(MaxUnfocusedFileBlockHeight, MeasureCodeBlockHeight(lineCount, MinFileBlockHeight));
+
+    private void UpdateSelectedObject(RenderScene scene)
+    {
+        SelectedBlock = scene.Blocks.FirstOrDefault(b => b.IsSelected);
+        SelectedSwimLane = scene.SwimLanes.FirstOrDefault(l => l.IsSelected);
+
+        if (SelectedBlock is not null)
+        {
+            SelectedObjectTitle = SelectedBlock.Focused?.SymbolName ?? SelectedBlock.Title;
+            SelectedObjectKind = SelectedBlock.Kind switch
+            {
+                BlockKind.File => "File card",
+                BlockKind.Extract => "Symbol card",
+                BlockKind.Note => "Note",
+                _ => "Canvas object"
+            };
+            SelectedObjectPath = SelectedBlock.FilePath is null ? string.Empty : GetRelativePath(SelectedBlock.FilePath);
+            SelectedObjectLineRange = SelectedBlock.StartLine.HasValue && SelectedBlock.EndLine.HasValue
+                ? $"Lines {SelectedBlock.StartLine}-{SelectedBlock.EndLine}"
+                : string.Empty;
+            return;
+        }
+
+        if (SelectedSwimLane is not null)
+        {
+            SelectedObjectTitle = SelectedSwimLane.Name;
+            SelectedObjectKind = "Architecture frame";
+            SelectedObjectPath = string.Empty;
+            SelectedObjectLineRange = string.Empty;
+            return;
+        }
+
+        SelectedObjectTitle = "Canvas";
+        SelectedObjectKind = "Review canvas";
+        SelectedObjectPath = string.Empty;
+        SelectedObjectLineRange = string.Empty;
+    }
 }

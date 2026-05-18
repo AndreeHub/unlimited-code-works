@@ -31,7 +31,10 @@ public partial class MainWindow : Window
     private async void OnExplorerDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (ExplorerTree.SelectedItem is FileExplorerItemViewModel item && item.IsFile && item.FilePath is not null)
+        {
+            await _vm.LoadSymbolsForFileAsync(item.FilePath);
             await _vm.AddFileToCanvasAsync(item.FilePath);
+        }
     }
 
     private async void OnSessionDoubleClick(object sender, MouseButtonEventArgs e)

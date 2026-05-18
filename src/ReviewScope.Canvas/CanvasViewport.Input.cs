@@ -106,14 +106,14 @@ public sealed partial class CanvasViewport
             // Shift+click = toggle selection (was Ctrl previously, now Ctrl is reserved for focus)
             if (isShift)
             {
-                SetCurrentValue(SceneProperty, ToggleSelection(Scene, hit.Block.Key));
+                ApplySceneChange(ToggleSelection(Scene, hit.Block.Key));
                 return;
             }
 
             // Select the hit block if not already selected
             if (!hit.Block.IsSelected)
             {
-                SetCurrentValue(SceneProperty, SetSelection(Scene, new[] { hit.Block.Key }));
+                ApplySceneChange(SetSelection(Scene, new[] { hit.Block.Key }));
                 RebuildSnapshot();
                 hit = HitBlock(world);
                 if (hit is null) return;
@@ -162,7 +162,7 @@ public sealed partial class CanvasViewport
         if (laneBodyHit is not null)
         {
             // Select the swim-lane
-            SetCurrentValue(SceneProperty, SelectSwimLane(Scene, laneBodyHit.Lane.Key));
+            ApplySceneChange(SelectSwimLane(Scene, laneBodyHit.Lane.Key));
             RebuildSnapshot();
 
             // Check resize on swim lane
@@ -195,7 +195,7 @@ public sealed partial class CanvasViewport
             return;
         }
 
-        SetCurrentValue(SceneProperty, ClearSelection(Scene));
+        ApplySceneChange(ClearSelection(Scene));
         _marqueeStart = screen;
         _marqueeEnd = screen;
         _isMarquee = true;
@@ -441,7 +441,7 @@ public sealed partial class CanvasViewport
         var blocks = Scene.Blocks
             .Select(b => set.Contains(b.Key) ? b with { X = b.X + dx, Y = b.Y + dy } : b)
             .ToList();
-        SetCurrentValue(SceneProperty, Scene with { Blocks = blocks });
+        ApplySceneChange(Scene with { Blocks = blocks });
         RebuildSnapshot(); RenderNative();
     }
 
@@ -458,7 +458,7 @@ public sealed partial class CanvasViewport
                 Height = height
             };
         }).ToList();
-        SetCurrentValue(SceneProperty, Scene with { Blocks = blocks });
+        ApplySceneChange(Scene with { Blocks = blocks });
         RebuildSnapshot(); RenderNative();
     }
 
@@ -467,7 +467,7 @@ public sealed partial class CanvasViewport
         var lanes = Scene.SwimLanes
             .Select(l => l.Key.Equals(key, StringComparison.OrdinalIgnoreCase) ? l with { X = l.X + dx, Y = l.Y + dy } : l)
             .ToList();
-        SetCurrentValue(SceneProperty, Scene with { SwimLanes = lanes });
+        ApplySceneChange(Scene with { SwimLanes = lanes });
         RebuildSnapshot(); RenderNative();
     }
 
@@ -478,7 +478,7 @@ public sealed partial class CanvasViewport
             if (!l.Key.Equals(key, StringComparison.OrdinalIgnoreCase)) return l;
             return l with { Width = Math.Max(200, l.Width + dw), Height = Math.Max(120, l.Height + dh) };
         }).ToList();
-        SetCurrentValue(SceneProperty, Scene with { SwimLanes = lanes });
+        ApplySceneChange(Scene with { SwimLanes = lanes });
         RebuildSnapshot(); RenderNative();
     }
 
@@ -490,7 +490,7 @@ public sealed partial class CanvasViewport
         var connections = Scene.Connections
             .Where(c => !selectedKeys.Contains(c.SourceKey) && !selectedKeys.Contains(c.TargetKey))
             .ToList();
-        SetCurrentValue(SceneProperty, Scene with { Blocks = blocks, Connections = connections });
+        ApplySceneChange(Scene with { Blocks = blocks, Connections = connections });
         RebuildSnapshot(); RenderNative();
     }
 
@@ -521,13 +521,13 @@ public sealed partial class CanvasViewport
     {
         if (_marqueeStart is null || _marqueeEnd is null) return;
         Rect screenRect = new(_marqueeStart.Value, _marqueeEnd.Value);
-        if (screenRect.Width < 4 && screenRect.Height < 4) { SetCurrentValue(SceneProperty, ClearSelection(Scene)); return; }
+        if (screenRect.Width < 4 && screenRect.Height < 4) { ApplySceneChange(ClearSelection(Scene)); return; }
         Point topLeft = ToWorld(new Point(screenRect.Left, screenRect.Top));
         Point bottomRight = ToWorld(new Point(screenRect.Right, screenRect.Bottom));
         Rect worldRect = new(topLeft, bottomRight);
         var hit = _snapshot.QueryBlocks(worldRect).Select(v => v.Block.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var blocks = Scene.Blocks.Select(b => b with { IsSelected = _appendMarquee ? b.IsSelected || hit.Contains(b.Key) : hit.Contains(b.Key) }).ToList();
-        SetCurrentValue(SceneProperty, Scene with { Blocks = blocks });
+        ApplySceneChange(Scene with { Blocks = blocks });
         RebuildSnapshot();
     }
 
