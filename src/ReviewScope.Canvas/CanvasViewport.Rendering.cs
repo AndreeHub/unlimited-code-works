@@ -476,7 +476,7 @@ public sealed partial class CanvasViewport
             // Code text with syntax highlighting
             float codeX = (float)bodyRect.X + (float)CodeGutterW;
             DrawScopeGuides(lineText, codeX, lineY, bodyRect);
-            DrawEditorLine(lineText, codeX, lineY, bodyRect);
+            DrawEditorLine(block, srcLine, lineText, codeX, lineY, bodyRect);
         }
 
         if (maxScroll > 0)
@@ -523,9 +523,32 @@ public sealed partial class CanvasViewport
             GetBrush(WpfColor.FromArgb(145, 120, 132, 150)));
     }
 
-    private void DrawEditorLine(string lineText, float startX, float lineY, Rect bodyRect)
+    private void DrawEditorLine(RenderBlock block, int srcLine, string lineText, float startX, float lineY, Rect bodyRect)
     {
-        DrawText(lineText, startX, lineY, (float)(bodyRect.Right - startX - 14), 11.5f, WpfColor.FromRgb(45, 55, 72));
+        if (_rt is null || _dwrite is null || string.IsNullOrEmpty(lineText)) return;
+
+        const float fontSize = 11.5f;
+        float maxWidth = (float)(bodyRect.Right - startX - 14);
+        if (maxWidth < 4) return;
+
+        IDWriteTextFormat fmt = GetTextFormat(fontSize);
+        using var layout = _dwrite.CreateTextLayout(lineText, fmt, maxWidth, fontSize * 2.2f);
+
+        if (block.SemanticTokens is not null)
+        {
+            foreach (var token in block.SemanticTokens.Where(t => t.Line == srcLine).OrderBy(t => t.Column))
+            {
+                int start = Math.Max(0, token.Column - 1);
+                if (start >= lineText.Length) continue;
+
+                int length = Math.Min(token.Length, lineText.Length - start);
+                if (length <= 0) continue;
+
+                layout.SetDrawingEffect(GetBrush(TokenColor(token.Kind)), new TextRange((uint)start, (uint)length));
+            }
+        }
+
+        _rt.DrawTextLayout(new Vector2(startX, lineY), layout, GetBrush(WpfColor.FromRgb(45, 55, 72)), DrawTextOptions.Clip);
     }
 
     private void DrawScopeGuides(string lineText, float codeX, float lineY, Rect bodyRect)
