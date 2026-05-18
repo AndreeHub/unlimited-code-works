@@ -1,0 +1,307 @@
+<Window x:Class="ReviewScope.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:canvas="clr-namespace:ReviewScope.Canvas;assembly=ReviewScope.Canvas"
+        xmlns:controls="clr-namespace:ReviewScope.App.Controls"
+        Title="ReviewScope" Height="900" Width="1500"
+        MinHeight="720" MinWidth="1180"
+        WindowStyle="SingleBorderWindow"
+        Background="{StaticResource ShellBg}"
+        FontFamily="{StaticResource AppFont}">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolVis"/>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="44"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="26"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="260"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0">
+                    <Border Width="20" Height="20" CornerRadius="4" Background="{StaticResource AccentSoft}" Margin="0,0,8,0">
+                        <TextBlock Text="RS" Foreground="{StaticResource AccentBrush}" FontSize="9" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Text="ReviewScope" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"
+                               VerticalAlignment="Center"/>
+                    <Border Width="1" Height="22" Background="{StaticResource PanelBorder}" Margin="14,0"/>
+                    <TextBlock Text="{Binding WorkspacePath}" FontSize="12" Foreground="{StaticResource SubtleForeground}"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="120"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource GhostButton}" Content="Load Project" Command="{Binding OpenWorkspaceCommand}" Margin="0,0,4,0"/>
+                    <Button Style="{StaticResource GhostButton}" Content="Open Folder" Command="{Binding OpenFolderCommand}" Margin="0,0,10,0"/>
+                    <Border Background="{StaticResource SuccessSoft}" CornerRadius="10" Padding="8,3" Margin="0,0,12,0">
+                        <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource SuccessBrush}" FontSize="11"
+                                   FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="280"/>
+                    </Border>
+                    <Button Style="{StaticResource GhostButton}" Content="Reload Code" Command="{Binding ReloadCodeCommand}" Margin="0,0,4,0"/>
+                    <Button Style="{StaticResource GhostButton}" Content="Export Notes" Command="{Binding ExportAnnotationsCommand}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
+                    <Button Style="{StaticResource ToolButton}" Content="-" Width="30" Padding="0" Margin="0,0,4,0"/>
+                    <Button Style="{StaticResource ToolButton}" Content="100%" Width="58" Padding="0" Margin="0,0,4,0"/>
+                    <Button Style="{StaticResource ToolButton}" Content="+" Width="30" Padding="0" Margin="0,0,8,0"/>
+                    <Button Style="{StaticResource ToolButton}" Content="Frame" Click="OnFrameAll" Margin="0,0,4,0"/>
+                    <Button Style="{StaticResource ToolButton}" Content="Grid" Command="{Binding ToggleBackgroundCommand}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="270" MinWidth="220" MaxWidth="380"/>
+                <ColumnDefinition Width="1"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="1"/>
+                <ColumnDefinition Width="300" MinWidth="250" MaxWidth="420"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,0,1,0">
+                <TabControl>
+                    <TabItem Header="Explorer">
+                        <Grid Margin="8,8,8,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="190"/>
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Grid.Row="0" Margin="2,0,2,8">
+                                <TextBlock Text="{Binding WorkspacePath}" Foreground="{StaticResource ForegroundBrush}"
+                                           FontWeight="SemiBold" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="Source files" Foreground="{StaticResource MutedForeground}" FontSize="10" Margin="0,3,0,0"/>
+                            </StackPanel>
+
+                            <TreeView Grid.Row="1" x:Name="ExplorerTree"
+                                      ItemsSource="{Binding ExplorerRoots}"
+                                      MouseDoubleClick="OnExplorerDoubleClick"
+                                      VirtualizingPanel.IsVirtualizing="True">
+                                <TreeView.ItemTemplate>
+                                    <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                                            <TextBlock Text="{Binding IsFile, Converter={x:Null}}" Visibility="Collapsed"/>
+                                            <TextBlock Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}" FontSize="10"/>
+                                        </StackPanel>
+                                    </HierarchicalDataTemplate>
+                                </TreeView.ItemTemplate>
+                                <TreeView.ItemContainerStyle>
+                                    <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
+                                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                    </Style>
+                                </TreeView.ItemContainerStyle>
+                            </TreeView>
+
+                            <Border Grid.Row="2" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,1,0,0" Margin="-8,8,-8,0">
+                                <Grid Margin="8,8,8,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="Sessions" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" Margin="2,0,0,6"/>
+                                    <ListBox Grid.Row="1" ItemsSource="{Binding Sessions}"
+                                             SelectedItem="{Binding SelectedSession}"
+                                             MouseDoubleClick="OnSessionDoubleClick">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Name}" FontSize="12"/>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                    <Button Grid.Row="2" Style="{StaticResource AccentButton}" Content="New Session"
+                                            Command="{Binding CreateNewSessionCommand}" HorizontalAlignment="Stretch" Margin="0,8,0,8"/>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </TabItem>
+
+                    <TabItem Header="Symbols">
+                        <Grid Margin="12">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <TextBox Grid.Row="0" Text="Filter symbols..." Foreground="{StaticResource MutedForeground}" Margin="0,0,0,10"/>
+                            <StackPanel Grid.Row="1">
+                                <TextBlock Text="Open a code file on the canvas to inspect extracted functions."
+                                           TextWrapping="Wrap" Foreground="{StaticResource SubtleForeground}" FontSize="12"/>
+                            </StackPanel>
+                        </Grid>
+                    </TabItem>
+
+                    <TabItem Header="Search">
+                        <Grid Margin="12">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <TextBox Grid.Row="0" Text="Search project..." Foreground="{StaticResource MutedForeground}" Margin="0,0,0,10"/>
+                            <TextBlock Grid.Row="1" Text="Search results will appear here." Foreground="{StaticResource SubtleForeground}" FontSize="12"/>
+                        </Grid>
+                    </TabItem>
+                </TabControl>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Width="1" HorizontalAlignment="Stretch" Background="{StaticResource PanelBorder}"/>
+
+            <Grid Grid.Column="2" Background="{StaticResource CanvasBg}">
+                <canvas:CanvasViewport x:Name="CanvasViewport"
+                                       Scene="{Binding Scene, Mode=TwoWay}"
+                                       BackgroundMode="{Binding BackgroundMode, Mode=TwoWay}"
+                                       AllowDrop="True"
+                                       Drop="OnCanvasDrop"
+                                       DragOver="OnCanvasDragOver"/>
+
+                <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12,14,0,0"
+                        Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}"
+                        BorderThickness="1" CornerRadius="6" Padding="5">
+                    <StackPanel>
+                        <Button Style="{StaticResource RailButton}" Content="P" ToolTip="Pointer"/>
+                        <Button Style="{StaticResource RailButton}" Content="H" ToolTip="Pan"/>
+                        <Button Style="{StaticResource RailButton}" Content="L" ToolTip="Add layer" Command="{Binding AddSwimLaneCommand}"/>
+                        <Button Style="{StaticResource RailButton}" Content="N" ToolTip="Note"/>
+                        <Button Style="{StaticResource RailButton}" Content="F" ToolTip="Frame all" Click="OnFrameAll"/>
+                        <Button Style="{StaticResource RailButton}" Content="B" ToolTip="Background" Command="{Binding ToggleBackgroundCommand}"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <GridSplitter Grid.Column="3" Width="1" HorizontalAlignment="Stretch" Background="{StaticResource PanelBorder}"/>
+
+            <Border Grid.Column="4" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1,0,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="112"/>
+                    </Grid.RowDefinitions>
+
+                    <TabControl Grid.Row="0">
+                    <TabItem Header="Selection">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="14,12">
+                                <TextBlock Text="Canvas" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                <TextBlock Text="{Binding SelectedSession.Name}" FontSize="12" Foreground="{StaticResource SubtleForeground}" Margin="0,4,0,18"/>
+
+                                <TextBlock Text="Details" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" Margin="0,0,0,10"/>
+                                <Grid Margin="0,0,0,16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="28"/>
+                                        <RowDefinition Height="28"/>
+                                        <RowDefinition Height="28"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="Blocks" Foreground="{StaticResource SubtleForeground}" FontSize="12"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Scene.Blocks.Count}" Foreground="{StaticResource ForegroundBrush}" FontSize="12"/>
+                                    <TextBlock Grid.Row="1" Text="Connections" Foreground="{StaticResource SubtleForeground}" FontSize="12"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Scene.Connections.Count}" Foreground="{StaticResource ForegroundBrush}" FontSize="12"/>
+                                    <TextBlock Grid.Row="2" Text="Notes" Foreground="{StaticResource SubtleForeground}" FontSize="12"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Scene.Annotations.Count}" Foreground="{StaticResource ForegroundBrush}" FontSize="12"/>
+                                </Grid>
+
+                                <Button Style="{StaticResource ToolButton}" Content="Find References" HorizontalAlignment="Left"/>
+
+                                <Border Background="{StaticResource WarningSoft}" BorderBrush="#F2D987" BorderThickness="1"
+                                        CornerRadius="6" Padding="12" Margin="0,24,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Active note" FontSize="12" FontWeight="SemiBold" Foreground="#4C3B00" Margin="0,0,0,6"/>
+                                        <TextBlock Text="{Binding SelectedAnnotationContent}" TextWrapping="Wrap" Foreground="#5D4A10" FontSize="12"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <TabItem Header="Notes">
+                        <Grid Margin="14,12">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Annotation" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" Margin="0,0,0,8"/>
+                            <TextBox Grid.Row="1" AcceptsReturn="True" TextWrapping="Wrap"
+                                     Text="{Binding SelectedAnnotationContent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     VerticalScrollBarVisibility="Auto"/>
+                            <Button Grid.Row="2" Style="{StaticResource AccentButton}" Content="Save Note"
+                                    HorizontalAlignment="Right" Margin="0,10,0,0"
+                                    Command="{Binding SaveAnnotationCommand}"/>
+                        </Grid>
+                    </TabItem>
+
+                    <TabItem Header="Review">
+                        <StackPanel Margin="14,12">
+                            <TextBlock Text="Review" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" Margin="0,0,0,12"/>
+                            <Border Background="{StaticResource SuccessSoft}" BorderBrush="#CDEEDD" BorderThickness="1" CornerRadius="6" Padding="10">
+                                <TextBlock Text="No conflicts" Foreground="{StaticResource SuccessBrush}" FontSize="12" FontWeight="SemiBold"/>
+                            </Border>
+                            <TextBlock Text="Tags" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" Margin="0,22,0,8"/>
+                            <WrapPanel>
+                                <Border Background="#EFE7FF" CornerRadius="4" Padding="7,4" Margin="0,0,6,6">
+                                    <TextBlock Text="review" Foreground="#7051B8" FontSize="11"/>
+                                </Border>
+                                <Border Background="{StaticResource AccentSoft}" CornerRadius="4" Padding="7,4" Margin="0,0,6,6">
+                                    <TextBlock Text="canvas" Foreground="{StaticResource AccentBrush}" FontSize="11"/>
+                                </Border>
+                            </WrapPanel>
+                        </StackPanel>
+                    </TabItem>
+                </TabControl>
+
+                    <Border Grid.Row="1" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,1,0,0" Padding="14,10">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Mini Map" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                <TextBlock Text="{Binding Scene.Blocks.Count, StringFormat={}{0} blocks}" FontSize="11" Foreground="{StaticResource SubtleForeground}" Margin="0,3,0,0"/>
+                            </StackPanel>
+                            <controls:SceneMiniMap Grid.Row="1" Scene="{Binding Scene}" Height="70" Margin="0,8,0,0"
+                                                   HorizontalAlignment="Stretch"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="2" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,1,0,0">
+            <Grid Margin="12,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse Width="6" Height="6" Fill="{StaticResource SuccessBrush}" Margin="0,0,6,0"/>
+                    <TextBlock Text="Project loaded" Foreground="{StaticResource SubtleForeground}" FontSize="11"/>
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="{Binding Scene.Blocks.Count, StringFormat=Blocks: {0}}" Foreground="{StaticResource SubtleForeground}"
+                           FontSize="11" Margin="24,0,0,0" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" Text="{Binding Scene.Connections.Count, StringFormat=Connections: {0}}" Foreground="{StaticResource SubtleForeground}"
+                           FontSize="11" Margin="24,0,0,0" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="4" Text="{Binding BackgroundMode, StringFormat=Canvas: {0}}" Foreground="{StaticResource SubtleForeground}"
+                           FontSize="11" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
