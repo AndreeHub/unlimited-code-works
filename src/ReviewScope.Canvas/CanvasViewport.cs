@@ -59,7 +59,7 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private const double MinBlockW = 560, MinBlockH = 180;
     private const double ResizeHandleSize = 16;
     private const double HeaderH = 68, FooterH = 30;
-    private const double CodeLineH = 18, CodeGutterW = 52, CodeCharW = 7.0;
+    private const double CodeLineH = 18, CodeGutterW = 52, CodeCharW = 6.75;
     private const double AnnotationW = 280, AnnotationH = 120;
 
     // LOD zoom thresholds

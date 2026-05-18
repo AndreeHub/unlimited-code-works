@@ -45,8 +45,33 @@ public sealed class SemanticSpanService : ISemanticSpanService
             .Select(s => s!)
             .ToList();
 
+        tokens.AddRange(root.DescendantTrivia(descendIntoTrivia: true)
+            .Where(t => t.IsKind(SyntaxKind.SingleLineCommentTrivia)
+                     || t.IsKind(SyntaxKind.MultiLineCommentTrivia)
+                     || t.IsKind(SyntaxKind.DocumentationCommentExteriorTrivia)
+                     || t.IsKind(SyntaxKind.SingleLineDocumentationCommentTrivia)
+                     || t.IsKind(SyntaxKind.MultiLineDocumentationCommentTrivia))
+            .Select(t => BuildTriviaSpan(t, tree, cancellationToken))
+            .Where(s => s is not null)
+            .Select(s => s!)
+            .Where(s => s.Line >= startLine && s.Line <= endLine));
+
+        tokens = tokens
+            .OrderBy(t => t.Line)
+            .ThenBy(t => t.Column)
+            .ToList();
+
         _cache.StoreSpans(cacheKey, tokens);
         return tokens;
+    }
+
+    private static SemanticTokenSpan? BuildTriviaSpan(SyntaxTrivia trivia, SyntaxTree tree, CancellationToken ct)
+    {
+        if (trivia.Span.Length == 0) return null;
+        var lineSpan = tree.GetLineSpan(trivia.Span, ct).Span;
+        int line = lineSpan.Start.Line + 1;
+        int col = lineSpan.Start.Character + 1;
+        return new SemanticTokenSpan(line, col, trivia.Span.Length, SemanticTokenKind.Comment, false, trivia.ToString());
     }
 
     private static SemanticTokenSpan? BuildSpan(SyntaxToken token, SyntaxTree tree, CancellationToken ct)

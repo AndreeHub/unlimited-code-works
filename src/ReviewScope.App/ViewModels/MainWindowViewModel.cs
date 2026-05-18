@@ -15,7 +15,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 {
     private const double DefaultFileBlockWidth = 880;
     private const double MaxUnfocusedFileBlockWidth = 880;
-    private const double MaxUnfocusedFileBlockHeight = 640;
+    private const double MaxUnfocusedFileBlockHeight = 1280;
     private const double MinFileBlockHeight = 280;
     private const double MinScopedBlockHeight = 180;
     private const double CodeLineHeight = 18;

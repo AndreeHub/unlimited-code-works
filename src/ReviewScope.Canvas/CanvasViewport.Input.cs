@@ -30,6 +30,7 @@ public sealed partial class CanvasViewport
     {
         Key key = KeyInterop.KeyFromVirtualKey((int)wParam.ToInt64());
         if (key == Key.Delete) { DeleteSelected(); return; }
+        if (key == Key.D) { DetachSelectedNotes(); return; }
         if (key == Key.F) { FrameAll(); return; }
         if (key == Key.B) { ToggleBackground(); return; }
         if (key == Key.LeftCtrl || key == Key.RightCtrl) { _isFocusMode = true; RenderNative(); }
@@ -219,11 +220,20 @@ public sealed partial class CanvasViewport
         }
         if (_isMarquee) { CompleteMarquee(); ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture(); return; }
 
+        if (_primaryDrag is not null && _didMove)
+            GlueNearbyNotes(_primaryDrag);
+
         if (_primaryDrag is not null && !_didMove)
         {
             var visual = _snapshot.Blocks.FirstOrDefault(b => b.Block.Key == _primaryDrag);
             if (visual is not null)
             {
+                if (visual.Block.Kind == BlockKind.Note && IsDoubleClick(visual.Block.Key, screen))
+                {
+                    DetachNote(visual.Block.Key);
+                    ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture();
+                    return;
+                }
                 if (IsDoubleClick(visual.Block.Key, screen) && BlockActivatedCommand?.CanExecute(null) == true)
                     BlockActivatedCommand.Execute(new BlockActivatedArgs(visual.Block));
                 else
@@ -248,6 +258,11 @@ public sealed partial class CanvasViewport
             _connectionCurrentWorld = world;
             SetCapture(_hwnd);
             RenderNative();
+        }
+        else if (hit is null)
+        {
+            if (AnnotationRequestedCommand?.CanExecute(null) == true)
+                AnnotationRequestedCommand.Execute(new AnnotationRequestedArgs(null, world.X, world.Y));
         }
     }
 
@@ -438,6 +453,8 @@ public sealed partial class CanvasViewport
     {
         if (keys.Count == 0) return;
         var set = keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (string attachedNoteKey in GetAttachedNoteKeys(set))
+            set.Add(attachedNoteKey);
         var blocks = Scene.Blocks
             .Select(b => set.Contains(b.Key) ? b with { X = b.X + dx, Y = b.Y + dy } : b)
             .ToList();
@@ -485,13 +502,87 @@ public sealed partial class CanvasViewport
     private void DeleteSelected()
     {
         var selectedKeys = Scene.Blocks.Where(b => b.IsSelected).Select(b => b.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (selectedKeys.Count == 0) return;
+        var selectedLaneKeys = Scene.SwimLanes.Where(l => l.IsSelected).Select(l => l.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (selectedKeys.Count == 0 && selectedLaneKeys.Count == 0) return;
         var blocks = Scene.Blocks.Where(b => !selectedKeys.Contains(b.Key)).ToList();
         var connections = Scene.Connections
             .Where(c => !selectedKeys.Contains(c.SourceKey) && !selectedKeys.Contains(c.TargetKey))
             .ToList();
-        ApplySceneChange(Scene with { Blocks = blocks, Connections = connections });
+        var lanes = Scene.SwimLanes.Where(l => !selectedLaneKeys.Contains(l.Key)).ToList();
+        ApplySceneChange(Scene with { Blocks = blocks, Connections = connections, SwimLanes = lanes });
         RebuildSnapshot(); RenderNative();
+    }
+
+    private IEnumerable<string> GetAttachedNoteKeys(ISet<string> movingKeys)
+    {
+        foreach (var connection in Scene.Connections)
+        {
+            if (connection.Label != "__note" || !movingKeys.Contains(connection.SourceKey)) continue;
+            var note = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(connection.TargetKey, StringComparison.OrdinalIgnoreCase));
+            if (note?.Kind == BlockKind.Note)
+                yield return note.Key;
+        }
+    }
+
+    private void GlueNearbyNotes(string movedKey)
+    {
+        var moved = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(movedKey, StringComparison.OrdinalIgnoreCase));
+        if (moved is null) return;
+
+        if (moved.Kind == BlockKind.Note)
+        {
+            var nearest = Scene.Blocks
+                .Where(b => b.Kind != BlockKind.Note)
+                .Select(b => new { Block = b, Distance = DistanceBetween(moved, b) })
+                .Where(x => x.Distance <= 42)
+                .OrderBy(x => x.Distance)
+                .FirstOrDefault();
+            if (nearest is not null)
+                AttachNote(nearest.Block.Key, moved.Key);
+            return;
+        }
+
+        foreach (var note in Scene.Blocks.Where(b => b.Kind == BlockKind.Note && DistanceBetween(moved, b) <= 42))
+            AttachNote(moved.Key, note.Key);
+    }
+
+    private void AttachNote(string sourceKey, string noteKey)
+    {
+        bool exists = Scene.Connections.Any(c => c.Label == "__note"
+            && c.SourceKey.Equals(sourceKey, StringComparison.OrdinalIgnoreCase)
+            && c.TargetKey.Equals(noteKey, StringComparison.OrdinalIgnoreCase));
+        if (exists) return;
+
+        var connections = Scene.Connections
+            .Where(c => !(c.Label == "__note" && c.TargetKey.Equals(noteKey, StringComparison.OrdinalIgnoreCase)))
+            .Append(new RenderConnection(Guid.NewGuid(), sourceKey, noteKey, "__note"))
+            .ToList();
+        ApplySceneChange(Scene with { Connections = connections });
+    }
+
+    private void DetachSelectedNotes()
+    {
+        var selectedNotes = Scene.Blocks.Where(b => b.IsSelected && b.Kind == BlockKind.Note).Select(b => b.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (selectedNotes.Count == 0) return;
+        var connections = Scene.Connections.Where(c => c.Label != "__note" || !selectedNotes.Contains(c.TargetKey)).ToList();
+        ApplySceneChange(Scene with { Connections = connections });
+        RebuildSnapshot(); RenderNative();
+    }
+
+    private void DetachNote(string noteKey)
+    {
+        var connections = Scene.Connections.Where(c => c.Label != "__note" || !c.TargetKey.Equals(noteKey, StringComparison.OrdinalIgnoreCase)).ToList();
+        ApplySceneChange(Scene with { Connections = connections });
+        RebuildSnapshot(); RenderNative();
+    }
+
+    private static double DistanceBetween(RenderBlock a, RenderBlock b)
+    {
+        double ax = a.X + a.Width / 2;
+        double ay = a.Y + a.Height / 2;
+        double bx = b.X + b.Width / 2;
+        double by = b.Y + b.Height / 2;
+        return Math.Sqrt(Math.Pow(ax - bx, 2) + Math.Pow(ay - by, 2));
     }
 
     private static RenderScene ToggleSelection(RenderScene scene, string key) =>

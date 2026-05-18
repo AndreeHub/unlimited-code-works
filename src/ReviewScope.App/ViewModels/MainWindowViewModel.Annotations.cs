@@ -13,17 +13,34 @@ namespace ReviewScope.App.ViewModels;
 
 public sealed partial class MainWindowViewModel
 {
-    // -----------------------------------------------------------------------
-    // Annotations
-    // -----------------------------------------------------------------------
     public async Task AddAnnotationAsync(AnnotationRequestedArgs args)
     {
-        var annotation = new RenderAnnotation(
-            Guid.NewGuid(), args.AttachedBlockKey, "New noteâ€¦", args.WorldX, args.WorldY);
-        var annotations = Scene.Annotations.Append(annotation).ToList();
-        Scene = Scene with { Annotations = annotations };
-        EditingAnnotationId = annotation.Id;
-        SelectedAnnotationContent = annotation.Content;
+        var noteId = Guid.NewGuid();
+        string key = $"note::{noteId:N}";
+        var note = new RenderBlock(
+            noteId,
+            key,
+            BlockKind.Note,
+            "New note",
+            string.Empty,
+            args.WorldX,
+            args.WorldY,
+            280,
+            130,
+            Body: "New note...");
+
+        var blocks = Scene.Blocks.Append(note).ToList();
+        var annotations = Scene.Annotations
+            .Append(new RenderAnnotation(noteId, args.AttachedBlockKey ?? key, note.Body!, args.WorldX, args.WorldY))
+            .ToList();
+
+        var connections = args.AttachedBlockKey is null
+            ? Scene.Connections
+            : Scene.Connections.Append(new RenderConnection(Guid.NewGuid(), args.AttachedBlockKey, key, "__note")).ToList();
+
+        Scene = Scene with { Blocks = blocks, Annotations = annotations, Connections = connections };
+        EditingAnnotationId = noteId;
+        SelectedAnnotationContent = note.Body!;
         await PersistSessionAsync();
     }
 
@@ -31,10 +48,20 @@ public sealed partial class MainWindowViewModel
     public async Task SaveAnnotationAsync()
     {
         if (EditingAnnotationId is null) return;
+
         var annotations = Scene.Annotations.Select(a =>
             a.Id == EditingAnnotationId.Value ? a with { Content = SelectedAnnotationContent } : a).ToList();
-        Scene = Scene with { Annotations = annotations };
+        var blocks = Scene.Blocks.Select(b =>
+            b.Id == EditingAnnotationId.Value ? b with { Title = FirstNoteLine(SelectedAnnotationContent), Body = SelectedAnnotationContent } : b).ToList();
+
+        Scene = Scene with { Blocks = blocks, Annotations = annotations };
         EditingAnnotationId = null;
         await PersistSessionAsync();
-}
+    }
+
+    private static string FirstNoteLine(string content)
+    {
+        string first = content.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim() ?? "Note";
+        return first.Length <= 32 ? first : first[..32] + "...";
+    }
 }

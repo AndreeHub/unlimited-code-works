@@ -62,14 +62,20 @@ public sealed partial class MainWindowViewModel
 
     private static RenderScene BuildSceneFromSession(ReviewSession session)
     {
-        var blocks = session.Blocks.Select(b => new RenderBlock(
+        var annotationsById = session.Annotations.ToDictionary(a => a.Id);
+        var blocks = session.Blocks.Select(b =>
+        {
+            annotationsById.TryGetValue(b.Id, out var note);
+            return new RenderBlock(
             b.Id, b.Key, b.Kind, b.Title, b.Subtitle,
             b.X, b.Y, b.Width, b.Height,
             IsCollapsed: b.IsCollapsed,
+            Body: b.Kind == BlockKind.Note ? note?.Content : null,
             FilePath: b.FilePath,
             StartLine: b.StartLine,
             EndLine: b.EndLine,
-            Focused: b.Focused)).ToList();
+            Focused: b.Focused);
+        }).ToList();
 
         var connections = session.Connections
             .Select(c => new RenderConnection(c.Id, c.SourceKey, c.TargetKey, c.Label))
@@ -164,7 +170,17 @@ public sealed partial class MainWindowViewModel
             .ToList();
 
         var annotations = scene.Annotations
-            .Select(a => new AnnotationSnapshot(a.Id, a.AttachedToKey, a.Content, a.X, a.Y, DateTimeOffset.UtcNow))
+            .Select(a =>
+            {
+                var noteBlock = scene.Blocks.FirstOrDefault(b => b.Id == a.Id && b.Kind == BlockKind.Note);
+                return new AnnotationSnapshot(
+                    a.Id,
+                    a.AttachedToKey,
+                    noteBlock?.Body ?? a.Content,
+                    noteBlock?.X ?? a.X,
+                    noteBlock?.Y ?? a.Y,
+                    DateTimeOffset.UtcNow);
+            })
             .ToList();
 
         var swimLanes = scene.SwimLanes

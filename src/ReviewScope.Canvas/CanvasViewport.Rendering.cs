@@ -53,8 +53,11 @@ public sealed partial class CanvasViewport
                 DrawSwimLane(lane);
 
             // Draw connections
-            foreach (var conn in _visibleConnections)
-                DrawConnection(conn);
+        foreach (var conn in _visibleConnections)
+        {
+            if (conn.Connection.Label == "__note") continue;
+            DrawConnection(conn);
+        }
 
             // Draw in-progress connection
             if (_isDrawingConnection)
@@ -111,7 +114,6 @@ public sealed partial class CanvasViewport
         while (spacing < 14f) spacing *= 2f;
         while (spacing > 34f) spacing *= 0.5f;
 
-        double worldStep = spacing / _camera.Zoom;
         float ox = (float)(_camera.OffsetX % spacing);
         float oy = (float)(_camera.OffsetY % spacing);
         byte alpha = (byte)Math.Clamp(92 - Math.Abs(spacing - 22f) * 2.2f, 46, 92);
@@ -463,7 +465,7 @@ public sealed partial class CanvasViewport
         {
             int srcIdx = sliceStartIdx + scrollLines + i;
             if (srcIdx >= allLines.Length) break;
-            string lineText = allLines[srcIdx];
+            string lineText = NormalizeCodeLine(allLines[srcIdx]);
             float lineY = (float)bodyRect.Y + i * (float)CodeLineH;
             int srcLine = firstShownSrcLine + scrollLines + i;
 
@@ -473,6 +475,7 @@ public sealed partial class CanvasViewport
 
             // Code text with syntax highlighting
             float codeX = (float)bodyRect.X + (float)CodeGutterW;
+            DrawScopeGuides(lineText, codeX, lineY, bodyRect);
             DrawSyntaxLine(block, srcLine, lineText, codeX, lineY, bodyRect);
         }
 
@@ -522,10 +525,10 @@ public sealed partial class CanvasViewport
 
     private void DrawSyntaxLine(RenderBlock block, int srcLine, string lineText, float startX, float lineY, Rect bodyRect)
     {
+        DrawText(lineText, startX, lineY, (float)(bodyRect.Right - startX - 14), 11.5f, WpfColor.FromRgb(45, 55, 72));
+
         if (block.SemanticTokens is null || block.SemanticTokens.Count == 0)
         {
-            // No token data â€” draw plain text
-            DrawText(lineText, startX, lineY, (float)(bodyRect.Right - startX), 11.5f, WpfColor.FromRgb(50, 58, 70));
             return;
         }
 
@@ -537,44 +540,40 @@ public sealed partial class CanvasViewport
 
         if (lineTokens.Count == 0)
         {
-            DrawText(lineText, startX, lineY, (float)(bodyRect.Right - startX), 11.5f, WpfColor.FromRgb(50, 58, 70));
             return;
         }
-
-        float x = startX;
-        int charPos = 0;
-        string trimmed = lineText.TrimStart();
-        int indent = lineText.Length - trimmed.Length;
 
         foreach (var token in lineTokens)
         {
             int colIndex = Math.Max(0, token.Column - 1);
-            // Draw any plain text before this token
-            if (colIndex > charPos)
-            {
-                int len = Math.Min(colIndex - charPos, lineText.Length - charPos);
-                if (len > 0)
-                {
-                    string plain = lineText.Substring(charPos, len);
-                    DrawText(plain, x, lineY, len * (float)CodeCharW + 4, 11.5f, WpfColor.FromRgb(50, 58, 70));
-                    x += len * (float)CodeCharW;
-                    charPos += len;
-                }
-            }
-
+            string tokenText = NormalizeCodeLine(token.Text);
+            if (string.IsNullOrWhiteSpace(tokenText)) continue;
+            if (colIndex >= lineText.Length) continue;
             WpfColor tokenColor = TokenColor(token.Kind);
-            DrawText(token.Text, x, lineY, token.Length * (float)CodeCharW + 4, 11.5f, tokenColor);
-            x += token.Length * (float)CodeCharW;
-            charPos = colIndex + token.Length;
-        }
-
-        // Remaining text after last token
-        if (charPos < lineText.Length)
-        {
-            string rest = lineText[charPos..];
-            DrawText(rest, x, lineY, rest.Length * (float)CodeCharW + 4, 11.5f, WpfColor.FromRgb(50, 58, 70));
+            float x = startX + colIndex * (float)CodeCharW;
+            DrawText(tokenText, x, lineY, tokenText.Length * (float)CodeCharW + 8, 11.5f, tokenColor);
         }
     }
+
+    private void DrawScopeGuides(string lineText, float codeX, float lineY, Rect bodyRect)
+    {
+        int leadingSpaces = lineText.TakeWhile(c => c == ' ').Count();
+        int guideCount = leadingSpaces / 4;
+        if (guideCount <= 0 || _rt is null) return;
+
+        var guideBrush = GetBrush(WpfColor.FromArgb(70, 203, 213, 225));
+        float top = lineY;
+        float bottom = lineY + (float)CodeLineH;
+        for (int i = 1; i <= guideCount; i++)
+        {
+            float x = codeX + i * 4 * (float)CodeCharW - 7;
+            if (x <= bodyRect.Left || x >= bodyRect.Right - 12) continue;
+            _rt.DrawLine(new Vector2(x, top), new Vector2(x, bottom), guideBrush, 1f);
+        }
+    }
+
+    private static string NormalizeCodeLine(string text) =>
+        text.Replace("\t", "    ", StringComparison.Ordinal);
 
     private static WpfColor TokenColor(SemanticTokenKind kind) => kind switch
     {

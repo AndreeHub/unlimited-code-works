@@ -43,10 +43,6 @@
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Style="{StaticResource GhostButton}" Content="Load Project" Command="{Binding OpenWorkspaceCommand}" Margin="0,0,4,0"/>
                     <Button Style="{StaticResource GhostButton}" Content="Open Folder" Command="{Binding OpenFolderCommand}" Margin="0,0,10,0"/>
-                    <Border Background="{StaticResource SuccessSoft}" CornerRadius="10" Padding="8,3" Margin="0,0,12,0">
-                        <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource SuccessBrush}" FontSize="11"
-                                   FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="280"/>
-                    </Border>
                     <Button Style="{StaticResource GhostButton}" Content="Reload Code" Command="{Binding ReloadCodeCommand}" Margin="0,0,4,0"/>
                     <Button Style="{StaticResource GhostButton}" Content="Export Notes" Command="{Binding ExportAnnotationsCommand}"/>
                 </StackPanel>
@@ -197,7 +193,7 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
-                        <RowDefinition Height="112"/>
+                        <RowDefinition Height="184"/>
                     </Grid.RowDefinitions>
 
                     <TabControl Grid.Row="0">
@@ -290,7 +286,7 @@
                                 <TextBlock Text="Mini Map" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
                                 <TextBlock Text="{Binding Scene.Blocks.Count, StringFormat={}{0} blocks}" FontSize="11" Foreground="{StaticResource SubtleForeground}" Margin="0,3,0,0"/>
                             </StackPanel>
-                            <controls:SceneMiniMap Grid.Row="1" Scene="{Binding Scene}" Height="70" Margin="0,8,0,0"
+                            <controls:SceneMiniMap Grid.Row="1" Scene="{Binding Scene}" Height="138" Margin="0,8,0,0"
                                                    HorizontalAlignment="Stretch"/>
                         </Grid>
                     </Border>
@@ -315,6 +311,11 @@
                            FontSize="11" Margin="24,0,0,0" VerticalAlignment="Center"/>
                 <TextBlock Grid.Column="2" Text="{Binding Scene.Connections.Count, StringFormat=Connections: {0}}" Foreground="{StaticResource SubtleForeground}"
                            FontSize="11" Margin="24,0,0,0" VerticalAlignment="Center"/>
+                <Border Grid.Column="3" Background="{StaticResource SuccessSoft}" CornerRadius="10" Padding="8,2" Margin="24,0,12,0"
+                        HorizontalAlignment="Left" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource SuccessBrush}" FontSize="11"
+                               FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="420"/>
+                </Border>
                 <TextBlock Grid.Column="4" Text="{Binding BackgroundMode, StringFormat=Canvas: {0}}" Foreground="{StaticResource SubtleForeground}"
                            FontSize="11" VerticalAlignment="Center"/>
             </Grid>
