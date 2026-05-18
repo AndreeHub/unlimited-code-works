@@ -148,6 +148,7 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private string? _lastClickKey;
     private Point _lastClickScreen = new(double.NaN, double.NaN);
     private readonly Dictionary<string, int> _codeScrollLines = new(StringComparer.OrdinalIgnoreCase);
+    private Point _lastMouseScreenPoint;
 
     public CanvasViewport()
     {

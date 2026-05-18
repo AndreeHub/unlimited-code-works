@@ -61,7 +61,11 @@ public partial class MainWindow : Window
     }
 
     // Canvas event handlers
-    private void OnBlockActivated(BlockActivatedArgs? args) { /* double-click: could open in editor */ }
+    private void OnBlockActivated(BlockActivatedArgs? args)
+    {
+        if (args?.Block.Kind == BlockKind.Note)
+            _vm.OpenNoteForEditing(args.Block);
+    }
 
     private async void OnExtractRequested(ExtractRequestedArgs? args)
     {

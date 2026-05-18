@@ -33,6 +33,27 @@ public sealed partial class CanvasViewport
         if (key == Key.D) { DetachSelectedNotes(); return; }
         if (key == Key.F) { FrameAll(); return; }
         if (key == Key.B) { ToggleBackground(); return; }
+        if (key == Key.W)
+        {
+            Point world = ToWorld(_lastMouseScreenPoint);
+            var hit = HitBlock(world);
+            if (hit is null)
+            {
+                if (AnnotationRequestedCommand?.CanExecute(null) == true)
+                    AnnotationRequestedCommand.Execute(new AnnotationRequestedArgs(null, world.X, world.Y));
+                return;
+            }
+        }
+        if (key == Key.Q)
+        {
+            Point world = ToWorld(_lastMouseScreenPoint);
+            var hit = HitBlock(world);
+            if (hit?.Block.Kind == BlockKind.Note)
+            {
+                ToggleNoteGlue(hit.Block.Key);
+                return;
+            }
+        }
         if (key == Key.LeftCtrl || key == Key.RightCtrl) { _isFocusMode = true; RenderNative(); }
         if (key == Key.LeftAlt || key == Key.RightAlt) { _isExtractMode = true; RenderNative(); }
     }
@@ -230,7 +251,8 @@ public sealed partial class CanvasViewport
             {
                 if (visual.Block.Kind == BlockKind.Note && IsDoubleClick(visual.Block.Key, screen))
                 {
-                    DetachNote(visual.Block.Key);
+                    if (BlockActivatedCommand?.CanExecute(null) == true)
+                        BlockActivatedCommand.Execute(new BlockActivatedArgs(visual.Block));
                     ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture();
                     return;
                 }
@@ -294,6 +316,7 @@ public sealed partial class CanvasViewport
 
     private void HandleMove(Point screen)
     {
+        _lastMouseScreenPoint = screen;
         if (_isMinimapDrag) { UpdateCameraFromMinimap(screen); return; }
 
         Point world = ToWorld(screen);
@@ -574,6 +597,22 @@ public sealed partial class CanvasViewport
         var connections = Scene.Connections.Where(c => c.Label != "__note" || !c.TargetKey.Equals(noteKey, StringComparison.OrdinalIgnoreCase)).ToList();
         ApplySceneChange(Scene with { Connections = connections });
         RebuildSnapshot(); RenderNative();
+    }
+
+    private void ToggleNoteGlue(string noteKey)
+    {
+        bool isAttached = Scene.Connections.Any(c =>
+            c.Label == "__note" && c.TargetKey.Equals(noteKey, StringComparison.OrdinalIgnoreCase));
+        if (isAttached) { DetachNote(noteKey); return; }
+
+        var note = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(noteKey, StringComparison.OrdinalIgnoreCase));
+        if (note is null) return;
+        var nearest = Scene.Blocks
+            .Where(b => b.Kind != BlockKind.Note)
+            .OrderBy(b => DistanceBetween(note, b))
+            .FirstOrDefault();
+        if (nearest is not null)
+            AttachNote(nearest.Key, noteKey);
     }
 
     private static double DistanceBetween(RenderBlock a, RenderBlock b)

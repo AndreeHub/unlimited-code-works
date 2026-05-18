@@ -13,6 +13,24 @@ namespace ReviewScope.App.ViewModels;
 
 public sealed partial class MainWindowViewModel
 {
+    [ObservableProperty] private bool _isEditingNote;
+
+    public void OpenNoteForEditing(RenderBlock note)
+    {
+        var annotation = Scene.Annotations.FirstOrDefault(a => a.Id == note.Id);
+        EditingAnnotationId = note.Id;
+        SelectedAnnotationContent = annotation?.Content ?? note.Body ?? string.Empty;
+        IsEditingNote = true;
+        StatusMessage = $"Editing note: {note.Title}";
+    }
+
+    [RelayCommand]
+    public void DiscardAnnotationEdit()
+    {
+        EditingAnnotationId = null;
+        IsEditingNote = false;
+    }
+
     public async Task AddAnnotationAsync(AnnotationRequestedArgs args)
     {
         var noteId = Guid.NewGuid();
@@ -56,6 +74,7 @@ public sealed partial class MainWindowViewModel
 
         Scene = Scene with { Blocks = blocks, Annotations = annotations };
         EditingAnnotationId = null;
+        IsEditingNote = false;
         await PersistSessionAsync();
     }
 
