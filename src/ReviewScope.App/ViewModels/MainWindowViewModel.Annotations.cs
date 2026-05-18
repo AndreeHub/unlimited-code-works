@@ -15,13 +15,19 @@ public sealed partial class MainWindowViewModel
 {
     [ObservableProperty] private bool _isEditingNote;
 
-    public void OpenNoteForEditing(RenderBlock note)
+    public async Task SaveNoteEditAsync(string noteKey, string title, string body)
     {
-        var annotation = Scene.Annotations.FirstOrDefault(a => a.Id == note.Id);
-        EditingAnnotationId = note.Id;
-        SelectedAnnotationContent = annotation?.Content ?? note.Body ?? string.Empty;
-        IsEditingNote = true;
-        StatusMessage = $"Editing note: {note.Title}";
+        var noteBlock = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(noteKey, StringComparison.OrdinalIgnoreCase));
+        if (noteBlock is null) return;
+        string safeTitle = string.IsNullOrWhiteSpace(title) ? "Note" : title.Trim();
+        var blocks = Scene.Blocks.Select(b =>
+            b.Key.Equals(noteKey, StringComparison.OrdinalIgnoreCase)
+                ? b with { Title = safeTitle, Body = body }
+                : b).ToList();
+        var annotations = Scene.Annotations.Select(a =>
+            a.Id == noteBlock.Id ? a with { Content = body } : a).ToList();
+        Scene = Scene with { Blocks = blocks, Annotations = annotations };
+        await PersistSessionAsync();
     }
 
     [RelayCommand]

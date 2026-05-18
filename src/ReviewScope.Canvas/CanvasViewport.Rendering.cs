@@ -393,24 +393,71 @@ public sealed partial class CanvasViewport
     private void DrawNoteBlock(SceneBlockVisual blockVis)
     {
         var block = blockVis.Block;
-        WpfColor fill = WpfColor.FromRgb(250, 237, 180);
-        WpfColor border = block.IsSelected
-            ? WpfColor.FromArgb(220, 255, 200, 40)
+        bool isSelected = block.IsSelected;
+        Rect outer = blockVis.Bounds;
+        float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
+
+        // Shadow
+        _rt!.FillRoundedRectangle(
+            new RoundedRectangle(new RectangleF(x + 2, y + 5, w, h), 8, 8),
+            GetBrush(WpfColor.FromArgb(20, 35, 49, 66)));
+
+        // Selection glow ring drawn behind the block
+        if (isSelected)
+        {
+            float pad = InvStroke(3f);
+            _rt.DrawRoundedRectangle(
+                new RoundedRectangle(new RectangleF(x - pad, y - pad, w + pad * 2, h + pad * 2), 11, 11),
+                GetBrush(WpfColor.FromArgb(210, 46, 125, 215)), InvStroke(2.5f));
+        }
+
+        // Fill
+        var rr = new RoundedRectangle(new RectangleF(x, y, w, h), 8, 8);
+        _rt.FillRoundedRectangle(rr, GetBrush(WpfColor.FromRgb(250, 237, 180)));
+
+        // Border
+        WpfColor borderColor = isSelected
+            ? WpfColor.FromArgb(235, 46, 125, 215)
             : WpfColor.FromArgb(180, 210, 190, 80);
+        _rt.DrawRoundedRectangle(rr, GetBrush(borderColor),
+            isSelected ? InvStroke(2.0f) : InvStroke(1.2f));
 
-        var rr = new RoundedRectangle(ToRF(blockVis.Bounds), 8, 8);
-        _rt!.FillRoundedRectangle(rr, GetBrush(fill));
-        _rt.DrawRoundedRectangle(rr, GetBrush(border), InvStroke(1.2f));
+        // Title divider
+        const float titleH = 28f;
+        _rt.DrawLine(new Vector2(x + 8, y + titleH), new Vector2(x + w - 8, y + titleH),
+            GetBrush(WpfColor.FromArgb(70, 160, 140, 30)), InvStroke(0.8f));
 
-        DrawText(block.Title, (float)blockVis.Bounds.X + 12, (float)blockVis.Bounds.Y + 10,
-            (float)blockVis.Bounds.Width - 24, 12, WpfColor.FromRgb(40, 35, 10));
+        // Title text
+        DrawText(block.Title, x + 10, y + 7, w - 20, 12.5f, WpfColor.FromRgb(38, 33, 8));
 
+        // Body text (clipped)
         if (!string.IsNullOrWhiteSpace(block.Body))
         {
-            DrawWrappedText(block.Body, (float)blockVis.Bounds.X + 12, (float)blockVis.Bounds.Y + 32,
-                (float)blockVis.Bounds.Width - 24, (float)blockVis.Bounds.Height - 44, 11,
-                WpfColor.FromRgb(60, 52, 20));
+            _rt.PushAxisAlignedClip(
+                new RectangleF(x + 2, y + titleH + 2, w - 4, h - titleH - 6),
+                AntialiasMode.PerPrimitive);
+            DrawWrappedText(block.Body, x + 10, y + titleH + 7, w - 20, h - titleH - 14, 11,
+                WpfColor.FromRgb(60, 52, 18));
+            _rt.PopAxisAlignedClip();
         }
+
+        // Corner resize handles (when selected)
+        if (isSelected && _camera.Zoom > UltraCompactZoom)
+        {
+            float hs = (float)NoteCornerHandleSize;
+            DrawNoteCornerHandle(x, y, hs);
+            DrawNoteCornerHandle(x + w - hs, y, hs);
+            DrawNoteCornerHandle(x, y + h - hs, hs);
+            DrawNoteCornerHandle(x + w - hs, y + h - hs, hs);
+        }
+    }
+
+    private void DrawNoteCornerHandle(float x, float y, float size)
+    {
+        _rt!.FillRectangle(new RectangleF(x, y, size, size),
+            GetBrush(WpfColor.FromArgb(200, 46, 125, 215)));
+        _rt.DrawRectangle(new RectangleF(x, y, size, size),
+            GetBrush(WpfColor.FromArgb(220, 255, 255, 255)), InvStroke(1.0f));
     }
 
     private void DrawPreviewBars(Rect codeRect, WpfColor accent, int count)

@@ -35,9 +35,6 @@
                     </Border>
                     <TextBlock Text="unlimited-code-works" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"
                                VerticalAlignment="Center"/>
-                    <Border Width="1" Height="22" Background="{StaticResource PanelBorder}" Margin="14,0"/>
-                    <TextBlock Text="{Binding WorkspacePath}" FontSize="12" Foreground="{StaticResource SubtleForeground}"
-                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="120"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
@@ -185,6 +182,46 @@
                         <Button Style="{StaticResource RailButton}" Content="B" ToolTip="Background" Command="{Binding ToggleBackgroundCommand}"/>
                     </StackPanel>
                 </Border>
+
+                <Popup x:Name="NoteEditPopup"
+                       AllowsTransparency="True"
+                       Placement="RelativePoint"
+                       PlacementTarget="{Binding ElementName=CanvasViewport}"
+                       StaysOpen="False"
+                       Closed="OnNoteEditPopupClosed">
+                    <Border x:Name="NoteEditPopupContent"
+                            Background="#FAEDBC"
+                            BorderBrush="#C8B030"
+                            BorderThickness="2"
+                            CornerRadius="8"
+                            MinWidth="200" MinHeight="90">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="14" ShadowDepth="5" Opacity="0.22" Color="#1E3142"/>
+                        </Border.Effect>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBox x:Name="NoteEditTitleBox"
+                                     Background="Transparent" BorderThickness="0,0,0,1" BorderBrush="#B0A040"
+                                     Padding="10,7,10,5" FontSize="13" FontWeight="SemiBold"
+                                     Foreground="#282308" CaretBrush="#4A3A08"
+                                     KeyDown="OnNoteEditKeyDown"/>
+                            <TextBox x:Name="NoteEditBodyBox"
+                                     Grid.Row="1"
+                                     Background="Transparent" BorderThickness="0"
+                                     Padding="10,8" FontSize="12" Foreground="#3C3414" CaretBrush="#4A3A08"
+                                     TextWrapping="Wrap" AcceptsReturn="True"
+                                     VerticalScrollBarVisibility="Auto" MinHeight="50"
+                                     KeyDown="OnNoteEditKeyDown"/>
+                            <TextBlock Grid.Row="2" Text="Ctrl+Enter to save  ·  Esc to discard"
+                                       FontSize="9.5" Foreground="#9A8830" Margin="10,3,10,5"
+                                       HorizontalAlignment="Right"/>
+                        </Grid>
+                    </Border>
+                </Popup>
             </Grid>
 
             <GridSplitter Grid.Column="3" Width="1" HorizontalAlignment="Stretch" Background="{StaticResource PanelBorder}"/>
@@ -203,20 +240,6 @@
                             <TextBlock Text="{Binding SelectedObjectKind}" FontSize="12" Foreground="{StaticResource SubtleForeground}" Margin="0,4,0,4"/>
                             <TextBlock Text="{Binding SelectedObjectPath}" FontSize="11" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap"/>
                             <TextBlock Text="{Binding SelectedObjectLineRange}" FontSize="11" Foreground="{StaticResource MutedForeground}" Margin="0,2,0,18"/>
-
-                            <StackPanel Visibility="{Binding IsEditingNote, Converter={StaticResource BoolVis}}" Margin="0,0,0,14">
-                                <TextBlock Text="Note Content" FontSize="12" FontWeight="SemiBold"
-                                           Foreground="{StaticResource ForegroundBrush}" Margin="0,0,0,6"/>
-                                <TextBox Text="{Binding SelectedAnnotationContent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                         TextWrapping="Wrap" AcceptsReturn="True" MinHeight="80" MaxHeight="180"
-                                         VerticalScrollBarVisibility="Auto" FontSize="12" Margin="0,0,0,6"/>
-                                <StackPanel Orientation="Horizontal">
-                                    <Button Style="{StaticResource AccentButton}" Content="Save"
-                                            Command="{Binding SaveAnnotationCommand}" Margin="0,0,6,0" Padding="12,4"/>
-                                    <Button Style="{StaticResource GhostButton}" Content="Discard"
-                                            Command="{Binding DiscardAnnotationEditCommand}" Padding="12,4"/>
-                                </StackPanel>
-                            </StackPanel>
 
                             <TextBlock Text="Data" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" Margin="0,0,0,10"/>
                             <Grid Margin="0,0,0,18">

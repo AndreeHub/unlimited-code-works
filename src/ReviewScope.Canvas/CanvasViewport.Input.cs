@@ -141,6 +141,24 @@ public sealed partial class CanvasViewport
                 if (hit is null) return;
             }
 
+            // Check note corner resize handles
+            if (hit.Block.Kind == BlockKind.Note)
+            {
+                var corner = HitNoteCorner(hit.Bounds, world);
+                if (corner != NoteResizeCorner.None)
+                {
+                    _noteResizeKey = hit.Block.Key;
+                    _noteResizeCorner = corner;
+                    _noteResizeWorldPoint = world;
+                    _dragStartScreen = screen;
+                    _didMove = false;
+                    Cursor = corner is NoteResizeCorner.TopLeft or NoteResizeCorner.BottomRight
+                        ? Cursors.SizeNWSE : Cursors.SizeNESW;
+                    SetCapture(_hwnd);
+                    return;
+                }
+            }
+
             // Check resize handle
             if (hit.Block.Kind is BlockKind.File or BlockKind.Extract && IsInResize(hit.Bounds, world))
             {
@@ -231,6 +249,13 @@ public sealed partial class CanvasViewport
 
     private void HandleLUp(Point screen)
     {
+        if (_noteResizeKey is not null)
+        {
+            _noteResizeKey = null;
+            _noteResizeCorner = NoteResizeCorner.None;
+            _noteResizeWorldPoint = null;
+            ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture(); return;
+        }
         if (_resizeKey is not null)
         {
             ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture(); return;
@@ -251,8 +276,13 @@ public sealed partial class CanvasViewport
             {
                 if (visual.Block.Kind == BlockKind.Note && IsDoubleClick(visual.Block.Key, screen))
                 {
-                    if (BlockActivatedCommand?.CanExecute(null) == true)
-                        BlockActivatedCommand.Execute(new BlockActivatedArgs(visual.Block));
+                    if (NoteEditRequestedCommand?.CanExecute(null) == true)
+                        NoteEditRequestedCommand.Execute(new NoteEditRequestedArgs(
+                            visual.Block.Key,
+                            visual.Block.Title,
+                            visual.Block.Body ?? string.Empty,
+                            visual.Block.X, visual.Block.Y,
+                            visual.Block.Width, visual.Block.Height));
                     ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture();
                     return;
                 }
@@ -325,6 +355,20 @@ public sealed partial class CanvasViewport
         {
             _connectionCurrentWorld = world;
             RenderNative();
+            return;
+        }
+
+        if (_noteResizeKey is not null && _noteResizeWorldPoint is not null)
+        {
+            if (!_didMove && _dragStartScreen is not null)
+            {
+                var d = screen - _dragStartScreen.Value;
+                if (Math.Abs(d.X) < 4 && Math.Abs(d.Y) < 4) return;
+                _didMove = true;
+            }
+            var delta = world - _noteResizeWorldPoint.Value;
+            _noteResizeWorldPoint = world;
+            ResizeNoteCorner(_noteResizeKey, _noteResizeCorner, delta.X, delta.Y);
             return;
         }
 
@@ -596,6 +640,40 @@ public sealed partial class CanvasViewport
     {
         var connections = Scene.Connections.Where(c => c.Label != "__note" || !c.TargetKey.Equals(noteKey, StringComparison.OrdinalIgnoreCase)).ToList();
         ApplySceneChange(Scene with { Connections = connections });
+        RebuildSnapshot(); RenderNative();
+    }
+
+    private static NoteResizeCorner HitNoteCorner(Rect bounds, Point world)
+    {
+        const double hs = NoteCornerHandleSize;
+        if (new Rect(bounds.X, bounds.Y, hs, hs).Contains(world)) return NoteResizeCorner.TopLeft;
+        if (new Rect(bounds.Right - hs, bounds.Y, hs, hs).Contains(world)) return NoteResizeCorner.TopRight;
+        if (new Rect(bounds.X, bounds.Bottom - hs, hs, hs).Contains(world)) return NoteResizeCorner.BottomLeft;
+        if (new Rect(bounds.Right - hs, bounds.Bottom - hs, hs, hs).Contains(world)) return NoteResizeCorner.BottomRight;
+        return NoteResizeCorner.None;
+    }
+
+    private void ResizeNoteCorner(string key, NoteResizeCorner corner, double dx, double dy)
+    {
+        const double minW = 160, minH = 90;
+        var blocks = Scene.Blocks.Select(b =>
+        {
+            if (!b.Key.Equals(key, StringComparison.OrdinalIgnoreCase)) return b;
+            double x = b.X, y = b.Y, w = b.Width, h = b.Height;
+            switch (corner)
+            {
+                case NoteResizeCorner.TopLeft:
+                    { double nw = Math.Max(minW, w - dx); double nh = Math.Max(minH, h - dy); x += w - nw; y += h - nh; w = nw; h = nh; } break;
+                case NoteResizeCorner.TopRight:
+                    { double nh = Math.Max(minH, h - dy); y += h - nh; w = Math.Max(minW, w + dx); h = nh; } break;
+                case NoteResizeCorner.BottomLeft:
+                    { double nw = Math.Max(minW, w - dx); x += w - nw; w = nw; h = Math.Max(minH, h + dy); } break;
+                case NoteResizeCorner.BottomRight:
+                    w = Math.Max(minW, w + dx); h = Math.Max(minH, h + dy); break;
+            }
+            return b with { X = x, Y = y, Width = w, Height = h };
+        }).ToList();
+        ApplySceneChange(Scene with { Blocks = blocks });
         RebuildSnapshot(); RenderNative();
     }
 

@@ -28,6 +28,9 @@ namespace ReviewScope.Canvas;
 // Events raised by the viewport back to the ViewModel
 // -----------------------------------------------------------------------
 public sealed record BlockActivatedArgs(RenderBlock Block);
+public sealed record NoteEditRequestedArgs(string NoteKey, string Title, string Body, double WorldX, double WorldY, double WorldW, double WorldH);
+
+internal enum NoteResizeCorner { None, TopLeft, TopRight, BottomLeft, BottomRight }
 public sealed record ExtractRequestedArgs(RenderBlock SourceBlock, int Line, int Column);
 public sealed record FocusRequestedArgs(RenderBlock SourceBlock, int Line, int Column);
 public sealed record RestoreRequestedArgs(RenderBlock Block);
@@ -61,6 +64,7 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private const double HeaderH = 68, FooterH = 30;
     private const double CodeLineH = 18, CodeGutterW = 52, CodeCharW = 6.75;
     private const double AnnotationW = 280, AnnotationH = 120;
+    private const double NoteCornerHandleSize = 14;
 
     // LOD zoom thresholds
     private const double UltraCompactZoom = 0.06, CompactZoom = 0.12, PreviewZoom = 0.26;
@@ -96,6 +100,7 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     public ICommand? ConnectionDrawnCommand { get; set; }
     public ICommand? AnnotationRequestedCommand { get; set; }
     public ICommand? BlockMovedCommand { get; set; }
+    public ICommand? NoteEditRequestedCommand { get; set; }
 
     // D2D resources
     private readonly Dictionary<uint, ID2D1SolidColorBrush> _brushes = new();
@@ -149,6 +154,9 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private Point _lastClickScreen = new(double.NaN, double.NaN);
     private readonly Dictionary<string, int> _codeScrollLines = new(StringComparer.OrdinalIgnoreCase);
     private Point _lastMouseScreenPoint;
+    private string? _noteResizeKey;
+    private NoteResizeCorner _noteResizeCorner = NoteResizeCorner.None;
+    private Point? _noteResizeWorldPoint;
 
     public CanvasViewport()
     {

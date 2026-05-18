@@ -9,6 +9,8 @@ namespace ReviewScope.App;
 public partial class MainWindow : Window
 {
     private readonly MainWindowViewModel _vm;
+    private string? _editingNoteKey;
+    private bool _noteEditDiscarded;
 
     public MainWindow(MainWindowViewModel vm)
     {
@@ -23,6 +25,7 @@ public partial class MainWindow : Window
         CanvasViewport.RestoreRequestedCommand = new RelayCommand<RestoreRequestedArgs>(OnRestoreRequested);
         CanvasViewport.ConnectionDrawnCommand = new RelayCommand<ConnectionDrawnArgs>(OnConnectionDrawn);
         CanvasViewport.AnnotationRequestedCommand = new RelayCommand<AnnotationRequestedArgs>(OnAnnotationRequested);
+        CanvasViewport.NoteEditRequestedCommand = new RelayCommand<NoteEditRequestedArgs>(OnNoteEditRequested);
 
         // When scene is mutated inside the canvas (drag, delete, resize), sync back
         CanvasViewport.BlockMovedCommand = new RelayCommand<RenderScene>(OnSceneChangedByCanvas);
@@ -61,11 +64,7 @@ public partial class MainWindow : Window
     }
 
     // Canvas event handlers
-    private void OnBlockActivated(BlockActivatedArgs? args)
-    {
-        if (args?.Block.Kind == BlockKind.Note)
-            _vm.OpenNoteForEditing(args.Block);
-    }
+    private void OnBlockActivated(BlockActivatedArgs? args) { /* double-click on code block */ }
 
     private async void OnExtractRequested(ExtractRequestedArgs? args)
     {
@@ -89,7 +88,70 @@ public partial class MainWindow : Window
 
     private async void OnAnnotationRequested(AnnotationRequestedArgs? args)
     {
-        if (args is not null) await _vm.AddAnnotationAsync(args);
+        if (args is null) return;
+        await _vm.AddAnnotationAsync(args);
+        // Immediately open the inline editor for the new note
+        var newNote = _vm.Scene.Blocks.LastOrDefault(b => b.Kind == BlockKind.Note);
+        if (newNote is not null)
+            OpenNotePopup(newNote.Key, newNote.Title, newNote.Body ?? string.Empty,
+                newNote.X, newNote.Y, newNote.Width, newNote.Height);
+    }
+
+    private void OnNoteEditRequested(NoteEditRequestedArgs? args)
+    {
+        if (args is null) return;
+        OpenNotePopup(args.NoteKey, args.Title, args.Body, args.WorldX, args.WorldY, args.WorldW, args.WorldH);
+    }
+
+    private void OpenNotePopup(string noteKey, string title, string body,
+        double worldX, double worldY, double worldW, double worldH)
+    {
+        var camera = CanvasViewport.Camera;
+        double screenX = worldX * camera.Zoom + camera.OffsetX;
+        double screenY = worldY * camera.Zoom + camera.OffsetY;
+        double screenW = Math.Max(200, worldW * camera.Zoom);
+        double screenH = Math.Max(90, worldH * camera.Zoom);
+
+        _editingNoteKey = noteKey;
+        _noteEditDiscarded = false;
+        NoteEditTitleBox.Text = title;
+        NoteEditBodyBox.Text = body;
+        NoteEditPopupContent.Width = screenW;
+        NoteEditPopupContent.Height = screenH;
+        NoteEditPopup.HorizontalOffset = screenX;
+        NoteEditPopup.VerticalOffset = screenY;
+        NoteEditPopup.IsOpen = true;
+        NoteEditTitleBox.Focus();
+        NoteEditTitleBox.SelectAll();
+    }
+
+    private async void OnNoteEditPopupClosed(object sender, EventArgs e)
+    {
+        if (_editingNoteKey is not null && !_noteEditDiscarded)
+            await _vm.SaveNoteEditAsync(_editingNoteKey, NoteEditTitleBox.Text, NoteEditBodyBox.Text);
+        _editingNoteKey = null;
+        _noteEditDiscarded = false;
+    }
+
+    private void OnNoteEditKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            _noteEditDiscarded = true;
+            _editingNoteKey = null;
+            NoteEditPopup.IsOpen = false;
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Enter && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            NoteEditPopup.IsOpen = false; // triggers Closed → saves
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Tab && sender == NoteEditTitleBox)
+        {
+            NoteEditBodyBox.Focus();
+            e.Handled = true;
+        }
     }
 
     private async void OnSceneChangedByCanvas(RenderScene? newScene)
