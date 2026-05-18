@@ -53,11 +53,11 @@ public sealed partial class CanvasViewport
                 DrawSwimLane(lane);
 
             // Draw connections
-        foreach (var conn in _visibleConnections)
-        {
-            if (conn.Connection.Label == "__note") continue;
-            DrawConnection(conn);
-        }
+            foreach (var conn in _visibleConnections)
+            {
+                if (conn.Connection.Label == "__note") continue;
+                DrawConnection(conn);
+            }
 
             // Draw in-progress connection
             if (_isDrawingConnection)
@@ -180,27 +180,113 @@ public sealed partial class CanvasViewport
         var conn = connVis.Connection;
         if (conn.IsDimmed) return;
 
-        WpfColor lineColor = WpfColor.FromArgb(180, 69, 132, 203);
-        float stroke = InvStroke(1.6f);
+        WpfColor lineColor = conn.IsSelected
+            ? WpfColor.FromArgb(230, 32, 104, 192)
+            : WpfColor.FromArgb(180, 69, 132, 203);
+        float stroke = InvStroke(conn.IsSelected ? 2.2f : 1.6f);
 
         ID2D1PathGeometry geom = GetOrBuildConnectionGeometry(connVis);
         var brush = GetBrush(lineColor);
         _rt!.DrawGeometry(geom, brush, stroke);
-        DrawArrowhead(connVis.End, connVis.Start, brush, stroke);
+        if (conn.ArrowPosition is double t)
+        {
+            t = Math.Clamp(t, 0.04, 0.96);
+            Point arrowPoint = EvaluateConnectionPoint(connVis, t);
+            Vector2 tangent = EvaluateConnectionTangent(connVis, t);
+            if (!conn.ArrowForward) tangent = -tangent;
+            DrawInlineArrow(arrowPoint, tangent, brush, stroke);
+        }
+        else
+        {
+            GetConnectionPathPoints(connVis, out _, out _, out Point endLead);
+            DrawArrowhead(connVis.End, endLead, brush, stroke);
+        }
 
         if (!string.IsNullOrWhiteSpace(conn.Label))
         {
             Point mid = new((connVis.Start.X + connVis.End.X) / 2, (connVis.Start.Y + connVis.End.Y) / 2);
             DrawText(conn.Label!, (float)mid.X - 60, (float)mid.Y - 10, 120, 10, WpfColor.FromRgb(83, 96, 112));
         }
+
+        if (conn.IsSelected)
+            DrawConnectionControlNodes(connVis);
     }
 
     private void DrawInProgressConnection()
     {
-        _rt!.DrawLine(
-            new Vector2((float)_connectionSourceWorld.X, (float)_connectionSourceWorld.Y),
-            new Vector2((float)_connectionCurrentWorld.X, (float)_connectionCurrentWorld.Y),
-            GetBrush(WpfColor.FromArgb(180, 69, 132, 203)), InvStroke(1.5f));
+        Point end = _connectionHoverTargetWorld ?? _connectionCurrentWorld;
+        var color = _connectionHoverTargetWorld is not null
+            ? WpfColor.FromArgb(220, 35, 162, 109)
+            : WpfColor.FromArgb(180, 69, 132, 203);
+        if (_rewireEndpointKind == ConnectionEndpointKind.Source)
+            DrawConnectionPreview(end, _connectionHoverTargetAnchorIndex, _rewireFixedWorld, _rewireFixedAnchorIndex, _connectionDraftMidPoint, _connectionDraftMidPointBends, color);
+        else
+            DrawConnectionPreview(_connectionSourceWorld, _connectionSourceAnchorIndex, end, _connectionHoverTargetAnchorIndex, _connectionDraftMidPoint, _connectionDraftMidPointBends, color);
+    }
+
+    private void DrawConnectionControlNodes(SceneConnectionVisual connVis)
+    {
+        GetConnectionPathPoints(connVis, out Point startLead, out Point middleControl, out Point endLead);
+        var lineBrush = GetBrush(WpfColor.FromArgb(110, 80, 130, 190));
+        var fillBrush = GetBrush(WpfColor.FromRgb(255, 255, 255));
+        var nodeBrush = GetBrush(_selectedConnectionId == connVis.Connection.Id && _selectedConnectionControlKind == ConnectionControlNodeKind.Middle
+            ? WpfColor.FromArgb(240, 35, 162, 109)
+            : WpfColor.FromArgb(230, 32, 104, 192));
+
+        _rt!.DrawLine(new Vector2((float)startLead.X, (float)startLead.Y), new Vector2((float)middleControl.X, (float)middleControl.Y), lineBrush, InvStroke(0.9f));
+        _rt.DrawLine(new Vector2((float)endLead.X, (float)endLead.Y), new Vector2((float)middleControl.X, (float)middleControl.Y), lineBrush, InvStroke(0.9f));
+        DrawControlNode(middleControl, fillBrush, nodeBrush);
+    }
+
+    private void DrawConnectionPreview(Point start, int? sourceAnchorIndex, Point end, int? targetAnchorIndex, Point? draftMid, bool draftMidBends, WpfColor color)
+    {
+        if (_rt is null || _factory is null) return;
+        Vector2 sourceNormal = sourceAnchorIndex is int source ? GetConnectionAnchorNormal(source) : Vector2.Zero;
+        Vector2 targetNormal = targetAnchorIndex is int target ? GetConnectionAnchorNormal(target) : Vector2.Zero;
+        Point startLead = new(start.X + sourceNormal.X * ConnectionLeadDistance, start.Y + sourceNormal.Y * ConnectionLeadDistance);
+        Point endLead = new(end.X + targetNormal.X * ConnectionLeadDistance, end.Y + targetNormal.Y * ConnectionLeadDistance);
+        Point mid = draftMid ?? new Point((startLead.X + endLead.X) / 2, (startLead.Y + endLead.Y) / 2);
+        Point c1;
+        Point c2;
+        if (draftMid is not null && draftMidBends)
+        {
+            Point control = GetQuadraticControlThroughMid(startLead, mid, endLead);
+            c1 = new(startLead.X + (control.X - startLead.X) * 2 / 3, startLead.Y + (control.Y - startLead.Y) * 2 / 3);
+            c2 = new(endLead.X + (control.X - endLead.X) * 2 / 3, endLead.Y + (control.Y - endLead.Y) * 2 / 3);
+        }
+        else
+        {
+            double dx = endLead.X - startLead.X;
+            double dy = endLead.Y - startLead.Y;
+            double tangent = Math.Clamp(Math.Sqrt(dx * dx + dy * dy) * 0.42, MinAutoTangent, MaxAutoTangent);
+            c1 = new(startLead.X + sourceNormal.X * tangent, startLead.Y + sourceNormal.Y * tangent);
+            c2 = new(endLead.X + targetNormal.X * tangent, endLead.Y + targetNormal.Y * tangent);
+        }
+
+        using var path = _factory.CreatePathGeometry();
+        using var sink = path.Open();
+        sink.BeginFigure(new Vector2((float)start.X, (float)start.Y), FigureBegin.Hollow);
+        sink.AddLine(new Vector2((float)startLead.X, (float)startLead.Y));
+        sink.AddBezier(new D2DBezierSegment(
+            new Vector2((float)c1.X, (float)c1.Y),
+            new Vector2((float)c2.X, (float)c2.Y),
+            new Vector2((float)endLead.X, (float)endLead.Y)));
+        sink.AddLine(new Vector2((float)end.X, (float)end.Y));
+        sink.EndFigure(FigureEnd.Open);
+        sink.Close();
+
+        var brush = GetBrush(color);
+        _rt.DrawGeometry(path, brush, InvStroke(_connectionHoverTargetWorld is not null ? 2.1f : 1.5f));
+        if (draftMid is Point p)
+            DrawControlNode(p, GetBrush(WpfColor.FromRgb(255, 255, 255)), GetBrush(WpfColor.FromArgb(230, 35, 162, 109)));
+    }
+
+    private void DrawControlNode(Point p, ID2D1SolidColorBrush fill, ID2D1SolidColorBrush stroke)
+    {
+        float r = Math.Max(4f, InvStroke(5.5f));
+        var e = new Ellipse(new Vector2((float)p.X, (float)p.Y), r, r);
+        _rt!.FillEllipse(e, fill);
+        _rt.DrawEllipse(e, stroke, InvStroke(1.6f));
     }
 
     private void DrawArrowhead(Point tip, Point from, ID2D1SolidColorBrush brush, float stroke)
@@ -231,15 +317,29 @@ public sealed partial class CanvasViewport
 
         float x1 = (float)connVis.Start.X, y1 = (float)connVis.Start.Y;
         float x2 = (float)connVis.End.X, y2 = (float)connVis.End.Y;
-        float dx = Math.Abs(x2 - x1) * 0.5f;
+        GetConnectionPathPoints(connVis, out Point startLead, out Point mid, out Point endLead);
+        Point c1;
+        Point c2;
+        if (HasCustomConnectionMidPoint(connVis.Connection) && connVis.Connection.MidControlBends)
+        {
+            Point control = GetQuadraticControlThroughMid(startLead, mid, endLead);
+            c1 = new(startLead.X + (control.X - startLead.X) * 2 / 3, startLead.Y + (control.Y - startLead.Y) * 2 / 3);
+            c2 = new(endLead.X + (control.X - endLead.X) * 2 / 3, endLead.Y + (control.Y - endLead.Y) * 2 / 3);
+        }
+        else
+        {
+            GetAutoCubicControls(connVis, startLead, endLead, out c1, out c2);
+        }
 
         var path = _factory!.CreatePathGeometry();
         using var sink = path.Open();
         sink.BeginFigure(new Vector2(x1, y1), FigureBegin.Hollow);
+        sink.AddLine(new Vector2((float)startLead.X, (float)startLead.Y));
         sink.AddBezier(new D2DBezierSegment(
-            new Vector2(x1 + dx, y1),
-            new Vector2(x2 - dx, y2),
-            new Vector2(x2, y2)));
+            new Vector2((float)c1.X, (float)c1.Y),
+            new Vector2((float)c2.X, (float)c2.Y),
+            new Vector2((float)endLead.X, (float)endLead.Y)));
+        sink.AddLine(new Vector2(x2, y2));
         sink.EndFigure(FigureEnd.Open);
         sink.Close();
 
@@ -376,9 +476,43 @@ public sealed partial class CanvasViewport
         // Restore button for focused blocks
         if (isFocused) DrawRestoreButton(outer, accent);
 
+        if (ShouldDrawConnectionAnchors(block))
+            DrawConnectionAnchors(block, outer, accent);
+
         // Extract/Focus-mode highlight overlay
         if ((_isFocusMode || _isExtractMode) && _extractHoverBlock?.Block.Key == block.Key)
             DrawExtractHighlight(code);
+    }
+
+    private bool ShouldDrawConnectionAnchors(RenderBlock block) =>
+        _camera.Zoom > UltraCompactZoom
+        && block.Kind is BlockKind.File or BlockKind.Extract
+        && (block.IsSelected || _isDrawingConnection || block.Key == _hoverAnchorBlockKey);
+
+    private void DrawConnectionAnchors(RenderBlock block, Rect bounds, WpfColor accent)
+    {
+        var fill = GetBrush(WpfColor.FromArgb(230, 255, 255, 255));
+        var stroke = GetBrush(WpfColor.FromArgb(210, accent.R, accent.G, accent.B));
+        var hoverStroke = GetBrush(WpfColor.FromArgb(235, 35, 162, 109));
+        var sourceStroke = GetBrush(WpfColor.FromArgb(235, 32, 104, 192));
+        float r = Math.Max(3.5f, InvStroke(4.5f));
+        for (int i = 0; i < 12; i++)
+        {
+            Point p = GetConnectionAnchorPoint(bounds, i);
+            bool isSource = _isDrawingConnection
+                && block.Key == _connectionSourceKey
+                && i == _connectionSourceAnchorIndex;
+            bool isTarget = _isDrawingConnection
+                && block.Key == _connectionHoverTargetKey
+                && i == _connectionHoverTargetAnchorIndex;
+            bool isHover = block.Key == _hoverAnchorBlockKey && i == _hoverAnchorIndex;
+            float rr = isTarget || isSource || isHover ? r * 1.45f : r;
+            var ellipse = new Ellipse(new Vector2((float)p.X, (float)p.Y), r, r);
+            _rt!.FillEllipse(ellipse, fill);
+            _rt.DrawEllipse(new Ellipse(new Vector2((float)p.X, (float)p.Y), rr, rr),
+                isTarget || isHover ? hoverStroke : isSource ? sourceStroke : stroke,
+                InvStroke(isTarget || isSource || isHover ? 1.8f : 1.2f));
+        }
     }
 
     private void DrawRestoreButton(Rect blockBounds, WpfColor accent)
@@ -394,21 +528,24 @@ public sealed partial class CanvasViewport
     {
         var block = blockVis.Block;
         bool isSelected = block.IsSelected;
+        bool isEditing = _editingNoteKey == block.Key;
         Rect outer = blockVis.Bounds;
         float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
+
+        string bodyText = isEditing ? _editBody : (block.Body ?? string.Empty);
 
         // Shadow
         _rt!.FillRoundedRectangle(
             new RoundedRectangle(new RectangleF(x + 2, y + 5, w, h), 8, 8),
             GetBrush(WpfColor.FromArgb(20, 35, 49, 66)));
 
-        // Selection glow ring drawn behind the block
-        if (isSelected)
+        // Selection / edit ring
+        if (isSelected || isEditing)
         {
-            float pad = InvStroke(3f);
+            float pad = InvStroke(1.5f);
             _rt.DrawRoundedRectangle(
-                new RoundedRectangle(new RectangleF(x - pad, y - pad, w + pad * 2, h + pad * 2), 11, 11),
-                GetBrush(WpfColor.FromArgb(210, 46, 125, 215)), InvStroke(2.5f));
+                new RoundedRectangle(new RectangleF(x - pad, y - pad, w + pad * 2, h + pad * 2), 10, 10),
+                GetBrush(WpfColor.FromArgb(160, 46, 125, 215)), InvStroke(1.5f));
         }
 
         // Fill
@@ -416,33 +553,27 @@ public sealed partial class CanvasViewport
         _rt.FillRoundedRectangle(rr, GetBrush(WpfColor.FromRgb(250, 237, 180)));
 
         // Border
-        WpfColor borderColor = isSelected
+        WpfColor borderColor = isSelected || isEditing
             ? WpfColor.FromArgb(235, 46, 125, 215)
             : WpfColor.FromArgb(180, 210, 190, 80);
         _rt.DrawRoundedRectangle(rr, GetBrush(borderColor),
-            isSelected ? InvStroke(2.0f) : InvStroke(1.2f));
+            isSelected || isEditing ? InvStroke(2.0f) : InvStroke(1.2f));
 
-        // Title divider
-        const float titleH = 28f;
-        _rt.DrawLine(new Vector2(x + 8, y + titleH), new Vector2(x + w - 8, y + titleH),
-            GetBrush(WpfColor.FromArgb(70, 160, 140, 30)), InvStroke(0.8f));
+        // Body text + cursor (clipped)
+        _rt.PushAxisAlignedClip(
+            new RectangleF(x + 2, y + 2, w - 4, h - 4),
+            AntialiasMode.PerPrimitive);
+        if (isEditing)
+            DrawEditSelection(bodyText, 11f, x + 10, y + 8, w - 20, wrap: true);
+        if (!string.IsNullOrEmpty(bodyText))
+            DrawWrappedText(bodyText, x + 10, y + 8, w - 20, h - 16, 11f,
+                WpfColor.FromRgb(60, 52, 18), wrap: true);
+        if (isEditing && _editCursorVisible)
+            DrawNoteCursor(bodyText, 11f, x + 10, y + 8, w - 20, _editCursorPos, wrap: true);
+        _rt.PopAxisAlignedClip();
 
-        // Title text
-        DrawText(block.Title, x + 10, y + 7, w - 20, 12.5f, WpfColor.FromRgb(38, 33, 8));
-
-        // Body text (clipped)
-        if (!string.IsNullOrWhiteSpace(block.Body))
-        {
-            _rt.PushAxisAlignedClip(
-                new RectangleF(x + 2, y + titleH + 2, w - 4, h - titleH - 6),
-                AntialiasMode.PerPrimitive);
-            DrawWrappedText(block.Body, x + 10, y + titleH + 7, w - 20, h - titleH - 14, 11,
-                WpfColor.FromRgb(60, 52, 18));
-            _rt.PopAxisAlignedClip();
-        }
-
-        // Corner resize handles (when selected)
-        if (isSelected && _camera.Zoom > UltraCompactZoom)
+        // Corner resize handles (selected but not editing)
+        if (isSelected && !isEditing && _camera.Zoom > UltraCompactZoom)
         {
             float hs = (float)NoteCornerHandleSize;
             DrawNoteCornerHandle(x, y, hs);
@@ -454,10 +585,46 @@ public sealed partial class CanvasViewport
 
     private void DrawNoteCornerHandle(float x, float y, float size)
     {
-        _rt!.FillRectangle(new RectangleF(x, y, size, size),
-            GetBrush(WpfColor.FromArgb(200, 46, 125, 215)));
-        _rt.DrawRectangle(new RectangleF(x, y, size, size),
-            GetBrush(WpfColor.FromArgb(220, 255, 255, 255)), InvStroke(1.0f));
+        var rect = new RectangleF(x, y, size, size);
+        _rt!.FillRectangle(rect, GetBrush(WpfColor.FromRgb(255, 255, 255)));
+        _rt.DrawRectangle(rect, GetBrush(WpfColor.FromArgb(220, 46, 125, 215)), InvStroke(1.0f));
+    }
+
+    private void DrawNoteCursor(string text, float fontSize, float textX, float textY, float maxW, int cursorPos, bool wrap = false)
+    {
+        if (_dwrite is null || _rt is null) return;
+        IDWriteTextFormat fmt = GetTextFormat(fontSize);
+        string layoutText = text.Length == 0 ? " " : text;
+        int safePos = Math.Clamp(cursorPos, 0, text.Length);
+        using var layout = _dwrite.CreateTextLayout(layoutText, fmt, maxW, 9999f);
+        if (wrap) layout.WordWrapping = WordWrapping.Wrap;
+        layout.HitTestTextPosition((uint)safePos, false, out float cx, out float cy, out _);
+        float lineH = fontSize * 1.35f;
+        _rt.DrawLine(
+            new Vector2(textX + cx, textY + cy),
+            new Vector2(textX + cx, textY + cy + lineH),
+            GetBrush(WpfColor.FromArgb(210, 38, 33, 8)), InvStroke(1.5f));
+    }
+
+    private void DrawEditSelection(string text, float fontSize, float textX, float textY, float maxW, bool wrap = false)
+    {
+        if (_dwrite is null || _rt is null) return;
+        if (_editSelectionAnchor < 0 || _editSelectionAnchor == _editCursorPos) return;
+        int a = _editSelectionAnchor, b = _editCursorPos;
+        int start = Math.Min(a, b), end = Math.Max(a, b);
+        start = Math.Clamp(start, 0, text.Length);
+        end = Math.Clamp(end, 0, text.Length);
+        if (end <= start) return;
+        IDWriteTextFormat fmt = GetTextFormat(fontSize);
+        string layoutText = text.Length == 0 ? " " : text;
+        using var layout = _dwrite.CreateTextLayout(layoutText, fmt, maxW, 9999f);
+        if (wrap) layout.WordWrapping = WordWrapping.Wrap;
+        var metrics = layout.HitTestTextRange((uint)start, (uint)(end - start), 0f, 0f);
+        var brush = GetBrush(WpfColor.FromArgb(110, 70, 130, 220));
+        foreach (var m in metrics)
+        {
+            _rt.FillRectangle(new RectangleF(textX + m.Left, textY + m.Top, m.Width, m.Height), brush);
+        }
     }
 
     private void DrawPreviewBars(Rect codeRect, WpfColor accent, int count)
@@ -497,7 +664,8 @@ public sealed partial class CanvasViewport
             firstShownSrcLine = block.Focused.StartLine;
         }
 
-        int visibleLines = Math.Max(0, (int)Math.Floor(bodyRect.Height / CodeLineH));
+        int topPaddingLines = block.Focused is not null ? FocusedCodeTopPaddingLines : 0;
+        int visibleLines = Math.Max(0, (int)Math.Floor(bodyRect.Height / CodeLineH) - topPaddingLines);
         int maxScroll = Math.Max(0, sliceCount - visibleLines);
         _codeScrollLines.TryGetValue(block.Key, out int scrollLines);
         scrollLines = Math.Clamp(scrollLines, 0, maxScroll);
@@ -513,7 +681,7 @@ public sealed partial class CanvasViewport
             int srcIdx = sliceStartIdx + scrollLines + i;
             if (srcIdx >= allLines.Length) break;
             string lineText = NormalizeCodeLine(allLines[srcIdx]);
-            float lineY = (float)bodyRect.Y + i * (float)CodeLineH;
+            float lineY = (float)bodyRect.Y + (i + topPaddingLines) * (float)CodeLineH;
             int srcLine = firstShownSrcLine + scrollLines + i;
 
             // Line number
@@ -545,7 +713,8 @@ public sealed partial class CanvasViewport
             sliceCount = Math.Max(0, sliceEndIdx - sliceStartIdx + 1);
         }
 
-        int visibleLines = Math.Max(0, (int)Math.Floor(bodyRect.Height / CodeLineH));
+        int topPaddingLines = block.Focused is not null ? FocusedCodeTopPaddingLines : 0;
+        int visibleLines = Math.Max(0, (int)Math.Floor(bodyRect.Height / CodeLineH) - topPaddingLines);
         return Math.Max(0, sliceCount - visibleLines);
     }
 
@@ -712,11 +881,12 @@ public sealed partial class CanvasViewport
         if (rightAlign) fmt.TextAlignment = DWriteTextAlignment.Leading;
     }
 
-    private void DrawWrappedText(string text, float x, float y, float maxWidth, float maxHeight, float fontSize, WpfColor color)
+    private void DrawWrappedText(string text, float x, float y, float maxWidth, float maxHeight, float fontSize, WpfColor color, bool wrap = false)
     {
         if (string.IsNullOrEmpty(text) || _rt is null || _dwrite is null) return;
         IDWriteTextFormat fmt = GetTextFormat(fontSize);
         using var layout = _dwrite.CreateTextLayout(text, fmt, maxWidth, maxHeight);
+        if (wrap) layout.WordWrapping = WordWrapping.Wrap;
         _rt.DrawTextLayout(new Vector2(x, y), layout, GetBrush(color), DrawTextOptions.Clip);
     }
 

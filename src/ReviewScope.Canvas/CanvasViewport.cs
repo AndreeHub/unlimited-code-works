@@ -28,13 +28,20 @@ namespace ReviewScope.Canvas;
 // Events raised by the viewport back to the ViewModel
 // -----------------------------------------------------------------------
 public sealed record BlockActivatedArgs(RenderBlock Block);
-public sealed record NoteEditRequestedArgs(string NoteKey, string Title, string Body, double WorldX, double WorldY, double WorldW, double WorldH);
-
 internal enum NoteResizeCorner { None, TopLeft, TopRight, BottomLeft, BottomRight }
+internal enum ConnectionControlNodeKind { None, Middle }
+internal enum ConnectionEndpointKind { None, Source, Target }
 public sealed record ExtractRequestedArgs(RenderBlock SourceBlock, int Line, int Column);
 public sealed record FocusRequestedArgs(RenderBlock SourceBlock, int Line, int Column);
 public sealed record RestoreRequestedArgs(RenderBlock Block);
-public sealed record ConnectionDrawnArgs(string SourceKey, string TargetKey);
+public sealed record ConnectionDrawnArgs(
+    string SourceKey,
+    string TargetKey,
+    int? SourceAnchorIndex = null,
+    int? TargetAnchorIndex = null,
+    double? MidControlX = null,
+    double? MidControlY = null,
+    bool MidControlBends = false);
 public sealed record AnnotationRequestedArgs(string? AttachedBlockKey, double WorldX, double WorldY);
 public sealed record SwimLaneResizedArgs(string Key, double X, double Y, double Width, double Height);
 
@@ -50,7 +57,7 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private const int WsClipSiblings = 0x04000000, WsClipChildren = 0x02000000;
     private const int WsTabStop = 0x00010000, SsNotify = 0x00000100;
     private const int WmPaint = 0x000F, WmSize = 0x0005, WmEraseBkgnd = 0x0014;
-    private const int WmKeyDown = 0x0100, WmKeyUp = 0x0101, WmKillFocus = 0x0008;
+    private const int WmKeyDown = 0x0100, WmKeyUp = 0x0101, WmChar = 0x0102, WmKillFocus = 0x0008;
     private const int WmMouseMove = 0x0200, WmLButtonDown = 0x0201, WmLButtonUp = 0x0202;
     private const int WmRButtonDown = 0x0204, WmRButtonUp = 0x0205;
     private const int WmMButtonDown = 0x0207, WmMButtonUp = 0x0208;
@@ -63,8 +70,9 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private const double ResizeHandleSize = 16;
     private const double HeaderH = 68, FooterH = 30;
     private const double CodeLineH = 18, CodeGutterW = 52, CodeCharW = 6.75;
+    private const int FocusedCodeTopPaddingLines = 2;
     private const double AnnotationW = 280, AnnotationH = 120;
-    private const double NoteCornerHandleSize = 14;
+    private const double NoteCornerHandleSize = 7;
 
     // LOD zoom thresholds
     private const double UltraCompactZoom = 0.06, CompactZoom = 0.12, PreviewZoom = 0.26;
@@ -100,7 +108,6 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     public ICommand? ConnectionDrawnCommand { get; set; }
     public ICommand? AnnotationRequestedCommand { get; set; }
     public ICommand? BlockMovedCommand { get; set; }
-    public ICommand? NoteEditRequestedCommand { get; set; }
 
     // D2D resources
     private readonly Dictionary<uint, ID2D1SolidColorBrush> _brushes = new();
@@ -138,8 +145,25 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     // Draw-connection state
     private bool _isDrawingConnection;
     private string? _connectionSourceKey;
+    private int? _connectionSourceAnchorIndex;
     private Point _connectionSourceWorld;
     private Point _connectionCurrentWorld;
+    private string? _connectionHoverTargetKey;
+    private int? _connectionHoverTargetAnchorIndex;
+    private Point? _connectionHoverTargetWorld;
+    private Point? _connectionDraftMidPoint;
+    private bool _connectionDraftMidPointBends;
+    private Guid? _dragArrowConnectionId;
+    private Guid? _dragConnectionControlId;
+    private ConnectionControlNodeKind _dragConnectionControlKind = ConnectionControlNodeKind.None;
+    private Guid? _rewireConnectionId;
+    private ConnectionEndpointKind _rewireEndpointKind = ConnectionEndpointKind.None;
+    private Point _rewireFixedWorld;
+    private int? _rewireFixedAnchorIndex;
+    private Guid? _selectedConnectionId;
+    private ConnectionControlNodeKind _selectedConnectionControlKind = ConnectionControlNodeKind.None;
+    private string? _hoverAnchorBlockKey;
+    private int? _hoverAnchorIndex;
 
     // Modifier highlight state (Ctrl=focus, Alt=extract)
     private bool _isFocusMode;            // Ctrl held â€” collapse to function
@@ -157,6 +181,17 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private string? _noteResizeKey;
     private NoteResizeCorner _noteResizeCorner = NoteResizeCorner.None;
     private Point? _noteResizeWorldPoint;
+
+    // In-canvas note editing
+    private string? _editingNoteKey;
+    private string _editTitle = string.Empty;
+    private string _editBody = string.Empty;
+    private bool _editingTitle = true;
+    private int _editCursorPos;
+    private int _editSelectionAnchor = -1; // -1 = no selection, else anchor position in current field
+    private bool _editMouseSelecting;
+    private bool _editCursorVisible = true;
+    private System.Threading.Timer? _cursorBlinkTimer;
 
     public CanvasViewport()
     {
@@ -194,6 +229,12 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
         BackgroundMode = BackgroundMode == CanvasBackgroundMode.Dots
             ? CanvasBackgroundMode.Grid
             : CanvasBackgroundMode.Dots;
+    }
+
+    public void BeginEditNewNote()
+    {
+        var note = Scene.Blocks.LastOrDefault(b => b.Kind == BlockKind.Note);
+        if (note is not null) BeginNoteEdit(note);
     }
 
     public void FrameAll()
@@ -251,9 +292,10 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
             case WmMButtonUp: ResetInteraction(); UpdateHoverCursor(GetClientPt(lParam)); ReleaseCapture(); break;
             case WmMouseMove: HandleMove(GetClientPt(lParam)); handled = true; break;
             case WmMouseWheel: HandleWheel(GetClientPtScreen(lParam), GetWheelDelta(wParam)); handled = true; break;
-            case WmKeyDown: HandleKeyDown(wParam); break;
+            case WmChar: if (_editingNoteKey is not null) { HandleChar((char)wParam.ToInt32()); handled = true; } break;
+            case WmKeyDown: HandleKeyDown(wParam); if (_editingNoteKey is not null) handled = true; break;
             case WmKeyUp: HandleKeyUp(wParam); break;
-            case WmKillFocus: _isFocusMode = false; _isExtractMode = false; _isDrawingConnection = false; RenderNative(); break;
+            case WmKillFocus: _isFocusMode = false; _isExtractMode = false; ClearConnectionDrawingState(); if (_editingNoteKey is not null) CommitNoteEdit(save: true); else RenderNative(); break;
         }
         return IntPtr.Zero;
     }

@@ -183,45 +183,6 @@
                     </StackPanel>
                 </Border>
 
-                <Popup x:Name="NoteEditPopup"
-                       AllowsTransparency="True"
-                       Placement="RelativePoint"
-                       PlacementTarget="{Binding ElementName=CanvasViewport}"
-                       StaysOpen="False"
-                       Closed="OnNoteEditPopupClosed">
-                    <Border x:Name="NoteEditPopupContent"
-                            Background="#FAEDBC"
-                            BorderBrush="#C8B030"
-                            BorderThickness="2"
-                            CornerRadius="8"
-                            MinWidth="200" MinHeight="90">
-                        <Border.Effect>
-                            <DropShadowEffect BlurRadius="14" ShadowDepth="5" Opacity="0.22" Color="#1E3142"/>
-                        </Border.Effect>
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-                            <TextBox x:Name="NoteEditTitleBox"
-                                     Background="Transparent" BorderThickness="0,0,0,1" BorderBrush="#B0A040"
-                                     Padding="10,7,10,5" FontSize="13" FontWeight="SemiBold"
-                                     Foreground="#282308" CaretBrush="#4A3A08"
-                                     KeyDown="OnNoteEditKeyDown"/>
-                            <TextBox x:Name="NoteEditBodyBox"
-                                     Grid.Row="1"
-                                     Background="Transparent" BorderThickness="0"
-                                     Padding="10,8" FontSize="12" Foreground="#3C3414" CaretBrush="#4A3A08"
-                                     TextWrapping="Wrap" AcceptsReturn="True"
-                                     VerticalScrollBarVisibility="Auto" MinHeight="50"
-                                     KeyDown="OnNoteEditKeyDown"/>
-                            <TextBlock Grid.Row="2" Text="Ctrl+Enter to save  ·  Esc to discard"
-                                       FontSize="9.5" Foreground="#9A8830" Margin="10,3,10,5"
-                                       HorizontalAlignment="Right"/>
-                        </Grid>
-                    </Border>
-                </Popup>
             </Grid>
 
             <GridSplitter Grid.Column="3" Width="1" HorizontalAlignment="Stretch" Background="{StaticResource PanelBorder}"/>

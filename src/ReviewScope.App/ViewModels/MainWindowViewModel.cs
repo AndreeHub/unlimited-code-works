@@ -47,6 +47,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _selectedObjectKind = "Review canvas";
     [ObservableProperty] private string _selectedObjectPath = string.Empty;
     [ObservableProperty] private string _selectedObjectLineRange = string.Empty;
+    [ObservableProperty] private string _selectedObjectX = "--";
+    [ObservableProperty] private string _selectedObjectY = "--";
+    [ObservableProperty] private string _selectedObjectWidth = "--";
+    [ObservableProperty] private string _selectedObjectHeight = "--";
     [ObservableProperty] private string _selectedSymbolsHeader = "Symbols";
 
     [RelayCommand]
@@ -107,6 +111,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             SelectedObjectLineRange = SelectedBlock.StartLine.HasValue && SelectedBlock.EndLine.HasValue
                 ? $"Lines {SelectedBlock.StartLine}-{SelectedBlock.EndLine}"
                 : string.Empty;
+            SetSelectedObjectData(SelectedBlock.X, SelectedBlock.Y, SelectedBlock.Width, SelectedBlock.Height);
             return;
         }
 
@@ -116,6 +121,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             SelectedObjectKind = "Architecture frame";
             SelectedObjectPath = string.Empty;
             SelectedObjectLineRange = string.Empty;
+            SetSelectedObjectData(SelectedSwimLane.X, SelectedSwimLane.Y, SelectedSwimLane.Width, SelectedSwimLane.Height);
             return;
         }
 
@@ -123,5 +129,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SelectedObjectKind = "Review canvas";
         SelectedObjectPath = string.Empty;
         SelectedObjectLineRange = string.Empty;
+        ClearSelectedObjectData();
+    }
+
+    private void SetSelectedObjectData(double x, double y, double width, double height)
+    {
+        SelectedObjectX = x.ToString("0");
+        SelectedObjectY = y.ToString("0");
+        SelectedObjectWidth = width.ToString("0");
+        SelectedObjectHeight = height.ToString("0");
+    }
+
+    private void ClearSelectedObjectData()
+    {
+        SelectedObjectX = "--";
+        SelectedObjectY = "--";
+        SelectedObjectWidth = "--";
+        SelectedObjectHeight = "--";
     }
 }

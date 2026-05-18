@@ -50,7 +50,18 @@ public sealed record ConnectionSnapshot(
     Guid Id,
     string SourceKey,
     string TargetKey,
-    string? Label);
+    string? Label,
+    int? SourceAnchorIndex = null,
+    int? TargetAnchorIndex = null,
+    double? ArrowPosition = null,
+    bool ArrowForward = true,
+    double? SourceControlX = null,
+    double? SourceControlY = null,
+    double? TargetControlX = null,
+    double? TargetControlY = null,
+    double? MidControlX = null,
+    double? MidControlY = null,
+    bool MidControlBends = false);
 
 public sealed record AnnotationSnapshot(
     Guid Id,
@@ -107,7 +118,19 @@ public sealed record RenderConnection(
     string SourceKey,
     string TargetKey,
     string? Label = null,
-    bool IsDimmed = false);
+    bool IsDimmed = false,
+    bool IsSelected = false,
+    int? SourceAnchorIndex = null,
+    int? TargetAnchorIndex = null,
+    double? ArrowPosition = null,
+    bool ArrowForward = true,
+    double? SourceControlX = null,
+    double? SourceControlY = null,
+    double? TargetControlX = null,
+    double? TargetControlY = null,
+    double? MidControlX = null,
+    double? MidControlY = null,
+    bool MidControlBends = false);
 
 public sealed record RenderSwimLane(
     Guid Id,

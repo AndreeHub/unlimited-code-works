@@ -29,10 +29,19 @@ public sealed partial class CanvasViewport
     private void HandleKeyDown(IntPtr wParam)
     {
         Key key = KeyInterop.KeyFromVirtualKey((int)wParam.ToInt64());
+        if (_editingNoteKey is not null) { HandleEditModeKey(key); return; }
         if (key == Key.Delete) { DeleteSelected(); return; }
         if (key == Key.D) { DetachSelectedNotes(); return; }
         if (key == Key.F) { FrameAll(); return; }
         if (key == Key.B) { ToggleBackground(); return; }
+        if (key == Key.E) { AddOrMoveConnectionArrow(ToWorld(_lastMouseScreenPoint)); return; }
+        if ((key == Key.LeftShift || key == Key.RightShift) && _isDrawingConnection)
+        {
+            _connectionDraftMidPoint = ToWorld(_lastMouseScreenPoint);
+            _connectionDraftMidPointBends = true;
+            RenderNative();
+            return;
+        }
         if (key == Key.W)
         {
             Point world = ToWorld(_lastMouseScreenPoint);
@@ -44,6 +53,7 @@ public sealed partial class CanvasViewport
                 return;
             }
         }
+        if (key == Key.Q && _isDrawingConnection) return;
         if (key == Key.Q)
         {
             Point world = ToWorld(_lastMouseScreenPoint);
@@ -54,6 +64,16 @@ public sealed partial class CanvasViewport
                 return;
             }
         }
+        if (key == Key.Return)
+        {
+            var selected = Scene.Blocks.FirstOrDefault(b => b.IsSelected && b.Kind == BlockKind.Note);
+            if (selected is not null)
+            {
+                var vis = _snapshot.Blocks.FirstOrDefault(b => b.Block.Key == selected.Key);
+                if (vis is not null) BeginNoteEdit(vis.Block);
+            }
+            return;
+        }
         if (key == Key.LeftCtrl || key == Key.RightCtrl) { _isFocusMode = true; RenderNative(); }
         if (key == Key.LeftAlt || key == Key.RightAlt) { _isExtractMode = true; RenderNative(); }
     }
@@ -63,32 +83,145 @@ public sealed partial class CanvasViewport
         Key key = KeyInterop.KeyFromVirtualKey((int)wParam.ToInt64());
         if (key == Key.LeftCtrl || key == Key.RightCtrl) { _isFocusMode = false; _extractHoverBlock = null; RenderNative(); }
         if (key == Key.LeftAlt || key == Key.RightAlt) { _isExtractMode = false; _extractHoverBlock = null; RenderNative(); }
-        if (key == Key.Escape) { _isDrawingConnection = false; RenderNative(); }
+        if (key == Key.Escape) { ClearConnectionDrawingState(); RenderNative(); }
     }
 
     private void HandleLDown(Point screen)
     {
         Focus(); SetFocus(_hwnd);
 
+        if (_editingNoteKey is not null)
+        {
+            Point worldEd = ToWorld(screen);
+            var editVis = _snapshot.Blocks.FirstOrDefault(b => b.Block.Key == _editingNoteKey);
+            if (editVis is null || !editVis.Bounds.Contains(worldEd))
+            {
+                CommitNoteEdit(save: true);
+                // fall through to handle the click normally
+            }
+            else
+            {
+                _editingTitle = false;
+                int newPos = HitTestCursorPos(
+                    _editBody, 11f,
+                    (float)editVis.Bounds.X + 10,
+                    (float)editVis.Bounds.Y + 8,
+                    (float)editVis.Bounds.Width - 20,
+                    worldEd,
+                    wrap: true);
+                bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+                if (shift)
+                {
+                    if (_editSelectionAnchor < 0) _editSelectionAnchor = _editCursorPos;
+                }
+                else
+                {
+                    _editSelectionAnchor = newPos;
+                }
+                _editCursorPos = newPos;
+                _editMouseSelecting = true;
+                SetCapture(_hwnd);
+                _editCursorVisible = true;
+                RenderNative();
+                return;
+            }
+        }
+
         if (TryHandleMinimapClick(screen)) return;
 
         Point world = ToWorld(screen);
 
+        var anchorHit = HitConnectionAnchor(world);
+        if (anchorHit is not null)
+        {
+            if (_isDrawingConnection)
+            {
+                if (anchorHit.Block.Block.Key != _connectionSourceKey)
+                {
+                    if (_rewireConnectionId is not null)
+                    {
+                        CompleteConnectionRewire(anchorHit);
+                    }
+                    else if (ConnectionDrawnCommand?.CanExecute(null) == true)
+                    {
+                        ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(
+                            _connectionSourceKey!,
+                            anchorHit.Block.Block.Key,
+                            _connectionSourceAnchorIndex,
+                            anchorHit.AnchorIndex,
+                            _connectionDraftMidPoint?.X,
+                            _connectionDraftMidPoint?.Y,
+                            _connectionDraftMidPointBends));
+                    }
+                }
+
+                ClearConnectionDrawingState();
+                RenderNative();
+                return;
+            }
+
+            if (HitConnectionEndpoint(anchorHit) is { } endpointHit)
+            {
+                BeginConnectionRewire(endpointHit);
+                _dragStartScreen = screen;
+                _didMove = false;
+                SetCapture(_hwnd);
+                RenderNative();
+                return;
+            }
+
+            _isDrawingConnection = true;
+            _connectionSourceKey = anchorHit.Block.Block.Key;
+            _connectionSourceAnchorIndex = anchorHit.AnchorIndex;
+            _connectionSourceWorld = anchorHit.Point;
+            _connectionCurrentWorld = anchorHit.Point;
+            _connectionDraftMidPoint = null;
+            _connectionDraftMidPointBends = false;
+            _dragStartScreen = screen;
+            _didMove = false;
+            SetCurrentValue(SceneProperty, ClearConnectionSelection(Scene));
+            RebuildSnapshot();
+            SetCapture(_hwnd);
+            RenderNative();
+            return;
+        }
+
+        var controlHit = HitConnectionControlNode(world);
+        if (controlHit is not null)
+        {
+            SelectConnection(controlHit.Connection.Connection.Id, controlHit.Kind);
+            _dragConnectionControlId = controlHit.Connection.Connection.Id;
+            _dragConnectionControlKind = controlHit.Kind;
+            _dragStartScreen = screen;
+            _didMove = false;
+            Cursor = Cursors.SizeAll;
+            SetCapture(_hwnd);
+            return;
+        }
+
+        var arrowHit = HitConnectionArrow(world);
+        if (arrowHit is not null)
+        {
+            SelectConnection(arrowHit.Connection.Id);
+            _dragArrowConnectionId = arrowHit.Connection.Id;
+            _dragStartScreen = screen;
+            _didMove = false;
+            Cursor = Cursors.Hand;
+            SetCapture(_hwnd);
+            return;
+        }
+
         // Draw-connection mode: click to end connection
         if (_isDrawingConnection)
         {
-            var hitBlock = HitBlock(world);
-            if (hitBlock is not null && hitBlock.Block.Key != _connectionSourceKey)
-            {
-                _isDrawingConnection = false;
-                if (ConnectionDrawnCommand?.CanExecute(null) == true)
-                    ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(_connectionSourceKey!, hitBlock.Block.Key));
-            }
-            else
-            {
-                _isDrawingConnection = false;
-            }
+            ClearConnectionDrawingState();
             RenderNative();
+            return;
+        }
+
+        if (HitConnectionCurve(world, out _) is { } curveHit)
+        {
+            SelectConnection(curveHit.Connection.Id);
             return;
         }
 
@@ -128,14 +261,16 @@ public sealed partial class CanvasViewport
             // Shift+click = toggle selection (was Ctrl previously, now Ctrl is reserved for focus)
             if (isShift)
             {
-                ApplySceneChange(ToggleSelection(Scene, hit.Block.Key));
+                ApplySceneChange(ClearConnectionSelection(ToggleSelection(Scene, hit.Block.Key)));
                 return;
             }
+
+            bool wasAlreadySelected = hit.Block.IsSelected;
 
             // Select the hit block if not already selected
             if (!hit.Block.IsSelected)
             {
-                ApplySceneChange(SetSelection(Scene, new[] { hit.Block.Key }));
+                ApplySceneChange(ClearConnectionSelection(SetSelection(Scene, new[] { hit.Block.Key })));
                 RebuildSnapshot();
                 hit = HitBlock(world);
                 if (hit is null) return;
@@ -155,6 +290,12 @@ public sealed partial class CanvasViewport
                     Cursor = corner is NoteResizeCorner.TopLeft or NoteResizeCorner.BottomRight
                         ? Cursors.SizeNWSE : Cursors.SizeNESW;
                     SetCapture(_hwnd);
+                    return;
+                }
+                // If note was already selected, clicking inside enters edit mode
+                if (wasAlreadySelected)
+                {
+                    BeginNoteEdit(hit.Block, world);
                     return;
                 }
             }
@@ -202,7 +343,7 @@ public sealed partial class CanvasViewport
         if (laneBodyHit is not null)
         {
             // Select the swim-lane
-            ApplySceneChange(SelectSwimLane(Scene, laneBodyHit.Lane.Key));
+            ApplySceneChange(ClearConnectionSelection(SelectSwimLane(Scene, laneBodyHit.Lane.Key)));
             RebuildSnapshot();
 
             // Check resize on swim lane
@@ -235,7 +376,7 @@ public sealed partial class CanvasViewport
             return;
         }
 
-        ApplySceneChange(ClearSelection(Scene));
+        ApplySceneChange(ClearConnectionSelection(ClearSelection(Scene)));
         _marqueeStart = screen;
         _marqueeEnd = screen;
         _isMarquee = true;
@@ -249,6 +390,60 @@ public sealed partial class CanvasViewport
 
     private void HandleLUp(Point screen)
     {
+        if (_editMouseSelecting)
+        {
+            _editMouseSelecting = false;
+            if (_editSelectionAnchor == _editCursorPos) _editSelectionAnchor = -1;
+            ReleaseCapture();
+            RenderNative();
+            return;
+        }
+        if (_isDrawingConnection)
+        {
+            Point world = ToWorld(screen);
+            var anchorHit = HitConnectionAnchor(world);
+            if (anchorHit is not null && anchorHit.Block.Block.Key != _connectionSourceKey)
+            {
+                if (_rewireConnectionId is not null)
+                {
+                    CompleteConnectionRewire(anchorHit);
+                }
+                else if (ConnectionDrawnCommand?.CanExecute(null) == true)
+                {
+                    ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(
+                        _connectionSourceKey!,
+                        anchorHit.Block.Block.Key,
+                        _connectionSourceAnchorIndex,
+                        anchorHit.AnchorIndex,
+                        _connectionDraftMidPoint?.X,
+                        _connectionDraftMidPoint?.Y,
+                        _connectionDraftMidPointBends));
+                }
+                ClearConnectionDrawingState();
+                ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture(); return;
+            }
+
+            if (!_didMove)
+            {
+                ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture(); return;
+            }
+
+            ClearConnectionDrawingState();
+            ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture(); return;
+        }
+        if (_dragConnectionControlId is Guid controlId)
+        {
+            _dragConnectionControlId = null;
+            _dragConnectionControlKind = ConnectionControlNodeKind.None;
+            ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture(); return;
+        }
+        if (_dragArrowConnectionId is Guid arrowId)
+        {
+            if (!_didMove)
+                ToggleConnectionArrow(arrowId);
+            _dragArrowConnectionId = null;
+            ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture(); return;
+        }
         if (_noteResizeKey is not null)
         {
             _noteResizeKey = null;
@@ -274,19 +469,17 @@ public sealed partial class CanvasViewport
             var visual = _snapshot.Blocks.FirstOrDefault(b => b.Block.Key == _primaryDrag);
             if (visual is not null)
             {
-                if (visual.Block.Kind == BlockKind.Note && IsDoubleClick(visual.Block.Key, screen))
+                if (visual.Block.Kind == BlockKind.Note)
                 {
-                    if (NoteEditRequestedCommand?.CanExecute(null) == true)
-                        NoteEditRequestedCommand.Execute(new NoteEditRequestedArgs(
-                            visual.Block.Key,
-                            visual.Block.Title,
-                            visual.Block.Body ?? string.Empty,
-                            visual.Block.X, visual.Block.Y,
-                            visual.Block.Width, visual.Block.Height));
-                    ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture();
-                    return;
+                    if (IsDoubleClick(visual.Block.Key, screen))
+                    {
+                        BeginNoteEdit(visual.Block, ToWorld(screen));
+                        ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture();
+                        return;
+                    }
+                    // Single click: IsDoubleClick already tracked the click
                 }
-                if (IsDoubleClick(visual.Block.Key, screen) && BlockActivatedCommand?.CanExecute(null) == true)
+                else if (IsDoubleClick(visual.Block.Key, screen) && BlockActivatedCommand?.CanExecute(null) == true)
                     BlockActivatedCommand.Execute(new BlockActivatedArgs(visual.Block));
                 else
                     TrackClick(visual.Block.Key, screen);
@@ -300,21 +493,30 @@ public sealed partial class CanvasViewport
     {
         Focus(); SetFocus(_hwnd);
         Point world = ToWorld(screen);
-        var hit = HitBlock(world);
-        if (hit is not null && !_isDrawingConnection)
+        var anchorHit = HitConnectionAnchor(world);
+        if (anchorHit is not null && !_isDrawingConnection)
         {
-            // Start drawing connection from this block
+            if (HitConnectionEndpoint(anchorHit) is { } endpointHit)
+            {
+                BeginConnectionRewire(endpointHit);
+                _dragStartScreen = screen;
+                _didMove = false;
+                SetCapture(_hwnd);
+                RenderNative();
+                return;
+            }
+
             _isDrawingConnection = true;
-            _connectionSourceKey = hit.Block.Key;
-            _connectionSourceWorld = new Point(hit.Bounds.X + hit.Bounds.Width / 2, hit.Bounds.Y + hit.Bounds.Height / 2);
-            _connectionCurrentWorld = world;
+            _connectionSourceKey = anchorHit.Block.Block.Key;
+            _connectionSourceAnchorIndex = anchorHit.AnchorIndex;
+            _connectionSourceWorld = anchorHit.Point;
+            _connectionCurrentWorld = anchorHit.Point;
+            _connectionDraftMidPoint = null;
+            _connectionDraftMidPointBends = false;
+            _dragStartScreen = screen;
+            _didMove = false;
             SetCapture(_hwnd);
             RenderNative();
-        }
-        else if (hit is null)
-        {
-            if (AnnotationRequestedCommand?.CanExecute(null) == true)
-                AnnotationRequestedCommand.Execute(new AnnotationRequestedArgs(null, world.X, world.Y));
         }
     }
 
@@ -323,22 +525,26 @@ public sealed partial class CanvasViewport
         if (_isDrawingConnection)
         {
             Point world = ToWorld(screen);
-            var hit = HitBlock(world);
-            if (hit is not null && hit.Block.Key != _connectionSourceKey)
+            var anchorHit = HitConnectionAnchor(world);
+            if (anchorHit is not null && anchorHit.Block.Block.Key != _connectionSourceKey)
             {
-                if (ConnectionDrawnCommand?.CanExecute(null) == true)
-                    ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(_connectionSourceKey!, hit.Block.Key));
-            }
-            else
-            {
-                // Show context menu or annotation request on empty space
-                if (hit is null)
+                if (_rewireConnectionId is not null)
                 {
-                    if (AnnotationRequestedCommand?.CanExecute(null) == true)
-                        AnnotationRequestedCommand.Execute(new AnnotationRequestedArgs(null, world.X, world.Y));
+                    CompleteConnectionRewire(anchorHit);
+                }
+                else if (ConnectionDrawnCommand?.CanExecute(null) == true)
+                {
+                    ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(
+                        _connectionSourceKey!,
+                        anchorHit.Block.Block.Key,
+                        _connectionSourceAnchorIndex,
+                        anchorHit.AnchorIndex,
+                        _connectionDraftMidPoint?.X,
+                        _connectionDraftMidPoint?.Y,
+                        _connectionDraftMidPointBends));
                 }
             }
-            _isDrawingConnection = false;
+            ClearConnectionDrawingState();
             ReleaseCapture();
             RenderNative();
         }
@@ -349,12 +555,59 @@ public sealed partial class CanvasViewport
         _lastMouseScreenPoint = screen;
         if (_isMinimapDrag) { UpdateCameraFromMinimap(screen); return; }
 
+        if (_editMouseSelecting && _editingNoteKey is not null)
+        {
+            Point wp = ToWorld(screen);
+            var ev = _snapshot.Blocks.FirstOrDefault(b => b.Block.Key == _editingNoteKey);
+            if (ev is not null)
+            {
+                _editCursorPos = HitTestCursorPos(
+                    _editBody, 11f,
+                    (float)ev.Bounds.X + 10, (float)ev.Bounds.Y + 8,
+                    (float)ev.Bounds.Width - 20, wp,
+                    wrap: true);
+                _editCursorVisible = true;
+                RenderNative();
+            }
+            return;
+        }
+
         Point world = ToWorld(screen);
 
         if (_isDrawingConnection)
         {
+            if (!_didMove && _dragStartScreen is not null)
+            {
+                var d = screen - _dragStartScreen.Value;
+                if (Math.Abs(d.X) >= 4 || Math.Abs(d.Y) >= 4) _didMove = true;
+            }
             _connectionCurrentWorld = world;
+            UpdateConnectionHoverTarget(world);
             RenderNative();
+            return;
+        }
+
+        if (_dragConnectionControlId is Guid controlId)
+        {
+            if (!_didMove && _dragStartScreen is not null)
+            {
+                var d = screen - _dragStartScreen.Value;
+                if (Math.Abs(d.X) < 4 && Math.Abs(d.Y) < 4) return;
+                _didMove = true;
+            }
+            MoveConnectionControl(controlId, _dragConnectionControlKind, world);
+            return;
+        }
+
+        if (_dragArrowConnectionId is Guid arrowId)
+        {
+            if (!_didMove && _dragStartScreen is not null)
+            {
+                var d = screen - _dragStartScreen.Value;
+                if (Math.Abs(d.X) < 4 && Math.Abs(d.Y) < 4) return;
+                _didMove = true;
+            }
+            MoveConnectionArrow(arrowId, world);
             return;
         }
 
@@ -568,6 +821,12 @@ public sealed partial class CanvasViewport
 
     private void DeleteSelected()
     {
+        if (_selectedConnectionId is not null)
+        {
+            DeleteSelectedConnections();
+            return;
+        }
+
         var selectedKeys = Scene.Blocks.Where(b => b.IsSelected).Select(b => b.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var selectedLaneKeys = Scene.SwimLanes.Where(l => l.IsSelected).Select(l => l.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (selectedKeys.Count == 0 && selectedLaneKeys.Count == 0) return;
@@ -576,7 +835,7 @@ public sealed partial class CanvasViewport
             .Where(c => !selectedKeys.Contains(c.SourceKey) && !selectedKeys.Contains(c.TargetKey))
             .ToList();
         var lanes = Scene.SwimLanes.Where(l => !selectedLaneKeys.Contains(l.Key)).ToList();
-        ApplySceneChange(Scene with { Blocks = blocks, Connections = connections, SwimLanes = lanes });
+        ApplySceneChange(ClearConnectionSelection(Scene with { Blocks = blocks, Connections = connections, SwimLanes = lanes }));
         RebuildSnapshot(); RenderNative();
     }
 
@@ -677,6 +936,276 @@ public sealed partial class CanvasViewport
         RebuildSnapshot(); RenderNative();
     }
 
+    // -----------------------------------------------------------------------
+    // In-canvas note editing
+    // -----------------------------------------------------------------------
+    private void BeginNoteEdit(RenderBlock block, Point? clickWorld = null)
+    {
+        _editingNoteKey = block.Key;
+        _editTitle = block.Title;
+        _editBody = block.Body ?? string.Empty;
+        _editSelectionAnchor = -1;
+        _editMouseSelecting = false;
+
+        _editingTitle = false;
+        var vis = _snapshot.Blocks.FirstOrDefault(b => b.Block.Key == block.Key);
+        if (clickWorld is Point cw && vis is not null)
+        {
+            _editCursorPos = HitTestCursorPos(
+                _editBody, 11f,
+                (float)vis.Bounds.X + 10,
+                (float)vis.Bounds.Y + 8,
+                (float)vis.Bounds.Width - 20,
+                cw,
+                wrap: true);
+        }
+        else
+        {
+            _editCursorPos = _editBody.Length;
+        }
+        _editCursorVisible = true;
+        _cursorBlinkTimer?.Dispose();
+        _cursorBlinkTimer = new System.Threading.Timer(_ =>
+        {
+            _editCursorVisible = !_editCursorVisible;
+            Dispatcher.BeginInvoke(new Action(RenderNative));
+        }, null, 530, 530);
+        ApplySceneChange(SetSelection(Scene, new[] { block.Key }));
+        RebuildSnapshot();
+        RenderNative();
+    }
+
+    private void CommitNoteEdit(bool save)
+    {
+        _cursorBlinkTimer?.Dispose();
+        _cursorBlinkTimer = null;
+        string? key = _editingNoteKey;
+        _editingNoteKey = null;
+        _editCursorVisible = false;
+        _editSelectionAnchor = -1;
+        _editMouseSelecting = false;
+
+        if (save && key is not null)
+        {
+            var noteBlock = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+            if (noteBlock is not null)
+            {
+                var blocks = Scene.Blocks.Select(b =>
+                    b.Key.Equals(key, StringComparison.OrdinalIgnoreCase)
+                        ? b with { Body = _editBody }
+                        : b).ToList();
+                var annotations = Scene.Annotations.Select(a =>
+                    a.Id == noteBlock.Id ? a with { Content = _editBody } : a).ToList();
+                ApplySceneChange(Scene with { Blocks = blocks, Annotations = annotations });
+                RebuildSnapshot();
+                return;
+            }
+        }
+        RenderNative();
+    }
+
+    private void HandleEditModeKey(Key key)
+    {
+        bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+        bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+        string text = _editingTitle ? _editTitle : _editBody;
+
+        // Clipboard / select-all shortcuts
+        if (ctrl && key == Key.A)
+        {
+            _editSelectionAnchor = 0;
+            _editCursorPos = text.Length;
+            _editCursorVisible = true; RenderNative(); return;
+        }
+        if (ctrl && (key == Key.C || key == Key.X))
+        {
+            var selCx = GetEditSelection();
+            if (selCx is not null)
+            {
+                int s = selCx.Value.Item1, e = selCx.Value.Item2;
+                try { System.Windows.Clipboard.SetText(text.Substring(s, e - s)); } catch { }
+                if (key == Key.X) DeleteEditSelection();
+            }
+            _editCursorVisible = true; RenderNative(); return;
+        }
+        if (ctrl && key == Key.V)
+        {
+            try
+            {
+                if (System.Windows.Clipboard.ContainsText())
+                {
+                    string clip = System.Windows.Clipboard.GetText();
+                    if (_editingTitle) clip = clip.Replace("\r", "").Replace("\n", " ");
+                    else clip = clip.Replace("\r\n", "\n").Replace("\r", "\n");
+                    InsertEditText(clip);
+                }
+            }
+            catch { }
+            _editCursorVisible = true; RenderNative(); return;
+        }
+
+        switch (key)
+        {
+            case Key.Escape: CommitNoteEdit(save: false); return;
+            case Key.Back:
+                if (!DeleteEditSelection() && _editCursorPos > 0)
+                {
+                    if (_editingTitle) _editTitle = _editTitle.Remove(_editCursorPos - 1, 1);
+                    else _editBody = _editBody.Remove(_editCursorPos - 1, 1);
+                    _editCursorPos--;
+                }
+                _editSelectionAnchor = -1;
+                break;
+            case Key.Delete:
+                if (!DeleteEditSelection() && _editCursorPos < text.Length)
+                {
+                    if (_editingTitle) _editTitle = _editTitle.Remove(_editCursorPos, 1);
+                    else _editBody = _editBody.Remove(_editCursorPos, 1);
+                }
+                _editSelectionAnchor = -1;
+                break;
+            case Key.Left:
+                UpdateSelectionAnchor(shift);
+                if (!shift && GetEditSelection() is { } selL) _editCursorPos = selL.Item1;
+                else if (_editCursorPos > 0) _editCursorPos--;
+                if (!shift) _editSelectionAnchor = -1;
+                break;
+            case Key.Right:
+                UpdateSelectionAnchor(shift);
+                if (!shift && GetEditSelection() is { } selR) _editCursorPos = selR.Item2;
+                else if (_editCursorPos < text.Length) _editCursorPos++;
+                if (!shift) _editSelectionAnchor = -1;
+                break;
+            case Key.Home:
+                UpdateSelectionAnchor(shift);
+                _editCursorPos = LineStart(text, _editCursorPos);
+                if (!shift) _editSelectionAnchor = -1;
+                break;
+            case Key.End:
+                UpdateSelectionAnchor(shift);
+                _editCursorPos = LineEnd(text, _editCursorPos);
+                if (!shift) _editSelectionAnchor = -1;
+                break;
+            case Key.Up:
+                UpdateSelectionAnchor(shift);
+                _editCursorPos = MoveLine(text, _editCursorPos, -1);
+                if (!shift) _editSelectionAnchor = -1;
+                break;
+            case Key.Down:
+                UpdateSelectionAnchor(shift);
+                _editCursorPos = MoveLine(text, _editCursorPos, +1);
+                if (!shift) _editSelectionAnchor = -1;
+                break;
+            case Key.Tab:
+                InsertEditText(_editingTitle ? "    " : "\t");
+                break;
+            // All other keys: character input handled by WM_CHAR
+        }
+        _editCursorVisible = true;
+        RenderNative();
+    }
+
+    private void HandleChar(char c)
+    {
+        if (_editingNoteKey is null) return;
+        if (c == '\b' || c == 27 || c == '\n' || c == '\t') return; // handled elsewhere
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return; // ctrl combos handled by HandleEditModeKey
+        if (c == '\r')
+        {
+            // Title is single-line; Enter only inserts newline in body
+            if (!_editingTitle) InsertEditText("\n");
+        }
+        else if (c >= 32)
+        {
+            InsertEditText(c.ToString());
+        }
+        _editCursorVisible = true;
+        RenderNative();
+    }
+
+    private (int, int)? GetEditSelection()
+    {
+        if (_editSelectionAnchor < 0 || _editSelectionAnchor == _editCursorPos) return null;
+        int a = _editSelectionAnchor, b = _editCursorPos;
+        return a < b ? (a, b) : (b, a);
+    }
+
+    private bool DeleteEditSelection()
+    {
+        var sel = GetEditSelection();
+        if (sel is null) return false;
+        int s = sel.Value.Item1, e = sel.Value.Item2;
+        if (_editingTitle) _editTitle = _editTitle.Remove(s, e - s);
+        else _editBody = _editBody.Remove(s, e - s);
+        _editCursorPos = s;
+        _editSelectionAnchor = -1;
+        return true;
+    }
+
+    private void InsertEditText(string s)
+    {
+        DeleteEditSelection();
+        if (_editingTitle) _editTitle = _editTitle.Insert(_editCursorPos, s);
+        else _editBody = _editBody.Insert(_editCursorPos, s);
+        _editCursorPos += s.Length;
+        _editSelectionAnchor = -1;
+    }
+
+    private void UpdateSelectionAnchor(bool shift)
+    {
+        if (shift && _editSelectionAnchor < 0) _editSelectionAnchor = _editCursorPos;
+    }
+
+    private static int LineStart(string text, int pos)
+    {
+        int i = Math.Min(pos, text.Length) - 1;
+        while (i >= 0 && text[i] != '\n') i--;
+        return i + 1;
+    }
+
+    private static int LineEnd(string text, int pos)
+    {
+        int i = Math.Min(pos, text.Length);
+        while (i < text.Length && text[i] != '\n') i++;
+        return i;
+    }
+
+    private static int MoveLine(string text, int pos, int dir)
+    {
+        int curStart = LineStart(text, pos);
+        int col = pos - curStart;
+        if (dir < 0)
+        {
+            if (curStart == 0) return pos;
+            int prevEnd = curStart - 1; // points at '\n'
+            int prevStart = LineStart(text, prevEnd);
+            int prevLen = prevEnd - prevStart;
+            return prevStart + Math.Min(col, prevLen);
+        }
+        else
+        {
+            int curEnd = LineEnd(text, pos);
+            if (curEnd >= text.Length) return pos;
+            int nextStart = curEnd + 1;
+            int nextEnd = LineEnd(text, nextStart);
+            int nextLen = nextEnd - nextStart;
+            return nextStart + Math.Min(col, nextLen);
+        }
+    }
+
+    private int HitTestCursorPos(string text, float fontSize, float textX, float textY, float maxW, Point world, bool wrap = false)
+    {
+        if (_dwrite is null) return 0;
+        string layoutText = text.Length == 0 ? " " : text;
+        IDWriteTextFormat fmt = GetTextFormat(fontSize);
+        using var layout = _dwrite.CreateTextLayout(layoutText, fmt, maxW, 9999f);
+        if (wrap) layout.WordWrapping = WordWrapping.Wrap;
+        SharpGen.Runtime.RawBool isTrailing = false;
+        SharpGen.Runtime.RawBool isInside = false;
+        var metrics = layout.HitTestPoint((float)(world.X - textX), (float)(world.Y - textY), out isTrailing, out isInside);
+        return Math.Clamp((int)metrics.TextPosition + (isTrailing ? 1 : 0), 0, text.Length);
+    }
+
     private void ToggleNoteGlue(string noteKey)
     {
         bool isAttached = Scene.Connections.Any(c =>
@@ -729,13 +1258,13 @@ public sealed partial class CanvasViewport
     {
         if (_marqueeStart is null || _marqueeEnd is null) return;
         Rect screenRect = new(_marqueeStart.Value, _marqueeEnd.Value);
-        if (screenRect.Width < 4 && screenRect.Height < 4) { ApplySceneChange(ClearSelection(Scene)); return; }
+        if (screenRect.Width < 4 && screenRect.Height < 4) { ApplySceneChange(ClearConnectionSelection(ClearSelection(Scene))); return; }
         Point topLeft = ToWorld(new Point(screenRect.Left, screenRect.Top));
         Point bottomRight = ToWorld(new Point(screenRect.Right, screenRect.Bottom));
         Rect worldRect = new(topLeft, bottomRight);
         var hit = _snapshot.QueryBlocks(worldRect).Select(v => v.Block.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var blocks = Scene.Blocks.Select(b => b with { IsSelected = _appendMarquee ? b.IsSelected || hit.Contains(b.Key) : hit.Contains(b.Key) }).ToList();
-        ApplySceneChange(Scene with { Blocks = blocks });
+        ApplySceneChange(ClearConnectionSelection(Scene with { Blocks = blocks }));
         RebuildSnapshot();
     }
 
@@ -792,7 +1321,8 @@ public sealed partial class CanvasViewport
     private int WorldToCodeLine(SceneBlockVisual block, Point world)
     {
         Rect bodyRect = GetBodyRect(block.Bounds);
-        double relY = world.Y - bodyRect.Y - 12;
+        double topPadding = block.Block.Focused is not null ? FocusedCodeTopPaddingLines * CodeLineH : 0;
+        double relY = world.Y - bodyRect.Y - topPadding - 12;
         int lineIndex = Math.Max(0, (int)(relY / CodeLineH));
         int startLine = block.Block.Focused?.StartLine ?? block.Block.StartLine ?? 1;
         _codeScrollLines.TryGetValue(block.Block.Key, out int scrollLines);

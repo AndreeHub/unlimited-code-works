@@ -78,7 +78,18 @@ public sealed partial class MainWindowViewModel
         }).ToList();
 
         var connections = session.Connections
-            .Select(c => new RenderConnection(c.Id, c.SourceKey, c.TargetKey, c.Label))
+            .Select(c => new RenderConnection(c.Id, c.SourceKey, c.TargetKey, c.Label,
+                SourceAnchorIndex: c.SourceAnchorIndex,
+                TargetAnchorIndex: c.TargetAnchorIndex,
+                ArrowPosition: c.ArrowPosition,
+                ArrowForward: c.ArrowForward,
+                SourceControlX: c.SourceControlX,
+                SourceControlY: c.SourceControlY,
+                TargetControlX: c.TargetControlX,
+                TargetControlY: c.TargetControlY,
+                MidControlX: c.MidControlX,
+                MidControlY: c.MidControlY,
+                MidControlBends: c.MidControlBends))
             .ToList();
 
         var swimLanes = session.SwimLanes
@@ -166,7 +177,18 @@ public sealed partial class MainWindowViewModel
             b.X, b.Y, b.Width, b.Height, b.IsCollapsed, b.Focused)).ToList();
 
         var connections = scene.Connections
-            .Select(c => new ConnectionSnapshot(c.Id, c.SourceKey, c.TargetKey, c.Label))
+            .Select(c => new ConnectionSnapshot(c.Id, c.SourceKey, c.TargetKey, c.Label,
+                c.SourceAnchorIndex,
+                c.TargetAnchorIndex,
+                c.ArrowPosition,
+                c.ArrowForward,
+                c.SourceControlX,
+                c.SourceControlY,
+                c.TargetControlX,
+                c.TargetControlY,
+                c.MidControlX,
+                c.MidControlY,
+                c.MidControlBends))
             .ToList();
 
         var annotations = scene.Annotations

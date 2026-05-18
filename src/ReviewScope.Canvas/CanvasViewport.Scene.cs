@@ -47,11 +47,20 @@ public sealed partial class CanvasViewport
         {
             if (!blockLookup.TryGetValue(conn.SourceKey, out var src) || !blockLookup.TryGetValue(conn.TargetKey, out var dst))
                 continue;
-            Point start = new(src.Bounds.X + src.Bounds.Width / 2, src.Bounds.Y + src.Bounds.Height / 2);
-            Point end = new(dst.Bounds.X + dst.Bounds.Width / 2, dst.Bounds.Y + dst.Bounds.Height / 2);
+            Point srcCenter = CenterOf(src.Bounds);
+            Point dstCenter = CenterOf(dst.Bounds);
+            int sourceAnchor = conn.SourceAnchorIndex ?? FindNearestConnectionAnchor(src.Bounds, dstCenter);
+            int targetAnchor = conn.TargetAnchorIndex ?? FindNearestConnectionAnchor(dst.Bounds, srcCenter);
+            Point start = GetConnectionAnchorPoint(src.Bounds, sourceAnchor);
+            Point end = GetConnectionAnchorPoint(dst.Bounds, targetAnchor);
             Rect bounds = new(start, end);
-            bounds.Inflate(100, 60);
-            connections.Add(new SceneConnectionVisual(conn, start, end, bounds));
+            var visual = new SceneConnectionVisual(conn, start, end, bounds);
+            GetConnectionPathPoints(visual, out Point startLead, out Point middleControl, out Point endLead);
+            bounds.Union(startLead);
+            bounds.Union(middleControl);
+            bounds.Union(endLead);
+            bounds.Inflate(80, 80);
+            connections.Add(visual with { Bounds = bounds });
         }
 
         var swimLanes = Scene.SwimLanes

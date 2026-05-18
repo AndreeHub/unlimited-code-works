@@ -18,13 +18,13 @@ public sealed partial class MainWindowViewModel
     // -----------------------------------------------------------------------
     public async Task HandleConnectionDrawnAsync(ConnectionDrawnArgs args)
     {
-        string key = $"{args.SourceKey}->{args.TargetKey}";
-        if (Scene.Connections.Any(c =>
-            c.SourceKey.Equals(args.SourceKey, StringComparison.OrdinalIgnoreCase) &&
-            c.TargetKey.Equals(args.TargetKey, StringComparison.OrdinalIgnoreCase)))
-            return;
-
-        var conn = new RenderConnection(Guid.NewGuid(), args.SourceKey, args.TargetKey);
+        var conn = new RenderConnection(Guid.NewGuid(), args.SourceKey, args.TargetKey,
+            SourceAnchorIndex: args.SourceAnchorIndex,
+            TargetAnchorIndex: args.TargetAnchorIndex,
+            ArrowPosition: 0.9,
+            MidControlX: args.MidControlX,
+            MidControlY: args.MidControlY,
+            MidControlBends: args.MidControlBends);
         var connections = Scene.Connections.Append(conn).ToList();
         Scene = Scene with { Connections = connections };
         await PersistSessionAsync();

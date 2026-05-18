@@ -60,6 +60,9 @@ public sealed partial class CanvasViewport
         _resizeWidthOnly = false;
         _resizeSwimLaneKey = null;
         _resizeSwimLaneWorldPoint = null;
+        _dragArrowConnectionId = null;
+        _dragConnectionControlId = null;
+        _dragConnectionControlKind = ConnectionControlNodeKind.None;
         _marqueeStart = null;
         _marqueeEnd = null;
         _isMarquee = false;
@@ -71,6 +74,17 @@ public sealed partial class CanvasViewport
     private void UpdateHoverCursor(Point screen)
     {
         Point world = ToWorld(screen);
+        var anchor = HitConnectionAnchor(world);
+        string? oldHoverKey = _hoverAnchorBlockKey;
+        int? oldHoverIndex = _hoverAnchorIndex;
+        _hoverAnchorBlockKey = anchor?.Block.Block.Key;
+        _hoverAnchorIndex = anchor?.AnchorIndex;
+        bool hoverChanged = oldHoverKey != _hoverAnchorBlockKey || oldHoverIndex != _hoverAnchorIndex;
+        if (anchor is not null) { Cursor = Cursors.Cross; if (hoverChanged) RenderNative(); return; }
+        if (hoverChanged) RenderNative();
+        if (HitConnectionControlNode(world) is not null) { Cursor = Cursors.SizeAll; return; }
+        if (HitConnectionArrow(world) is not null) { Cursor = Cursors.Hand; return; }
+        if (HitConnectionCurve(world, out _) is not null) { Cursor = Cursors.Cross; return; }
         var hit = HitBlock(world);
         if (hit is not null && hit.Block.Focused is not null && IsInRestoreButton(hit.Bounds, world))
         { Cursor = Cursors.Hand; return; }
