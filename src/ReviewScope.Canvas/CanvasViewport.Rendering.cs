@@ -573,17 +573,17 @@ public sealed partial class CanvasViewport
 
     private static WpfColor TokenColor(SemanticTokenKind kind) => kind switch
     {
-        SemanticTokenKind.Keyword => WpfColor.FromRgb(111, 66, 193),
-        SemanticTokenKind.Type => WpfColor.FromRgb(24, 128, 96),
-        SemanticTokenKind.Function => WpfColor.FromRgb(35, 97, 168),
-        SemanticTokenKind.Property => WpfColor.FromRgb(22, 112, 148),
-        SemanticTokenKind.Field => WpfColor.FromRgb(22, 112, 148),
-        SemanticTokenKind.String => WpfColor.FromRgb(178, 82, 42),
-        SemanticTokenKind.Comment => WpfColor.FromRgb(102, 122, 138),
-        SemanticTokenKind.Number => WpfColor.FromRgb(138, 92, 24),
-        SemanticTokenKind.Preprocessor => WpfColor.FromRgb(120, 126, 136),
-        SemanticTokenKind.Operator => WpfColor.FromRgb(76, 86, 98),
-        _ => WpfColor.FromRgb(50, 58, 70)
+        SemanticTokenKind.Keyword => WpfColor.FromRgb(124, 58, 237),
+        SemanticTokenKind.Type => WpfColor.FromRgb(14, 116, 144),
+        SemanticTokenKind.Function => WpfColor.FromRgb(37, 99, 235),
+        SemanticTokenKind.Property => WpfColor.FromRgb(3, 105, 161),
+        SemanticTokenKind.Field => WpfColor.FromRgb(79, 70, 229),
+        SemanticTokenKind.String => WpfColor.FromRgb(194, 65, 12),
+        SemanticTokenKind.Comment => WpfColor.FromRgb(100, 116, 139),
+        SemanticTokenKind.Number => WpfColor.FromRgb(180, 83, 9),
+        SemanticTokenKind.Preprocessor => WpfColor.FromRgb(107, 114, 128),
+        SemanticTokenKind.Operator => WpfColor.FromRgb(75, 85, 99),
+        _ => WpfColor.FromRgb(17, 24, 39)
     };
 
     private void DrawExtractHighlight(Rect codeRect)
