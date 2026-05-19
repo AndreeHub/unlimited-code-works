@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
@@ -19,7 +19,7 @@ public sealed partial class MainWindowViewModel
     [RelayCommand]
     public async Task ReloadCodeAsync()
     {
-        StatusMessage = "Reloading code blocksâ€¦";
+        StatusMessage = "Reloading code blocks...";
         var updatedBlocks = new List<RenderBlock>();
         foreach (var block in Scene.Blocks)
         {

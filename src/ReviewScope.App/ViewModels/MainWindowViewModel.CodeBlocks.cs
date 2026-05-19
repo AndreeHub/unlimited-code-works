@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
@@ -27,9 +27,13 @@ public sealed partial class MainWindowViewModel
             return;
         }
 
-        StatusMessage = "Loading fileâ€¦";
+        StatusMessage = "Loading file...";
         string body = await File.ReadAllTextAsync(filePath);
-        var tokens = await _semanticSpan.GetTokenSpansAsync(filePath, 1, body.Split('\n').Length, CancellationToken.None);
+        bool isCSharp = Path.GetExtension(filePath).Equals(".cs", StringComparison.OrdinalIgnoreCase);
+        bool isMarkdown = Path.GetExtension(filePath).Equals(".md", StringComparison.OrdinalIgnoreCase);
+        var tokens = isCSharp
+            ? await _semanticSpan.GetTokenSpansAsync(filePath, 1, body.Split('\n').Length, CancellationToken.None)
+            : Array.Empty<SemanticTokenSpan>();
 
         double x = 96 + Scene.Blocks.Count * 40;
         double y = 72 + Scene.Blocks.Count * 20;
@@ -46,11 +50,80 @@ public sealed partial class MainWindowViewModel
             StartLine: 1,
             EndLine: (int)lineCount,
             Body: body,
-            SemanticTokens: tokens);
+            SemanticTokens: tokens,
+            LayerKey: isMarkdown ? "layer::architecture" : "layer::code",
+            ShapeType: isMarkdown ? "markdown" : Path.GetExtension(filePath).TrimStart('.').ToLowerInvariant(),
+            Source: new BoardSourceBinding(SourcePath: filePath, SourceLanguage: isCSharp ? "csharp" : Path.GetExtension(filePath).TrimStart('.').ToLowerInvariant()));
 
         var blocks = Scene.Blocks.Append(block).ToList();
-        Scene = Scene with { Blocks = blocks };
-        StatusMessage = $"Added: {Path.GetFileName(filePath)}";
+        SetSceneFromUserAction(Scene with { Blocks = blocks }, $"Added: {Path.GetFileName(filePath)}");
+        await PersistSessionAsync();
+    }
+
+    public void SetExplorerExpanded(bool expanded)
+    {
+        foreach (var root in ExplorerRoots)
+            SetExpandedRecursive(root, expanded);
+    }
+
+    private static void SetExpandedRecursive(FileExplorerItemViewModel item, bool expanded)
+    {
+        item.IsExpanded = expanded;
+        foreach (var child in item.Children)
+            SetExpandedRecursive(child, expanded);
+    }
+
+    public async Task AddSymbolToCanvasAsync(SymbolExplorerItemViewModel symbol)
+    {
+        string? filePath = CurrentSymbolFilePath;
+        if (filePath is null || !symbol.StartLine.HasValue || !symbol.EndLine.HasValue) return;
+        if (!File.Exists(filePath)) return;
+
+        int start = symbol.StartLine.Value;
+        int end = symbol.EndLine.Value;
+
+        // Use a file key so the block merges with an existing file card if present.
+        string fileKey = $"file::{filePath.ToLowerInvariant()}";
+        if (Scene.Blocks.Any(b => b.Key.Equals(fileKey, StringComparison.OrdinalIgnoreCase)))
+        {
+            StatusMessage = "File already on canvas - use Ctrl+click inside it to focus the symbol.";
+            return;
+        }
+
+        StatusMessage = "Loading...";
+        string body = await File.ReadAllTextAsync(filePath);
+        int totalLines = body.Split('\n').Length;
+
+        bool isCSharp = Path.GetExtension(filePath).Equals(".cs", StringComparison.OrdinalIgnoreCase);
+        var tokens = isCSharp
+            ? await _semanticSpan.GetTokenSpansAsync(filePath, 1, totalLines, CancellationToken.None)
+            : Array.Empty<SemanticTokenSpan>();
+
+        double x = 96 + Scene.Blocks.Count * 40;
+        double y = 72 + Scene.Blocks.Count * 20;
+        double fullWidth = DefaultFileBlockWidth;
+        double fullHeight = MeasureUnfocusedFileBlockHeight(totalLines);
+        double focusedHeight = MeasureCodeBlockHeight(end - start + 1, MinScopedBlockHeight);
+
+        // Create a full file block pre-focused on the symbol range.
+        // The user can click the restore button (↗) to expand back to the full file.
+        var focused = new FocusedRange(start, end, symbol.Name, fullWidth, fullHeight);
+        var block = new RenderBlock(
+            Guid.NewGuid(), fileKey, BlockKind.File,
+            Path.GetFileName(filePath),
+            GetRelativePath(filePath),
+            x, y, fullWidth, focusedHeight,
+            FilePath: filePath,
+            StartLine: 1,
+            EndLine: totalLines,
+            Body: body,
+            SemanticTokens: tokens,
+            Focused: focused,
+            ShapeType: isCSharp ? "csharp" : Path.GetExtension(filePath).TrimStart('.').ToLowerInvariant(),
+            Source: new BoardSourceBinding(SourcePath: filePath, SourceLanguage: isCSharp ? "csharp" : "text"));
+
+        var blocks = Scene.Blocks.Append(block).ToList();
+        SetSceneFromUserAction(Scene with { Blocks = blocks }, $"Added: {symbol.Name}");
         await PersistSessionAsync();
     }
 
@@ -95,8 +168,8 @@ public sealed partial class MainWindowViewModel
 
         var extract = new RenderBlock(
             Guid.NewGuid(), key, BlockKind.Extract,
-            $"{scope.Value.SymbolName}(â€¦)",
-            $"{scope.Value.ContainingType}  â€¢  {Path.GetFileName(args.SourceBlock.FilePath!)}",
+            $"{scope.Value.SymbolName}(...)",
+            $"{scope.Value.ContainingType}  *  {Path.GetFileName(args.SourceBlock.FilePath!)}",
             x, y, 640, height,
             FilePath: args.SourceBlock.FilePath,
             StartLine: scope.Value.StartLine,
@@ -108,14 +181,12 @@ public sealed partial class MainWindowViewModel
         // Optionally auto-connect
         var connection = new RenderConnection(Guid.NewGuid(), args.SourceBlock.Key, key);
         var connections = Scene.Connections.Append(connection).ToList();
-        Scene = Scene with { Blocks = blocks, Connections = connections };
-
-        StatusMessage = $"Extracted: {scope.Value.SymbolName}";
+        SetSceneFromUserAction(Scene with { Blocks = blocks, Connections = connections }, $"Extracted: {scope.Value.SymbolName}");
         await PersistSessionAsync();
     }
 
     // -----------------------------------------------------------------------
-    // Focus mode (Ctrl+click)  â€” shrink the source block to show only the function
+    // Focus mode (Ctrl+click) - shrink the source block to show only the function
     // -----------------------------------------------------------------------
     public async Task HandleFocusRequestAsync(FocusRequestedArgs args)
     {
@@ -148,8 +219,7 @@ public sealed partial class MainWindowViewModel
         };
 
         var blocks = Scene.Blocks.Select(b => b.Key.Equals(updated.Key, StringComparison.OrdinalIgnoreCase) ? updated : b).ToList();
-        Scene = Scene with { Blocks = blocks };
-        StatusMessage = $"Focused: {scope.Value.SymbolName}";
+        SetSceneFromUserAction(Scene with { Blocks = blocks }, $"Focused: {scope.Value.SymbolName}");
         await PersistSessionAsync();
     }
 
@@ -163,8 +233,7 @@ public sealed partial class MainWindowViewModel
             Height = args.Block.Focused.OriginalHeight
         };
         var blocks = Scene.Blocks.Select(b => b.Key.Equals(restored.Key, StringComparison.OrdinalIgnoreCase) ? restored : b).ToList();
-        Scene = Scene with { Blocks = blocks };
-        StatusMessage = $"Restored: {restored.Title}";
+        SetSceneFromUserAction(Scene with { Blocks = blocks }, $"Restored: {restored.Title}");
         await PersistSessionAsync();
 }
 }

@@ -32,13 +32,16 @@ public sealed partial class MainWindowViewModel
     public async Task CreateNewSessionAsync()
     {
         if (_currentSnapshot is null) return;
+        string name = NextSessionName();
         var session = new ReviewSession(
-            Guid.NewGuid(), SessionNameDraft, _currentSnapshot.WorkspaceKey,
+            Guid.NewGuid(), name, _currentSnapshot.WorkspaceKey,
             Array.Empty<BlockPlacement>(), Array.Empty<ConnectionSnapshot>(),
             Array.Empty<AnnotationSnapshot>(), Array.Empty<SwimLaneSnapshot>(),
-            DateTimeOffset.UtcNow);
-        Sessions.Insert(0, session);
+            DateTimeOffset.UtcNow, DefaultBoardLayers());
+        SessionSpawnAnimationId = session.Id;
+        Sessions.Add(session);
         await _sessions.SaveSessionAsync(session, CancellationToken.None);
+        await _sessions.SaveSessionOrderAsync(_currentSnapshot.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), CancellationToken.None);
         await ActivateSessionAsync(session, hydrateCode: false);
     }
 
@@ -49,15 +52,114 @@ public sealed partial class MainWindowViewModel
         await ActivateSessionAsync(SelectedSession);
     }
 
+    [RelayCommand]
+    public async Task RenameSelectedSessionAsync()
+    {
+        if (SelectedSession is null || _currentSnapshot is null) return;
+        string name = string.IsNullOrWhiteSpace(SessionNameDraft) ? SelectedSession.Name : SessionNameDraft.Trim();
+        await RenameSessionAsync(SelectedSession, name);
+    }
+
+    public async Task RenameSessionAsync(ReviewSession session, string? requestedName)
+    {
+        if (_currentSnapshot is null) return;
+        var current = Sessions.FirstOrDefault(s => s.Id == session.Id) ?? session;
+        string name = string.IsNullOrWhiteSpace(requestedName) ? current.Name : requestedName.Trim();
+        var renamed = current with { Name = name, UpdatedAt = DateTimeOffset.UtcNow };
+        await _sessions.SaveSessionAsync(renamed, CancellationToken.None);
+        int index = Sessions.IndexOf(current);
+        if (index >= 0) Sessions[index] = renamed;
+        if (_activeSession?.Id == renamed.Id) _activeSession = renamed;
+        SelectedSession = renamed;
+        SessionNameDraft = renamed.Name;
+        StatusMessage = $"Renamed session: {name}";
+    }
+
+    [RelayCommand]
+    public async Task DeleteSelectedSessionAsync()
+    {
+        if (SelectedSession is null || _currentSnapshot is null) return;
+        var deleting = SelectedSession;
+        await _sessions.DeleteSessionAsync(deleting.Id, _currentSnapshot.WorkspaceKey, CancellationToken.None);
+        Sessions.Remove(deleting);
+        await _sessions.SaveSessionOrderAsync(_currentSnapshot.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), CancellationToken.None);
+        StatusMessage = $"Deleted session: {deleting.Name}";
+
+        if (Sessions.Count == 0)
+        {
+            await CreateNewSessionAsync();
+            return;
+        }
+
+        await ActivateSessionAsync(Sessions[0]);
+    }
+
     private async Task ActivateSessionAsync(ReviewSession session, bool hydrateCode = true)
     {
         _activeSession = session;
         SelectedSession = session;
+        SessionNameDraft = session.Name;
         Scene = BuildSceneFromSession(session);
         UpdateSelectedObject(Scene);
+        RefreshBoardDetails();
+        ResetHistory();
         StatusMessage = $"Session: {session.Name}";
         if (hydrateCode)
             await HydrateCodeBlocksAsync();
+    }
+
+    public void ClearSessionSpawnAnimation(Guid sessionId)
+    {
+        if (SessionSpawnAnimationId == sessionId)
+            SessionSpawnAnimationId = null;
+    }
+
+    public async Task MoveSessionAsync(ReviewSession session, int targetIndex)
+    {
+        if (_currentSnapshot is null) return;
+        if (!MoveSessionInQueue(session, targetIndex))
+            return;
+
+        await PersistSessionOrderAsync();
+    }
+
+    public bool MoveSessionInQueue(ReviewSession session, int targetIndex)
+    {
+        if (_currentSnapshot is null) return false;
+        int oldIndex = Sessions.ToList().FindIndex(s => s.Id == session.Id);
+        if (oldIndex < 0) return false;
+
+        targetIndex = Math.Clamp(targetIndex, 0, Sessions.Count);
+        if (targetIndex > oldIndex)
+            targetIndex--;
+
+        if (oldIndex == targetIndex)
+            return false;
+
+        Sessions.Move(oldIndex, targetIndex);
+        SelectedSession = Sessions[targetIndex];
+        StatusMessage = $"Moved session: {SelectedSession.Name}";
+        return true;
+    }
+
+    public async Task PersistSessionOrderAsync()
+    {
+        if (_currentSnapshot is null) return;
+        await _sessions.SaveSessionOrderAsync(_currentSnapshot.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), CancellationToken.None);
+    }
+
+    private string NextSessionName()
+    {
+        const string baseName = "New Session";
+        if (!Sessions.Any(s => string.Equals(s.Name, baseName, StringComparison.OrdinalIgnoreCase)))
+            return baseName;
+
+        for (int i = 2; ; i++)
+        {
+            string candidate = $"{baseName} {i}";
+            if (!Sessions.Any(s => string.Equals(s.Name, candidate, StringComparison.OrdinalIgnoreCase)))
+                return candidate;
+        }
     }
 
     private static RenderScene BuildSceneFromSession(ReviewSession session)
@@ -74,7 +176,14 @@ public sealed partial class MainWindowViewModel
             FilePath: b.FilePath,
             StartLine: b.StartLine,
             EndLine: b.EndLine,
-            Focused: b.Focused);
+            Focused: b.Focused,
+            ZIndex: b.ZIndex,
+            LayerKey: b.LayerKey,
+            IsLocked: b.IsLocked,
+            ShapeType: b.ShapeType,
+            Style: b.Style,
+            Source: b.Source,
+            GroupState: b.GroupState);
         }).ToList();
 
         var connections = session.Connections
@@ -89,7 +198,11 @@ public sealed partial class MainWindowViewModel
                 TargetControlY: c.TargetControlY,
                 MidControlX: c.MidControlX,
                 MidControlY: c.MidControlY,
-                MidControlBends: c.MidControlBends))
+                MidControlBends: c.MidControlBends,
+                RouteKind: c.RouteKind,
+                ArrowKind: c.ArrowKind,
+                Stroke: c.Stroke,
+                Dashed: c.Dashed))
             .ToList();
 
         var swimLanes = session.SwimLanes
@@ -100,7 +213,11 @@ public sealed partial class MainWindowViewModel
             .Select(a => new RenderAnnotation(a.Id, a.AttachedToKey, a.Content, a.X, a.Y))
             .ToList();
 
-        return new RenderScene(blocks, connections, swimLanes, annotations);
+        var layers = (session.Layers ?? DefaultBoardLayers())
+            .Select(l => new RenderBoardLayer(l.Id, l.Key, l.Name, l.Kind, l.IsVisible, l.IsLocked))
+            .ToList();
+
+        return new RenderScene(blocks, connections, swimLanes, annotations, layers);
     }
 
     private async Task HydrateCodeBlocksAsync()
@@ -121,7 +238,10 @@ public sealed partial class MainWindowViewModel
 
             if (block.Kind == BlockKind.File)
             {
-                var tokens = await _semanticSpan.GetTokenSpansAsync(block.FilePath, 1, allLines.Length, CancellationToken.None);
+                bool isCSharp = Path.GetExtension(block.FilePath).Equals(".cs", StringComparison.OrdinalIgnoreCase);
+                var tokens = isCSharp
+                    ? await _semanticSpan.GetTokenSpansAsync(block.FilePath, 1, allLines.Length, CancellationToken.None)
+                    : Array.Empty<SemanticTokenSpan>();
                 updatedBlocks.Add(block with
                 {
                     Body = body,
@@ -174,7 +294,8 @@ public sealed partial class MainWindowViewModel
         var blocks = scene.Blocks.Select(b => new BlockPlacement(
             b.Id, b.Kind, b.Key, b.Title, b.Subtitle,
             b.FilePath, b.StartLine, b.EndLine,
-            b.X, b.Y, b.Width, b.Height, b.IsCollapsed, b.Focused)).ToList();
+            b.X, b.Y, b.Width, b.Height, b.IsCollapsed, b.Focused,
+            b.ZIndex, b.LayerKey, b.IsLocked, b.ShapeType, b.Style, b.Source, b.GroupState)).ToList();
 
         var connections = scene.Connections
             .Select(c => new ConnectionSnapshot(c.Id, c.SourceKey, c.TargetKey, c.Label,
@@ -188,7 +309,11 @@ public sealed partial class MainWindowViewModel
                 c.TargetControlY,
                 c.MidControlX,
                 c.MidControlY,
-                c.MidControlBends))
+                c.MidControlBends,
+                c.RouteKind,
+                c.ArrowKind,
+                c.Stroke,
+                c.Dashed))
             .ToList();
 
         var annotations = scene.Annotations
@@ -209,6 +334,20 @@ public sealed partial class MainWindowViewModel
             .Select(l => new SwimLaneSnapshot(l.Id, l.Key, l.Name, l.Color, l.X, l.Y, l.Width, l.Height))
             .ToList();
 
-        return template with { Blocks = blocks, Connections = connections, Annotations = annotations, SwimLanes = swimLanes, UpdatedAt = DateTimeOffset.UtcNow };
+        var layers = (scene.Layers ?? Array.Empty<RenderBoardLayer>())
+            .Select(l => new BoardLayerSnapshot(l.Id, l.Key, l.Name, l.Kind, l.IsVisible, l.IsLocked))
+            .ToList();
+
+        return template with { Blocks = blocks, Connections = connections, Annotations = annotations, SwimLanes = swimLanes, Layers = layers, UpdatedAt = DateTimeOffset.UtcNow };
 }
+
+    private static IReadOnlyList<BoardLayerSnapshot> DefaultBoardLayers() => new[]
+    {
+        new BoardLayerSnapshot(Guid.NewGuid(), "layer::background", "Background", BoardLayerKind.Background),
+        new BoardLayerSnapshot(Guid.NewGuid(), "layer::architecture", "Architecture", BoardLayerKind.Architecture),
+        new BoardLayerSnapshot(Guid.NewGuid(), "layer::code", "Code evidence", BoardLayerKind.CodeEvidence),
+        new BoardLayerSnapshot(Guid.NewGuid(), "layer::notes", "Notes", BoardLayerKind.Notes),
+        new BoardLayerSnapshot(Guid.NewGuid(), "layer::risks", "Risks", BoardLayerKind.Risks),
+        new BoardLayerSnapshot(Guid.NewGuid(), "layer::screenshots", "Screenshots", BoardLayerKind.Screenshots)
+    };
 }

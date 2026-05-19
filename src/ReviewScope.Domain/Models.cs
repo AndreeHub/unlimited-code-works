@@ -2,16 +2,25 @@ namespace ReviewScope.Domain;
 
 // --- Enums ---
 
-public enum BlockKind { File, Extract, Note }
+public enum BlockKind { File, Extract, Note, MarkdownDoc, Shape, Text, Image, Container }
 public enum SemanticTokenKind { Plain, Keyword, Type, Function, Property, Field, String, Comment, Number, Preprocessor, Operator }
+public enum ConnectorRouteKind { Curved, Straight, Orthogonal }
+public enum ConnectorArrowKind { None, Forward, Backward, Both }
+public enum BoardLayerKind { Background, Architecture, CodeEvidence, Notes, Risks, Screenshots }
 
 // --- Workspace / file discovery ---
 
 public sealed record WorkspaceFileSummary(string ProjectName, string FilePath, string RelativePath, string ClusterKey);
 
-public sealed record WorkspaceSnapshot(string WorkspacePath, string DisplayName, IReadOnlyList<WorkspaceFileSummary> Files)
+public sealed record WorkspaceSnapshot(
+    string WorkspacePath,
+    string DisplayName,
+    IReadOnlyList<WorkspaceFileSummary> Files,
+    string? BranchName = null)
 {
-    public string WorkspaceKey => WorkspacePath.ToLowerInvariant();
+    public string WorkspaceKey => BranchName is null
+        ? WorkspacePath.ToLowerInvariant()
+        : $"{WorkspacePath.ToLowerInvariant()}::{BranchName.ToLowerInvariant()}";
 }
 
 // --- Code analysis ---
@@ -37,7 +46,14 @@ public sealed record BlockPlacement(
     double Width,
     double Height,
     bool IsCollapsed,
-    FocusedRange? Focused = null);
+    FocusedRange? Focused = null,
+    int ZIndex = 0,
+    string? LayerKey = null,
+    bool IsLocked = false,
+    string? ShapeType = null,
+    BoardItemStyle? Style = null,
+    BoardSourceBinding? Source = null,
+    BoardGroupState? GroupState = null);
 
 public sealed record FocusedRange(
     int StartLine,
@@ -45,6 +61,35 @@ public sealed record FocusedRange(
     string SymbolName,
     double OriginalWidth,
     double OriginalHeight);
+
+public sealed record BoardItemStyle(
+    string Fill = "#FFFFFF",
+    string Stroke = "#CBD5E1",
+    string Text = "#111827",
+    double StrokeWidth = 1.2,
+    bool Dashed = false,
+    double Opacity = 1,
+    double CornerRadius = 8);
+
+public sealed record BoardSourceBinding(
+    string? AssetPath = null,
+    string? SourcePath = null,
+    string? SourceSection = null,
+    string? SourceLanguage = null);
+
+public sealed record BoardGroupState(
+    double ExpandedX,
+    double ExpandedY,
+    double ExpandedWidth,
+    double ExpandedHeight);
+
+public sealed record BoardLayerSnapshot(
+    Guid Id,
+    string Key,
+    string Name,
+    BoardLayerKind Kind,
+    bool IsVisible = true,
+    bool IsLocked = false);
 
 public sealed record ConnectionSnapshot(
     Guid Id,
@@ -61,7 +106,11 @@ public sealed record ConnectionSnapshot(
     double? TargetControlY = null,
     double? MidControlX = null,
     double? MidControlY = null,
-    bool MidControlBends = false);
+    bool MidControlBends = false,
+    ConnectorRouteKind RouteKind = ConnectorRouteKind.Curved,
+    ConnectorArrowKind ArrowKind = ConnectorArrowKind.Forward,
+    string Stroke = "#4584CB",
+    bool Dashed = false);
 
 public sealed record AnnotationSnapshot(
     Guid Id,
@@ -89,7 +138,8 @@ public sealed record ReviewSession(
     IReadOnlyList<ConnectionSnapshot> Connections,
     IReadOnlyList<AnnotationSnapshot> Annotations,
     IReadOnlyList<SwimLaneSnapshot> SwimLanes,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    IReadOnlyList<BoardLayerSnapshot>? Layers = null);
 
 // --- Render model (in-memory, passed to canvas) ---
 
@@ -111,7 +161,14 @@ public sealed record RenderBlock(
     int? StartLine = null,
     int? EndLine = null,
     IReadOnlyList<SemanticTokenSpan>? SemanticTokens = null,
-    FocusedRange? Focused = null);
+    FocusedRange? Focused = null,
+    int ZIndex = 0,
+    string? LayerKey = null,
+    bool IsLocked = false,
+    string? ShapeType = null,
+    BoardItemStyle? Style = null,
+    BoardSourceBinding? Source = null,
+    BoardGroupState? GroupState = null);
 
 public sealed record RenderConnection(
     Guid Id,
@@ -130,7 +187,11 @@ public sealed record RenderConnection(
     double? TargetControlY = null,
     double? MidControlX = null,
     double? MidControlY = null,
-    bool MidControlBends = false);
+    bool MidControlBends = false,
+    ConnectorRouteKind RouteKind = ConnectorRouteKind.Curved,
+    ConnectorArrowKind ArrowKind = ConnectorArrowKind.Forward,
+    string Stroke = "#4584CB",
+    bool Dashed = false);
 
 public sealed record RenderSwimLane(
     Guid Id,
@@ -150,17 +211,27 @@ public sealed record RenderAnnotation(
     double X,
     double Y);
 
+public sealed record RenderBoardLayer(
+    Guid Id,
+    string Key,
+    string Name,
+    BoardLayerKind Kind,
+    bool IsVisible = true,
+    bool IsLocked = false);
+
 public sealed record RenderScene(
     IReadOnlyList<RenderBlock> Blocks,
     IReadOnlyList<RenderConnection> Connections,
     IReadOnlyList<RenderSwimLane> SwimLanes,
-    IReadOnlyList<RenderAnnotation> Annotations)
+    IReadOnlyList<RenderAnnotation> Annotations,
+    IReadOnlyList<RenderBoardLayer>? Layers = null)
 {
     public static RenderScene Empty { get; } = new(
         Array.Empty<RenderBlock>(),
         Array.Empty<RenderConnection>(),
         Array.Empty<RenderSwimLane>(),
-        Array.Empty<RenderAnnotation>());
+        Array.Empty<RenderAnnotation>(),
+        Array.Empty<RenderBoardLayer>());
 }
 
 // --- Workspace explorer ---

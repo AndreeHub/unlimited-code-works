@@ -26,7 +26,7 @@ public sealed partial class MainWindowViewModel
                 : b).ToList();
         var annotations = Scene.Annotations.Select(a =>
             a.Id == noteBlock.Id ? a with { Content = body } : a).ToList();
-        Scene = Scene with { Blocks = blocks, Annotations = annotations };
+        SetSceneFromUserAction(Scene with { Blocks = blocks, Annotations = annotations });
         await PersistSessionAsync();
     }
 
@@ -51,7 +51,10 @@ public sealed partial class MainWindowViewModel
             args.WorldY,
             280,
             130,
-            Body: "New note...");
+            Body: "New note...",
+            ZIndex: NextBlockZIndex(),
+            LayerKey: "layer::notes",
+            Style: new BoardItemStyle("#FFF3C7", "#E2BA4C", "#3C3412"));
 
         var blocks = Scene.Blocks.Append(note).ToList();
         var annotations = Scene.Annotations
@@ -62,7 +65,7 @@ public sealed partial class MainWindowViewModel
             ? Scene.Connections
             : Scene.Connections.Append(new RenderConnection(Guid.NewGuid(), args.AttachedBlockKey, key, "__note")).ToList();
 
-        Scene = Scene with { Blocks = blocks, Annotations = annotations, Connections = connections };
+        SetSceneFromUserAction(Scene with { Blocks = blocks, Annotations = annotations, Connections = connections }, "Added note");
         EditingAnnotationId = noteId;
         SelectedAnnotationContent = note.Body!;
         await PersistSessionAsync();
@@ -78,7 +81,7 @@ public sealed partial class MainWindowViewModel
         var blocks = Scene.Blocks.Select(b =>
             b.Id == EditingAnnotationId.Value ? b with { Title = FirstNoteLine(SelectedAnnotationContent), Body = SelectedAnnotationContent } : b).ToList();
 
-        Scene = Scene with { Blocks = blocks, Annotations = annotations };
+        SetSceneFromUserAction(Scene with { Blocks = blocks, Annotations = annotations });
         EditingAnnotationId = null;
         IsEditingNote = false;
         await PersistSessionAsync();

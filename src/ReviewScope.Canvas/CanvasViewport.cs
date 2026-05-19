@@ -1,4 +1,4 @@
-using ReviewScope.Domain;
+﻿using ReviewScope.Domain;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -44,6 +44,7 @@ public sealed record ConnectionDrawnArgs(
     bool MidControlBends = false);
 public sealed record AnnotationRequestedArgs(string? AttachedBlockKey, double WorldX, double WorldY);
 public sealed record SwimLaneResizedArgs(string Key, double X, double Y, double Width, double Height);
+public sealed record PasteRequestedArgs(double WorldX, double WorldY);
 
 public enum CanvasBackgroundMode { Dots, Grid }
 
@@ -73,6 +74,9 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private const int FocusedCodeTopPaddingLines = 2;
     private const double AnnotationW = 280, AnnotationH = 120;
     private const double NoteCornerHandleSize = 7;
+    private const double ConnectionDragThreshold = 10;
+    private const double GroupPadX = 48, GroupPadTop = 64, GroupPadBottom = 48;
+    private const double CollapsedGroupW = 280, CollapsedGroupH = 118;
 
     // LOD zoom thresholds
     private const double UltraCompactZoom = 0.06, CompactZoom = 0.12, PreviewZoom = 0.26;
@@ -100,6 +104,14 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
             FrameworkPropertyMetadataOptions.AffectsRender,
             (d, _) => (d as CanvasViewport)?.RenderNative()));
 
+    public static readonly DependencyProperty SnapToGridProperty = DependencyProperty.Register(
+        nameof(SnapToGrid), typeof(bool), typeof(CanvasViewport),
+        new FrameworkPropertyMetadata(false));
+
+    public static readonly DependencyProperty GridSizeProperty = DependencyProperty.Register(
+        nameof(GridSize), typeof(double), typeof(CanvasViewport),
+        new FrameworkPropertyMetadata(24d));
+
     // Routed commands / callbacks
     public ICommand? BlockActivatedCommand { get; set; }
     public ICommand? ExtractRequestedCommand { get; set; }
@@ -108,11 +120,13 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     public ICommand? ConnectionDrawnCommand { get; set; }
     public ICommand? AnnotationRequestedCommand { get; set; }
     public ICommand? BlockMovedCommand { get; set; }
+    public ICommand? PasteRequestedCommand { get; set; }
 
     // D2D resources
     private readonly Dictionary<uint, ID2D1SolidColorBrush> _brushes = new();
     private readonly Dictionary<string, IDWriteTextFormat> _textFormats = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, ID2D1PathGeometry> _connectionGeoms = new();
+    private readonly Dictionary<string, ImageBitmapResource> _imageBitmaps = new(StringComparer.OrdinalIgnoreCase);
     private IntPtr _hwnd;
     private ID2D1Factory? _factory;
     private ID2D1HwndRenderTarget? _rt;
@@ -166,8 +180,8 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private int? _hoverAnchorIndex;
 
     // Modifier highlight state (Ctrl=focus, Alt=extract)
-    private bool _isFocusMode;            // Ctrl held â€” collapse to function
-    private bool _isExtractMode;          // Alt held â€” extract function to new block
+    private bool _isFocusMode;            // Ctrl held - collapse to function
+    private bool _isExtractMode;          // Alt held - extract function to new block
     private SceneBlockVisual? _extractHoverBlock;
     private int _extractHoverLine;
     private int _extractHoverStartLine, _extractHoverEndLine;
@@ -184,6 +198,7 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
 
     // In-canvas note editing
     private string? _editingNoteKey;
+    private string? _editingGroupKey;
     private string _editTitle = string.Empty;
     private string _editBody = string.Empty;
     private bool _editingTitle = true;
@@ -224,6 +239,18 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
         set => SetValue(BackgroundModeProperty, value);
     }
 
+    public bool SnapToGrid
+    {
+        get => (bool)GetValue(SnapToGridProperty);
+        set => SetValue(SnapToGridProperty, value);
+    }
+
+    public double GridSize
+    {
+        get => (double)GetValue(GridSizeProperty);
+        set => SetValue(GridSizeProperty, value);
+    }
+
     public void ToggleBackground()
     {
         BackgroundMode = BackgroundMode == CanvasBackgroundMode.Dots
@@ -254,6 +281,46 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
         _visDirty = true;
         RenderNative();
     }
+
+    public void FrameSelection()
+    {
+        var selected = _snapshot.Blocks.Where(b => b.Block.IsSelected).ToList();
+        if (selected.Count == 0)
+        {
+            if (_snapshot.Connections.FirstOrDefault(c => c.Connection.IsSelected) is { } connection)
+                FrameWorldBounds(connection.Bounds);
+            return;
+        }
+
+        Rect bounds = selected[0].Bounds;
+        foreach (var block in selected.Skip(1))
+            bounds.Union(block.Bounds);
+        FrameWorldBounds(bounds);
+    }
+
+    private void FrameWorldBounds(Rect bounds)
+    {
+        if (bounds.IsEmpty || ActualWidth <= 0 || ActualHeight <= 0) return;
+        const double pad = 160;
+        double zx = (ActualWidth - pad * 2) / Math.Max(1, bounds.Width);
+        double zy = (ActualHeight - pad * 2) / Math.Max(1, bounds.Height);
+        double z = Math.Clamp(Math.Min(zx, zy), 0.08, 3.0);
+        _camera = new CameraState(z,
+            ActualWidth / 2 - (bounds.X + bounds.Width / 2) * z,
+            ActualHeight / 2 - (bounds.Y + bounds.Height / 2) * z);
+        SetCurrentValue(CameraProperty, _camera);
+        _visDirty = true;
+        RenderNative();
+    }
+
+    public Point GetLastMouseWorldPoint()
+    {
+        if (_lastMouseScreenPoint.X == 0 && _lastMouseScreenPoint.Y == 0 && ActualWidth > 0 && ActualHeight > 0)
+            return ToWorld(new Point(ActualWidth / 2, ActualHeight / 2));
+        return ToWorld(_lastMouseScreenPoint);
+    }
+
+    public Point ScreenPointToWorld(Point screen) => ToWorld(screen);
 
     // -----------------------------------------------------------------------
     // HwndHost overrides
@@ -292,10 +359,16 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
             case WmMButtonUp: ResetInteraction(); UpdateHoverCursor(GetClientPt(lParam)); ReleaseCapture(); break;
             case WmMouseMove: HandleMove(GetClientPt(lParam)); handled = true; break;
             case WmMouseWheel: HandleWheel(GetClientPtScreen(lParam), GetWheelDelta(wParam)); handled = true; break;
-            case WmChar: if (_editingNoteKey is not null) { HandleChar((char)wParam.ToInt32()); handled = true; } break;
-            case WmKeyDown: HandleKeyDown(wParam); if (_editingNoteKey is not null) handled = true; break;
+            case WmChar: if (_editingNoteKey is not null || _editingGroupKey is not null) { HandleChar((char)wParam.ToInt32()); handled = true; } break;
+            case WmKeyDown: HandleKeyDown(wParam); if (_editingNoteKey is not null || _editingGroupKey is not null) handled = true; break;
             case WmKeyUp: HandleKeyUp(wParam); break;
-            case WmKillFocus: _isFocusMode = false; _isExtractMode = false; ClearConnectionDrawingState(); if (_editingNoteKey is not null) CommitNoteEdit(save: true); else RenderNative(); break;
+            case WmKillFocus:
+                _isFocusMode = false;
+                _isExtractMode = false;
+                if (_editingNoteKey is not null) CommitNoteEdit(save: true);
+                else if (_editingGroupKey is not null) CommitGroupTitleEdit(save: true);
+                else RenderNative();
+                break;
         }
         return IntPtr.Zero;
     }

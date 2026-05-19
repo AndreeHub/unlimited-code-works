@@ -27,36 +27,42 @@ public sealed partial class CanvasViewport
 
     private static Point GetConnectionAnchorPoint(Rect bounds, int anchorIndex)
     {
-        double q1x = bounds.X + bounds.Width * 0.25;
-        double q2x = bounds.X + bounds.Width * 0.50;
-        double q3x = bounds.X + bounds.Width * 0.75;
-        double q1y = bounds.Y + bounds.Height * 0.25;
-        double q2y = bounds.Y + bounds.Height * 0.50;
-        double q3y = bounds.Y + bounds.Height * 0.75;
+        double p1x = bounds.X + bounds.Width * 0.20;
+        double p2x = bounds.X + bounds.Width * 0.40;
+        double p3x = bounds.X + bounds.Width * 0.60;
+        double p4x = bounds.X + bounds.Width * 0.80;
+        double p1y = bounds.Y + bounds.Height * 0.20;
+        double p2y = bounds.Y + bounds.Height * 0.40;
+        double p3y = bounds.Y + bounds.Height * 0.60;
+        double p4y = bounds.Y + bounds.Height * 0.80;
 
-        return Math.Clamp(anchorIndex, 0, 11) switch
+        return Math.Clamp(anchorIndex, 0, 15) switch
         {
-            0 => new Point(q1x, bounds.Top),
-            1 => new Point(q2x, bounds.Top),
-            2 => new Point(q3x, bounds.Top),
-            3 => new Point(bounds.Right, q1y),
-            4 => new Point(bounds.Right, q2y),
-            5 => new Point(bounds.Right, q3y),
-            6 => new Point(q3x, bounds.Bottom),
-            7 => new Point(q2x, bounds.Bottom),
-            8 => new Point(q1x, bounds.Bottom),
-            9 => new Point(bounds.Left, q3y),
-            10 => new Point(bounds.Left, q2y),
-            _ => new Point(bounds.Left, q1y)
+            0 => new Point(p1x, bounds.Top),
+            1 => new Point(p2x, bounds.Top),
+            2 => new Point(p3x, bounds.Top),
+            3 => new Point(p4x, bounds.Top),
+            4 => new Point(bounds.Right, p1y),
+            5 => new Point(bounds.Right, p2y),
+            6 => new Point(bounds.Right, p3y),
+            7 => new Point(bounds.Right, p4y),
+            8 => new Point(p4x, bounds.Bottom),
+            9 => new Point(p3x, bounds.Bottom),
+            10 => new Point(p2x, bounds.Bottom),
+            11 => new Point(p1x, bounds.Bottom),
+            12 => new Point(bounds.Left, p4y),
+            13 => new Point(bounds.Left, p3y),
+            14 => new Point(bounds.Left, p2y),
+            _ => new Point(bounds.Left, p1y)
         };
     }
 
     private static Vector2 GetConnectionAnchorNormal(int anchorIndex) =>
-        Math.Clamp(anchorIndex, 0, 11) switch
+        Math.Clamp(anchorIndex, 0, 15) switch
         {
-            <= 2 => new Vector2(0, -1),
-            <= 5 => new Vector2(1, 0),
-            <= 8 => new Vector2(0, 1),
+            <= 3 => new Vector2(0, -1),
+            <= 7 => new Vector2(1, 0),
+            <= 11 => new Vector2(0, 1),
             _ => new Vector2(-1, 0)
         };
 
@@ -64,7 +70,7 @@ public sealed partial class CanvasViewport
     {
         int bestIndex = 0;
         double bestDistance = double.MaxValue;
-        for (int i = 0; i < 12; i++)
+        for (int i = 0; i < 16; i++)
         {
             Point anchor = GetConnectionAnchorPoint(bounds, i);
             double dx = anchor.X - world.X;
@@ -85,8 +91,8 @@ public sealed partial class CanvasViewport
 
         foreach (var block in _snapshot.Blocks.Reverse<SceneBlockVisual>())
         {
-            if (block.Block.Kind is not (BlockKind.File or BlockKind.Extract)) continue;
-            for (int i = 0; i < 12; i++)
+            if (block.Block.Kind == BlockKind.Note) continue;
+            for (int i = 0; i < 16; i++)
             {
                 Point anchor = GetConnectionAnchorPoint(block.Bounds, i);
                 double dx = anchor.X - world.X;
@@ -138,6 +144,9 @@ public sealed partial class CanvasViewport
 
     private static Point EvaluateConnectionPoint(SceneConnectionVisual connVis, double t)
     {
+        if (connVis.Connection.RouteKind is ConnectorRouteKind.Straight or ConnectorRouteKind.Orthogonal)
+            return EvaluatePolylinePoint(BuildConnectionPolyline(connVis), t);
+
         GetConnectionPathPoints(connVis, out Point startLead, out Point mid, out Point endLead);
         t = Math.Clamp(t, 0, 1);
 
@@ -177,6 +186,9 @@ public sealed partial class CanvasViewport
 
     private static Vector2 EvaluateConnectionTangent(SceneConnectionVisual connVis, double t)
     {
+        if (connVis.Connection.RouteKind is ConnectorRouteKind.Straight or ConnectorRouteKind.Orthogonal)
+            return EvaluatePolylineTangent(BuildConnectionPolyline(connVis), t);
+
         GetConnectionPathPoints(connVis, out Point startLead, out Point mid, out Point endLead);
         t = Math.Clamp(t, 0, 1);
 
@@ -211,6 +223,104 @@ public sealed partial class CanvasViewport
 
     private static Point Lerp(Point a, Point b, double t) =>
         new(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t);
+
+    private static IReadOnlyList<Point> BuildConnectionPolyline(SceneConnectionVisual connVis)
+    {
+        if (connVis.Connection.RouteKind == ConnectorRouteKind.Straight)
+            return new[] { connVis.Start, connVis.End };
+
+        GetConnectionPathPoints(connVis, out Point startLead, out Point middle, out Point endLead);
+        var points = new List<Point> { connVis.Start, startLead };
+
+        if (HasCustomConnectionMidPoint(connVis.Connection))
+        {
+            points.Add(new Point(middle.X, startLead.Y));
+            points.Add(middle);
+            points.Add(new Point(middle.X, endLead.Y));
+        }
+        else
+        {
+            bool horizontalFirst = Math.Abs(endLead.X - startLead.X) >= Math.Abs(endLead.Y - startLead.Y);
+            if (horizontalFirst)
+            {
+                double midX = (startLead.X + endLead.X) / 2;
+                points.Add(new Point(midX, startLead.Y));
+                points.Add(new Point(midX, endLead.Y));
+            }
+            else
+            {
+                double midY = (startLead.Y + endLead.Y) / 2;
+                points.Add(new Point(startLead.X, midY));
+                points.Add(new Point(endLead.X, midY));
+            }
+        }
+
+        points.Add(endLead);
+        points.Add(connVis.End);
+        return RemoveDuplicatePoints(points);
+    }
+
+    private static IReadOnlyList<Point> RemoveDuplicatePoints(IReadOnlyList<Point> points)
+    {
+        var compact = new List<Point>(points.Count);
+        foreach (var point in points)
+        {
+            if (compact.Count == 0 || DistanceSquared(compact[^1], point) > 0.01)
+                compact.Add(point);
+        }
+        return compact;
+    }
+
+    private static Point EvaluatePolylinePoint(IReadOnlyList<Point> points, double t)
+    {
+        if (points.Count == 0) return new Point();
+        if (points.Count == 1) return points[0];
+        double total = PolylineLength(points);
+        if (total <= 0.001) return points[^1];
+        double target = Math.Clamp(t, 0, 1) * total;
+        double walked = 0;
+        for (int i = 1; i < points.Count; i++)
+        {
+            double segment = Distance(points[i - 1], points[i]);
+            if (walked + segment >= target)
+                return Lerp(points[i - 1], points[i], segment <= 0.001 ? 1 : (target - walked) / segment);
+            walked += segment;
+        }
+        return points[^1];
+    }
+
+    private static Vector2 EvaluatePolylineTangent(IReadOnlyList<Point> points, double t)
+    {
+        if (points.Count < 2) return Vector2.UnitX;
+        double total = PolylineLength(points);
+        double target = Math.Clamp(t, 0, 1) * Math.Max(0.001, total);
+        double walked = 0;
+        for (int i = 1; i < points.Count; i++)
+        {
+            double segment = Distance(points[i - 1], points[i]);
+            if (walked + segment >= target)
+                return Normalize(points[i - 1], points[i]);
+            walked += segment;
+        }
+        return Normalize(points[^2], points[^1]);
+    }
+
+    private static double PolylineLength(IReadOnlyList<Point> points)
+    {
+        double total = 0;
+        for (int i = 1; i < points.Count; i++)
+            total += Distance(points[i - 1], points[i]);
+        return total;
+    }
+
+    private static double Distance(Point a, Point b) => Math.Sqrt(DistanceSquared(a, b));
+
+    private static double DistanceSquared(Point a, Point b)
+    {
+        double dx = a.X - b.X;
+        double dy = a.Y - b.Y;
+        return dx * dx + dy * dy;
+    }
 
     private static Point GetQuadraticControlThroughMid(Point start, Point middle, Point end) =>
         new(2 * middle.X - (start.X + end.X) / 2, 2 * middle.Y - (start.Y + end.Y) / 2);

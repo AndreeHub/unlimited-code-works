@@ -30,11 +30,34 @@ public sealed partial class CanvasViewport
     {
         Key key = KeyInterop.KeyFromVirtualKey((int)wParam.ToInt64());
         if (_editingNoteKey is not null) { HandleEditModeKey(key); return; }
+        if (_editingGroupKey is not null) { HandleGroupTitleEditKey(key); return; }
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && key == Key.G)
+        {
+            GroupSelectedBlocks();
+            return;
+        }
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && key == Key.U)
+        {
+            UngroupSelectedGroups();
+            return;
+        }
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && key == Key.V)
+        {
+            Point world = GetLastMouseWorldPoint();
+            if (PasteRequestedCommand?.CanExecute(null) == true)
+                PasteRequestedCommand.Execute(new PasteRequestedArgs(world.X, world.Y));
+            return;
+        }
         if (key == Key.Delete) { DeleteSelected(); return; }
         if (key == Key.D) { DetachSelectedNotes(); return; }
         if (key == Key.F) { FrameAll(); return; }
         if (key == Key.B) { ToggleBackground(); return; }
         if (key == Key.E) { AddOrMoveConnectionArrow(ToWorld(_lastMouseScreenPoint)); return; }
+        if (key == Key.Space)
+        {
+            ToggleSelectedGroupCollapse();
+            return;
+        }
         if ((key == Key.LeftShift || key == Key.RightShift) && _isDrawingConnection)
         {
             _connectionDraftMidPoint = ToWorld(_lastMouseScreenPoint);
@@ -71,6 +94,14 @@ public sealed partial class CanvasViewport
             {
                 var vis = _snapshot.Blocks.FirstOrDefault(b => b.Block.Key == selected.Key);
                 if (vis is not null) BeginNoteEdit(vis.Block);
+                return;
+            }
+
+            selected = Scene.Blocks.FirstOrDefault(b => b.IsSelected && IsColorGroup(b));
+            if (selected is not null)
+            {
+                BeginGroupTitleEdit(selected);
+                return;
             }
             return;
         }
@@ -88,6 +119,12 @@ public sealed partial class CanvasViewport
 
     private void HandleLDown(Point screen)
     {
+        if (_isDrawingConnection)
+        {
+            HandleConnectionClick(screen);
+            return;
+        }
+
         Focus(); SetFocus(_hwnd);
 
         if (_editingNoteKey is not null)
@@ -127,39 +164,37 @@ public sealed partial class CanvasViewport
             }
         }
 
+        if (_editingGroupKey is not null)
+        {
+            Point worldEd = ToWorld(screen);
+            var editVis = _snapshot.Blocks.FirstOrDefault(b => b.Block.Key == _editingGroupKey);
+            if (editVis is null || !editVis.Bounds.Contains(worldEd))
+            {
+                CommitGroupTitleEdit(save: true);
+            }
+            else
+            {
+                _editCursorVisible = true;
+                RenderNative();
+                return;
+            }
+        }
+
         if (TryHandleMinimapClick(screen)) return;
 
         Point world = ToWorld(screen);
+        var blockHitForDoubleClick = HitBlock(world);
+        if (blockHitForDoubleClick is not null
+            && IsColorGroup(blockHitForDoubleClick.Block)
+            && IsDoubleClick(blockHitForDoubleClick.Block.Key, screen))
+        {
+            ToggleGroupCollapse(blockHitForDoubleClick.Block.Key);
+            return;
+        }
 
         var anchorHit = HitConnectionAnchor(world);
         if (anchorHit is not null)
         {
-            if (_isDrawingConnection)
-            {
-                if (anchorHit.Block.Block.Key != _connectionSourceKey)
-                {
-                    if (_rewireConnectionId is not null)
-                    {
-                        CompleteConnectionRewire(anchorHit);
-                    }
-                    else if (ConnectionDrawnCommand?.CanExecute(null) == true)
-                    {
-                        ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(
-                            _connectionSourceKey!,
-                            anchorHit.Block.Block.Key,
-                            _connectionSourceAnchorIndex,
-                            anchorHit.AnchorIndex,
-                            _connectionDraftMidPoint?.X,
-                            _connectionDraftMidPoint?.Y,
-                            _connectionDraftMidPointBends));
-                    }
-                }
-
-                ClearConnectionDrawingState();
-                RenderNative();
-                return;
-            }
-
             if (HitConnectionEndpoint(anchorHit) is { } endpointHit)
             {
                 BeginConnectionRewire(endpointHit);
@@ -211,14 +246,6 @@ public sealed partial class CanvasViewport
             return;
         }
 
-        // Draw-connection mode: click to end connection
-        if (_isDrawingConnection)
-        {
-            ClearConnectionDrawingState();
-            RenderNative();
-            return;
-        }
-
         if (HitConnectionCurve(world, out _) is { } curveHit)
         {
             SelectConnection(curveHit.Connection.Id);
@@ -249,15 +276,6 @@ public sealed partial class CanvasViewport
                 return;
             }
 
-            // Alt+click on a code block â†’ extract function to new block
-            if (isAlt && hit.Block.Kind is BlockKind.File or BlockKind.Extract && hit.Block.Body is not null)
-            {
-                int codeLine = WorldToCodeLine(hit, world);
-                if (ExtractRequestedCommand?.CanExecute(null) == true)
-                    ExtractRequestedCommand.Execute(new ExtractRequestedArgs(hit.Block, codeLine, 1));
-                return;
-            }
-
             // Shift+click = toggle selection (was Ctrl previously, now Ctrl is reserved for focus)
             if (isShift)
             {
@@ -273,6 +291,14 @@ public sealed partial class CanvasViewport
                 ApplySceneChange(ClearConnectionSelection(SetSelection(Scene, new[] { hit.Block.Key })));
                 RebuildSnapshot();
                 hit = HitBlock(world);
+                if (hit is null) return;
+            }
+
+            if (isAlt)
+            {
+                string duplicateKey = DuplicateSelectedBlocksForDrag(hit.Block.Key);
+                RebuildSnapshot();
+                hit = _snapshot.Blocks.FirstOrDefault(b => b.Block.Key.Equals(duplicateKey, StringComparison.OrdinalIgnoreCase));
                 if (hit is null) return;
             }
 
@@ -292,16 +318,10 @@ public sealed partial class CanvasViewport
                     SetCapture(_hwnd);
                     return;
                 }
-                // If note was already selected, clicking inside enters edit mode
-                if (wasAlreadySelected)
-                {
-                    BeginNoteEdit(hit.Block, world);
-                    return;
-                }
             }
 
             // Check resize handle
-            if (hit.Block.Kind is BlockKind.File or BlockKind.Extract && IsInResize(hit.Bounds, world))
+            if (hit.Block.Kind != BlockKind.Note && IsInResize(hit.Bounds, world))
             {
                 _resizeKey = hit.Block.Key;
                 _resizeWorldPoint = world;
@@ -328,8 +348,10 @@ public sealed partial class CanvasViewport
 
             // Start drag
             _primaryDrag = hit.Block.Key;
-            _draggedKeys = Scene.Blocks.Where(b => b.IsSelected).Select(b => b.Key)
-                .DefaultIfEmpty(hit.Block.Key).ToList();
+            _draggedKeys = IsColorGroup(hit.Block)
+                ? GetGroupDragKeys(hit.Block)
+                : Scene.Blocks.Where(b => b.IsSelected).Select(b => b.Key)
+                    .DefaultIfEmpty(hit.Block.Key).ToList();
             _dragWorldPoint = world;
             _dragStartScreen = screen;
             _didMove = false;
@@ -402,29 +424,28 @@ public sealed partial class CanvasViewport
         {
             Point world = ToWorld(screen);
             var anchorHit = HitConnectionAnchor(world);
-            if (anchorHit is not null && anchorHit.Block.Block.Key != _connectionSourceKey)
+            if (anchorHit is not null && TryCompleteConnectionToAnchor(anchorHit))
             {
-                if (_rewireConnectionId is not null)
-                {
-                    CompleteConnectionRewire(anchorHit);
-                }
-                else if (ConnectionDrawnCommand?.CanExecute(null) == true)
-                {
-                    ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(
-                        _connectionSourceKey!,
-                        anchorHit.Block.Block.Key,
-                        _connectionSourceAnchorIndex,
-                        anchorHit.AnchorIndex,
-                        _connectionDraftMidPoint?.X,
-                        _connectionDraftMidPoint?.Y,
-                        _connectionDraftMidPointBends));
-                }
                 ClearConnectionDrawingState();
                 ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture(); return;
             }
 
-            if (!_didMove)
+            var targetBlock = HitBlock(world);
+            if (targetBlock is not null && TryCompleteConnectionToBlock(targetBlock, world))
             {
+                ClearConnectionDrawingState();
+                ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture(); return;
+            }
+
+            bool keepArmedConnection = !_didMove || IsConnectionSourceAnchor(anchorHit) || IsNearConnectionSource(world);
+            if (keepArmedConnection)
+            {
+                if (anchorHit is not null)
+                {
+                    _connectionCurrentWorld = anchorHit.Point;
+                    UpdateConnectionHoverTarget(world);
+                    RenderNative();
+                }
                 ResetInteraction(); UpdateHoverCursor(screen); ReleaseCapture(); return;
             }
 
@@ -479,7 +500,7 @@ public sealed partial class CanvasViewport
                     }
                     // Single click: IsDoubleClick already tracked the click
                 }
-                else if (IsDoubleClick(visual.Block.Key, screen) && BlockActivatedCommand?.CanExecute(null) == true)
+                else if (!IsColorGroup(visual.Block) && IsDoubleClick(visual.Block.Key, screen) && BlockActivatedCommand?.CanExecute(null) == true)
                     BlockActivatedCommand.Execute(new BlockActivatedArgs(visual.Block));
                 else
                     TrackClick(visual.Block.Key, screen);
@@ -526,24 +547,8 @@ public sealed partial class CanvasViewport
         {
             Point world = ToWorld(screen);
             var anchorHit = HitConnectionAnchor(world);
-            if (anchorHit is not null && anchorHit.Block.Block.Key != _connectionSourceKey)
-            {
-                if (_rewireConnectionId is not null)
-                {
-                    CompleteConnectionRewire(anchorHit);
-                }
-                else if (ConnectionDrawnCommand?.CanExecute(null) == true)
-                {
-                    ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(
-                        _connectionSourceKey!,
-                        anchorHit.Block.Block.Key,
-                        _connectionSourceAnchorIndex,
-                        anchorHit.AnchorIndex,
-                        _connectionDraftMidPoint?.X,
-                        _connectionDraftMidPoint?.Y,
-                        _connectionDraftMidPointBends));
-                }
-            }
+            if (anchorHit is not null)
+                TryCompleteConnectionToAnchor(anchorHit);
             ClearConnectionDrawingState();
             ReleaseCapture();
             RenderNative();
@@ -579,7 +584,7 @@ public sealed partial class CanvasViewport
             if (!_didMove && _dragStartScreen is not null)
             {
                 var d = screen - _dragStartScreen.Value;
-                if (Math.Abs(d.X) >= 4 || Math.Abs(d.Y) >= 4) _didMove = true;
+                if (Math.Abs(d.X) >= ConnectionDragThreshold || Math.Abs(d.Y) >= ConnectionDragThreshold) _didMove = true;
             }
             _connectionCurrentWorld = world;
             UpdateConnectionHoverTarget(world);
@@ -775,18 +780,212 @@ public sealed partial class CanvasViewport
         var set = keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (string attachedNoteKey in GetAttachedNoteKeys(set))
             set.Add(attachedNoteKey);
+
+        if (SnapToGrid)
+        {
+            var anchorKey = _primaryDrag is not null && set.Contains(_primaryDrag) ? _primaryDrag : keys[0];
+            var anchor = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(anchorKey, StringComparison.OrdinalIgnoreCase));
+            if (anchor is not null)
+            {
+                double grid = Math.Clamp(GridSize, 4, 240);
+                double snappedX = Math.Round((anchor.X + dx) / grid) * grid;
+                double snappedY = Math.Round((anchor.Y + dy) / grid) * grid;
+                dx = snappedX - anchor.X;
+                dy = snappedY - anchor.Y;
+            }
+        }
+
         var blocks = Scene.Blocks
-            .Select(b => set.Contains(b.Key) ? b with { X = b.X + dx, Y = b.Y + dy } : b)
+            .Select(b =>
+            {
+                if (!set.Contains(b.Key) || b.IsLocked) return b;
+                var movedGroupState = b.GroupState is null
+                    ? null
+                    : b.GroupState with { ExpandedX = b.GroupState.ExpandedX + dx, ExpandedY = b.GroupState.ExpandedY + dy };
+                return b with { X = b.X + dx, Y = b.Y + dy, GroupState = movedGroupState };
+            })
             .ToList();
         ApplySceneChange(Scene with { Blocks = blocks });
         RebuildSnapshot(); RenderNative();
+    }
+
+    private void GroupSelectedBlocks()
+    {
+        var selected = Scene.Blocks
+            .Where(b => b.IsSelected && !b.IsLocked && !IsColorGroup(b))
+            .ToList();
+        if (selected.Count == 0) return;
+
+        Rect bounds = new(selected[0].X, selected[0].Y, selected[0].Width, selected[0].Height);
+        foreach (var block in selected.Skip(1))
+            bounds.Union(new Rect(block.X, block.Y, block.Width, block.Height));
+        bounds.Inflate(GroupPadX, GroupPadBottom);
+        bounds.Y -= GroupPadTop - GroupPadBottom;
+        bounds.Height += GroupPadTop - GroupPadBottom;
+
+        var id = Guid.NewGuid();
+        int groupNumber = Scene.Blocks.Count(IsColorGroup) + 1;
+        var palette = GroupPalette();
+        var style = palette[(groupNumber - 1) % palette.Length];
+        int minZ = Scene.Blocks.Count == 0 ? 0 : Scene.Blocks.Min(b => b.ZIndex);
+        var group = new RenderBlock(
+            id,
+            $"container::{id:N}",
+            BlockKind.Container,
+            $"Group {groupNumber}",
+            $"{selected.Count} item{(selected.Count == 1 ? string.Empty : "s")}",
+            bounds.X,
+            bounds.Y,
+            Math.Max(220, bounds.Width),
+            Math.Max(140, bounds.Height),
+            IsSelected: true,
+            ZIndex: minZ - 1,
+            LayerKey: "layer::architecture",
+            ShapeType: "color-group",
+            Style: style);
+
+        var blocks = Scene.Blocks
+            .Select(b => b with { IsSelected = false })
+            .Append(group)
+            .ToList();
+        ApplySceneChange(ClearConnectionSelection(Scene with { Blocks = blocks }));
+        RebuildSnapshot();
+        RenderNative();
+    }
+
+    private void ToggleGroupCollapse(string groupKey)
+    {
+        var blocks = Scene.Blocks.Select(b =>
+        {
+            if (!b.Key.Equals(groupKey, StringComparison.OrdinalIgnoreCase) || !IsColorGroup(b) || b.IsLocked)
+                return b;
+
+            if (b.IsCollapsed)
+            {
+                var state = b.GroupState;
+                return state is null
+                    ? b with { IsCollapsed = false }
+                    : b with
+                    {
+                        IsCollapsed = false,
+                        X = state.ExpandedX,
+                        Y = state.ExpandedY,
+                        Width = state.ExpandedWidth,
+                        Height = state.ExpandedHeight,
+                        GroupState = null
+                    };
+            }
+
+            return b with
+            {
+                IsCollapsed = true,
+                Width = CollapsedGroupW,
+                Height = CollapsedGroupH,
+                GroupState = new BoardGroupState(b.X, b.Y, b.Width, b.Height)
+            };
+        }).ToList();
+        ApplySceneChange(Scene with { Blocks = blocks });
+        RebuildSnapshot();
+        RenderNative();
+    }
+
+    private void ToggleSelectedGroupCollapse()
+    {
+        var selectedGroup = Scene.Blocks.FirstOrDefault(b => b.IsSelected && IsColorGroup(b));
+        if (selectedGroup is null) return;
+        ToggleGroupCollapse(selectedGroup.Key);
+    }
+
+    private void UngroupSelectedGroups()
+    {
+        var selectedGroupKeys = Scene.Blocks
+            .Where(b => b.IsSelected && IsColorGroup(b) && !b.IsLocked)
+            .Select(b => b.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (selectedGroupKeys.Count == 0) return;
+
+        var blocks = Scene.Blocks
+            .Where(b => !selectedGroupKeys.Contains(b.Key))
+            .Select(b => b with { IsSelected = false })
+            .ToList();
+        var connections = Scene.Connections
+            .Where(c => !selectedGroupKeys.Contains(c.SourceKey) && !selectedGroupKeys.Contains(c.TargetKey))
+            .ToList();
+
+        ApplySceneChange(Scene with { Blocks = blocks, Connections = connections });
+        RebuildSnapshot();
+        RenderNative();
+    }
+
+    private List<string> GetGroupDragKeys(RenderBlock group)
+    {
+        var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { group.Key };
+        Rect groupBounds = GetGroupExpandedBounds(group);
+        foreach (var block in Scene.Blocks)
+        {
+            if (block.Key.Equals(group.Key, StringComparison.OrdinalIgnoreCase)) continue;
+            if (IsColorGroup(block)) continue;
+            if (groupBounds.IntersectsWith(new Rect(block.X, block.Y, block.Width, block.Height)))
+                keys.Add(block.Key);
+        }
+
+        return keys.ToList();
+    }
+
+    private static BoardItemStyle[] GroupPalette() => new[]
+    {
+        new BoardItemStyle("#EAF4FF", "#2E7DD7", "#17324D", 1.6, Opacity: 0.18, CornerRadius: 8),
+        new BoardItemStyle("#EAFBF3", "#23A26D", "#123B2B", 1.6, Opacity: 0.18, CornerRadius: 8),
+        new BoardItemStyle("#FFF4DE", "#D97706", "#4B2E05", 1.6, Opacity: 0.18, CornerRadius: 8),
+        new BoardItemStyle("#FCEBEC", "#DC2626", "#4A1111", 1.6, Opacity: 0.18, CornerRadius: 8),
+        new BoardItemStyle("#F3EEFF", "#7C3AED", "#2F1A55", 1.6, Opacity: 0.18, CornerRadius: 8)
+    };
+
+    private string DuplicateSelectedBlocksForDrag(string hitKey)
+    {
+        var selected = Scene.Blocks.Where(b => b.IsSelected).ToList();
+        if (selected.Count == 0)
+        {
+            var hit = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(hitKey, StringComparison.OrdinalIgnoreCase));
+            if (hit is not null) selected.Add(hit);
+        }
+
+        if (selected.Count == 0) return hitKey;
+
+        var keyMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var duplicates = new List<RenderBlock>(selected.Count);
+        foreach (var block in selected)
+        {
+            var id = Guid.NewGuid();
+            string key = $"{block.Kind.ToString().ToLowerInvariant()}::{id:N}";
+            keyMap[block.Key] = key;
+            duplicates.Add(block with
+            {
+                Id = id,
+                Key = key,
+                IsSelected = true,
+                ZIndex = Scene.Blocks.Count + duplicates.Count
+            });
+        }
+
+        var annotations = Scene.Annotations.Concat(duplicates
+            .Where(b => b.Kind == BlockKind.Note)
+            .Select(b => new RenderAnnotation(b.Id, b.Key, b.Body ?? b.Title, b.X, b.Y)))
+            .ToList();
+
+        var blocks = Scene.Blocks
+            .Select(b => b with { IsSelected = false })
+            .Concat(duplicates)
+            .ToList();
+        ApplySceneChange(ClearConnectionSelection(Scene with { Blocks = blocks, Annotations = annotations }));
+        return keyMap.TryGetValue(hitKey, out string? duplicateKey) ? duplicateKey : duplicates[0].Key;
     }
 
     private void ResizeBlock(string key, double dw, double dh)
     {
         var blocks = Scene.Blocks.Select(b =>
         {
-            if (!b.Key.Equals(key, StringComparison.OrdinalIgnoreCase)) return b;
+            if (!b.Key.Equals(key, StringComparison.OrdinalIgnoreCase) || b.IsLocked) return b;
             double width = Math.Max(MinBlockW, b.Width + dw);
             double height = Math.Max(MinBlockH, b.Height + dh);
             return b with
@@ -830,7 +1029,7 @@ public sealed partial class CanvasViewport
         var selectedKeys = Scene.Blocks.Where(b => b.IsSelected).Select(b => b.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var selectedLaneKeys = Scene.SwimLanes.Where(l => l.IsSelected).Select(l => l.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (selectedKeys.Count == 0 && selectedLaneKeys.Count == 0) return;
-        var blocks = Scene.Blocks.Where(b => !selectedKeys.Contains(b.Key)).ToList();
+        var blocks = Scene.Blocks.Where(b => !selectedKeys.Contains(b.Key) || b.IsLocked).ToList();
         var connections = Scene.Connections
             .Where(c => !selectedKeys.Contains(c.SourceKey) && !selectedKeys.Contains(c.TargetKey))
             .ToList();
@@ -884,6 +1083,126 @@ public sealed partial class CanvasViewport
             .Append(new RenderConnection(Guid.NewGuid(), sourceKey, noteKey, "__note"))
             .ToList();
         ApplySceneChange(Scene with { Connections = connections });
+    }
+
+    private bool TryCompleteConnectionToBlock(SceneBlockVisual targetBlock, Point world)
+    {
+        if (targetBlock.Block.Kind == BlockKind.Note
+            || targetBlock.Block.Key.Equals(_connectionSourceKey, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        int targetAnchorIndex = FindNearestConnectionAnchor(targetBlock.Bounds, world);
+        Point targetAnchor = GetConnectionAnchorPoint(targetBlock.Bounds, targetAnchorIndex);
+
+        if (_rewireConnectionId is not null)
+        {
+            CompleteConnectionRewire(new ConnectionAnchorHit(targetBlock, targetAnchorIndex, targetAnchor));
+            return true;
+        }
+
+        if (_connectionSourceKey is null || ConnectionDrawnCommand?.CanExecute(null) != true)
+            return false;
+
+        ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(
+            _connectionSourceKey,
+            targetBlock.Block.Key,
+            _connectionSourceAnchorIndex,
+            targetAnchorIndex,
+            _connectionDraftMidPoint?.X,
+            _connectionDraftMidPoint?.Y,
+            _connectionDraftMidPointBends));
+        return true;
+    }
+
+    private void HandleConnectionClick(Point screen)
+    {
+        Point world = ToWorld(screen);
+        var anchorHit = HitConnectionAnchor(world);
+        if (anchorHit is not null)
+        {
+            if (TryCompleteConnectionToAnchor(anchorHit))
+            {
+                ClearConnectionDrawingState();
+                ResetInteraction();
+                ReleaseCapture();
+                RenderNative();
+                return;
+            }
+
+            if (IsConnectionSourceAnchor(anchorHit))
+            {
+                KeepConnectionDrawing(world, anchorHit);
+                return;
+            }
+        }
+
+        var targetBlock = HitBlock(world);
+        if (targetBlock is not null && TryCompleteConnectionToBlock(targetBlock, world))
+        {
+            ClearConnectionDrawingState();
+            ResetInteraction();
+            ReleaseCapture();
+            RenderNative();
+            return;
+        }
+
+        if (IsNearConnectionSource(world))
+        {
+            KeepConnectionDrawing(world, anchorHit);
+            return;
+        }
+
+        ClearConnectionDrawingState();
+        ResetInteraction();
+        ReleaseCapture();
+        RenderNative();
+    }
+
+    private void KeepConnectionDrawing(Point world, ConnectionAnchorHit? anchorHit)
+    {
+        _connectionCurrentWorld = anchorHit?.Point ?? world;
+        UpdateConnectionHoverTarget(world);
+        ResetInteraction();
+        ReleaseCapture();
+        RenderNative();
+    }
+
+    private bool TryCompleteConnectionToAnchor(ConnectionAnchorHit anchorHit)
+    {
+        if (anchorHit.Block.Block.Key.Equals(_connectionSourceKey, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (_rewireConnectionId is not null)
+        {
+            CompleteConnectionRewire(anchorHit);
+            return true;
+        }
+
+        if (_connectionSourceKey is null || ConnectionDrawnCommand?.CanExecute(null) != true)
+            return false;
+
+        ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(
+            _connectionSourceKey,
+            anchorHit.Block.Block.Key,
+            _connectionSourceAnchorIndex,
+            anchorHit.AnchorIndex,
+            _connectionDraftMidPoint?.X,
+            _connectionDraftMidPoint?.Y,
+            _connectionDraftMidPointBends));
+        return true;
+    }
+
+    private bool IsConnectionSourceAnchor(ConnectionAnchorHit? anchorHit) =>
+        anchorHit is not null
+        && anchorHit.Block.Block.Key.Equals(_connectionSourceKey, StringComparison.OrdinalIgnoreCase);
+
+    private bool IsNearConnectionSource(Point world)
+    {
+        if (_connectionSourceKey is null) return false;
+        double radius = (ConnectionAnchorHitRadius * 2) / Math.Max(0.12, _camera.Zoom);
+        double dx = world.X - _connectionSourceWorld.X;
+        double dy = world.Y - _connectionSourceWorld.Y;
+        return (dx * dx) + (dy * dy) <= radius * radius;
     }
 
     private void DetachSelectedNotes()
@@ -1004,6 +1323,133 @@ public sealed partial class CanvasViewport
         RenderNative();
     }
 
+    private void BeginGroupTitleEdit(RenderBlock block)
+    {
+        if (!IsColorGroup(block) || block.IsLocked) return;
+        _editingGroupKey = block.Key;
+        _editTitle = block.Title;
+        _editBody = string.Empty;
+        _editingTitle = true;
+        _editCursorPos = _editTitle.Length;
+        _editSelectionAnchor = 0;
+        _editMouseSelecting = false;
+        _editCursorVisible = true;
+        _cursorBlinkTimer?.Dispose();
+        _cursorBlinkTimer = new System.Threading.Timer(_ =>
+        {
+            _editCursorVisible = !_editCursorVisible;
+            Dispatcher.BeginInvoke(new Action(RenderNative));
+        }, null, 530, 530);
+        ApplySceneChange(SetSelection(Scene, new[] { block.Key }));
+        RebuildSnapshot();
+        RenderNative();
+    }
+
+    private void CommitGroupTitleEdit(bool save)
+    {
+        _cursorBlinkTimer?.Dispose();
+        _cursorBlinkTimer = null;
+        string? key = _editingGroupKey;
+        _editingGroupKey = null;
+        _editCursorVisible = false;
+        _editSelectionAnchor = -1;
+        _editMouseSelecting = false;
+
+        if (save && key is not null)
+        {
+            string title = string.IsNullOrWhiteSpace(_editTitle) ? "Group" : _editTitle.Trim();
+            var blocks = Scene.Blocks.Select(b =>
+                b.Key.Equals(key, StringComparison.OrdinalIgnoreCase) && IsColorGroup(b)
+                    ? b with { Title = title }
+                    : b).ToList();
+            ApplySceneChange(Scene with { Blocks = blocks });
+            RebuildSnapshot();
+            return;
+        }
+
+        RenderNative();
+    }
+
+    private void HandleGroupTitleEditKey(Key key)
+    {
+        bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+        bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+
+        if (ctrl && key == Key.A)
+        {
+            _editSelectionAnchor = 0;
+            _editCursorPos = _editTitle.Length;
+            _editCursorVisible = true; RenderNative(); return;
+        }
+        if (ctrl && (key == Key.C || key == Key.X))
+        {
+            var selCx = GetEditSelection();
+            if (selCx is not null)
+            {
+                int s = selCx.Value.Item1, e = selCx.Value.Item2;
+                try { System.Windows.Clipboard.SetText(_editTitle.Substring(s, e - s)); } catch { }
+                if (key == Key.X) DeleteEditSelection();
+            }
+            _editCursorVisible = true; RenderNative(); return;
+        }
+        if (ctrl && key == Key.V)
+        {
+            try
+            {
+                if (System.Windows.Clipboard.ContainsText())
+                    InsertEditText(System.Windows.Clipboard.GetText().Replace("\r", "").Replace("\n", " "));
+            }
+            catch { }
+            _editCursorVisible = true; RenderNative(); return;
+        }
+
+        switch (key)
+        {
+            case Key.Return:
+                CommitGroupTitleEdit(save: true); return;
+            case Key.Escape:
+                CommitGroupTitleEdit(save: false); return;
+            case Key.Back:
+                if (!DeleteEditSelection() && _editCursorPos > 0)
+                {
+                    _editTitle = _editTitle.Remove(_editCursorPos - 1, 1);
+                    _editCursorPos--;
+                }
+                _editSelectionAnchor = -1;
+                break;
+            case Key.Delete:
+                if (!DeleteEditSelection() && _editCursorPos < _editTitle.Length)
+                    _editTitle = _editTitle.Remove(_editCursorPos, 1);
+                _editSelectionAnchor = -1;
+                break;
+            case Key.Left:
+                UpdateSelectionAnchor(shift);
+                if (!shift && GetEditSelection() is { } selL) _editCursorPos = selL.Item1;
+                else if (_editCursorPos > 0) _editCursorPos--;
+                if (!shift) _editSelectionAnchor = -1;
+                break;
+            case Key.Right:
+                UpdateSelectionAnchor(shift);
+                if (!shift && GetEditSelection() is { } selR) _editCursorPos = selR.Item2;
+                else if (_editCursorPos < _editTitle.Length) _editCursorPos++;
+                if (!shift) _editSelectionAnchor = -1;
+                break;
+            case Key.Home:
+                UpdateSelectionAnchor(shift);
+                _editCursorPos = 0;
+                if (!shift) _editSelectionAnchor = -1;
+                break;
+            case Key.End:
+                UpdateSelectionAnchor(shift);
+                _editCursorPos = _editTitle.Length;
+                if (!shift) _editSelectionAnchor = -1;
+                break;
+        }
+
+        _editCursorVisible = true;
+        RenderNative();
+    }
+
     private void HandleEditModeKey(Key key)
     {
         bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
@@ -1107,9 +1553,17 @@ public sealed partial class CanvasViewport
 
     private void HandleChar(char c)
     {
-        if (_editingNoteKey is null) return;
+        if (_editingNoteKey is null && _editingGroupKey is null) return;
         if (c == '\b' || c == 27 || c == '\n' || c == '\t') return; // handled elsewhere
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return; // ctrl combos handled by HandleEditModeKey
+        if (_editingGroupKey is not null)
+        {
+            if (c >= 32)
+                InsertEditText(c.ToString());
+            _editCursorVisible = true;
+            RenderNative();
+            return;
+        }
         if (c == '\r')
         {
             // Title is single-line; Enter only inserts newline in body
@@ -1273,7 +1727,9 @@ public sealed partial class CanvasViewport
     // -----------------------------------------------------------------------
     private SceneBlockVisual? HitBlock(Point world)
     {
-        foreach (var v in _snapshot.QueryPoint(world).Reverse())
+        foreach (var v in _snapshot.QueryPoint(world)
+            .OrderByDescending(v => v.Block.ZIndex)
+            .ThenByDescending(v => GetBlockStackRank(v.Block)))
             if (v.Bounds.Contains(world)) return v;
         return null;
     }

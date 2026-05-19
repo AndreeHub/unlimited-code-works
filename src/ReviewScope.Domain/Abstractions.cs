@@ -2,7 +2,7 @@ namespace ReviewScope.Domain;
 
 public interface IWorkspaceLoader
 {
-    Task<WorkspaceSnapshot> LoadAsync(string path, CancellationToken cancellationToken);
+    Task<WorkspaceSnapshot> LoadAsync(string path, CancellationToken cancellationToken, string? branchName = null);
 }
 
 public interface IFileStructureService

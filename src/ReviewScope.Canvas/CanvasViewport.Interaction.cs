@@ -88,7 +88,7 @@ public sealed partial class CanvasViewport
         var hit = HitBlock(world);
         if (hit is not null && hit.Block.Focused is not null && IsInRestoreButton(hit.Bounds, world))
         { Cursor = Cursors.Hand; return; }
-        if (hit is not null && hit.Block.Kind is BlockKind.File or BlockKind.Extract && IsInResize(hit.Bounds, world))
+        if (hit is not null && hit.Block.Kind != BlockKind.Note && IsInResize(hit.Bounds, world))
         { Cursor = IsInRightEdgeResize(hit.Bounds, world) ? Cursors.SizeWE : Cursors.SizeNWSE; return; }
         if (HitSwimLaneResize(world) is not null) { Cursor = Cursors.SizeNWSE; return; }
         Cursor = Cursors.Arrow;

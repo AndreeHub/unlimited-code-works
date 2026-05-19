@@ -26,18 +26,25 @@ namespace ReviewScope.Canvas;
 
 public sealed partial class CanvasViewport
 {
+    private sealed record CollapsedGroupMember(string GroupKey, RenderBlock Member);
+
     private void ApplySceneChange(RenderScene scene)
     {
-        SetCurrentValue(SceneProperty, scene);
         if (BlockMovedCommand?.CanExecute(scene) == true)
             BlockMovedCommand.Execute(scene);
+        SetCurrentValue(SceneProperty, scene);
     }
 
     private void RebuildSnapshot()
     {
         _connectionGeoms.Clear();
 
+        var collapsedGroupMembers = GetCollapsedGroupMemberMap(Scene);
+        var hiddenByCollapsedGroups = collapsedGroupMembers.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var blocks = Scene.Blocks
+            .Where(b => !hiddenByCollapsedGroups.Contains(b.Key))
+            .OrderBy(b => b.ZIndex)
+            .ThenBy(GetBlockStackRank)
             .Select(b => new SceneBlockVisual(b, new Rect(b.X, b.Y, b.Width, b.Height)))
             .ToList();
         var blockLookup = blocks.ToDictionary(b => b.Block.Key, StringComparer.OrdinalIgnoreCase);
@@ -45,20 +52,50 @@ public sealed partial class CanvasViewport
         var connections = new List<SceneConnectionVisual>();
         foreach (var conn in Scene.Connections)
         {
-            if (!blockLookup.TryGetValue(conn.SourceKey, out var src) || !blockLookup.TryGetValue(conn.TargetKey, out var dst))
+            bool sourceIsCollapsedMember = collapsedGroupMembers.TryGetValue(conn.SourceKey, out var sourceGroupMember);
+            bool targetIsCollapsedMember = collapsedGroupMembers.TryGetValue(conn.TargetKey, out var targetGroupMember);
+            string sourceKey = sourceIsCollapsedMember ? sourceGroupMember!.GroupKey : conn.SourceKey;
+            string targetKey = targetIsCollapsedMember ? targetGroupMember!.GroupKey : conn.TargetKey;
+            if (sourceKey.Equals(targetKey, StringComparison.OrdinalIgnoreCase))
                 continue;
+
+            if (!blockLookup.TryGetValue(sourceKey, out var src) || !blockLookup.TryGetValue(targetKey, out var dst))
+                continue;
+
             Point srcCenter = CenterOf(src.Bounds);
             Point dstCenter = CenterOf(dst.Bounds);
-            int sourceAnchor = conn.SourceAnchorIndex ?? FindNearestConnectionAnchor(src.Bounds, dstCenter);
-            int targetAnchor = conn.TargetAnchorIndex ?? FindNearestConnectionAnchor(dst.Bounds, srcCenter);
+            int? sourceAnchorIndex = conn.SourceAnchorIndex;
+            int? targetAnchorIndex = conn.TargetAnchorIndex;
+            if (sourceIsCollapsedMember)
+                sourceAnchorIndex = FindCollapsedProxyAnchor(src.Block, sourceGroupMember!.Member, conn.SourceAnchorIndex, dstCenter);
+            if (targetIsCollapsedMember)
+                targetAnchorIndex = FindCollapsedProxyAnchor(dst.Block, targetGroupMember!.Member, conn.TargetAnchorIndex, srcCenter);
+
+            var visualConn = conn with
+            {
+                SourceKey = sourceKey,
+                TargetKey = targetKey,
+                SourceAnchorIndex = sourceAnchorIndex,
+                TargetAnchorIndex = targetAnchorIndex
+            };
+            int sourceAnchor = visualConn.SourceAnchorIndex ?? FindNearestConnectionAnchor(src.Bounds, dstCenter);
+            int targetAnchor = visualConn.TargetAnchorIndex ?? FindNearestConnectionAnchor(dst.Bounds, srcCenter);
             Point start = GetConnectionAnchorPoint(src.Bounds, sourceAnchor);
             Point end = GetConnectionAnchorPoint(dst.Bounds, targetAnchor);
             Rect bounds = new(start, end);
-            var visual = new SceneConnectionVisual(conn, start, end, bounds);
-            GetConnectionPathPoints(visual, out Point startLead, out Point middleControl, out Point endLead);
-            bounds.Union(startLead);
-            bounds.Union(middleControl);
-            bounds.Union(endLead);
+            var visual = new SceneConnectionVisual(visualConn, start, end, bounds);
+            if (conn.RouteKind is ConnectorRouteKind.Straight or ConnectorRouteKind.Orthogonal)
+            {
+                foreach (var point in BuildConnectionPolyline(visual))
+                    bounds.Union(point);
+            }
+            else
+            {
+                GetConnectionPathPoints(visual, out Point startLead, out Point middleControl, out Point endLead);
+                bounds.Union(startLead);
+                bounds.Union(middleControl);
+                bounds.Union(endLead);
+            }
             bounds.Inflate(80, 80);
             connections.Add(visual with { Bounds = bounds });
         }
@@ -79,7 +116,10 @@ public sealed partial class CanvasViewport
         if (!_visDirty && _lastVisCamera.Equals(_camera) && _lastVisSize == viewportSize) return;
         Rect viewport = new(new Point(0, 0), viewportSize);
         Rect world = WorldViewport(viewport, CullPadding);
-        _visibleBlocks = _snapshot.QueryBlocks(world);
+        _visibleBlocks = _snapshot.QueryBlocks(world)
+            .OrderBy(b => b.Block.ZIndex)
+            .ThenBy(b => GetBlockStackRank(b.Block))
+            .ToList();
         var visKeys = _visibleBlocks.Select(b => b.Block.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         _visibleConnections = _snapshot.QueryConnections(world, visKeys);
         _lastVisCamera = _camera; _lastVisSize = viewportSize; _visDirty = false;
@@ -95,5 +135,82 @@ public sealed partial class CanvasViewport
     private Point ToWorld(Point screen) =>
         new((screen.X - _camera.OffsetX) / _camera.Zoom,
             (screen.Y - _camera.OffsetY) / _camera.Zoom);
+
+    private static int GetBlockStackRank(RenderBlock block) =>
+        block.Kind switch
+        {
+            BlockKind.Container => 0,
+            BlockKind.File or BlockKind.Extract => 10,
+            BlockKind.MarkdownDoc or BlockKind.Shape or BlockKind.Text or BlockKind.Image => 20,
+            BlockKind.Note => 30,
+            _ => 10
+        };
+
+    private static Dictionary<string, CollapsedGroupMember> GetCollapsedGroupMemberMap(RenderScene scene)
+    {
+        var hidden = new Dictionary<string, CollapsedGroupMember>(StringComparer.OrdinalIgnoreCase);
+        var collapsedGroups = scene.Blocks
+            .Where(b => IsColorGroup(b) && b.IsCollapsed)
+            .ToList();
+        if (collapsedGroups.Count == 0) return hidden;
+
+        foreach (var group in collapsedGroups)
+        {
+            Rect groupBounds = GetGroupExpandedBounds(group);
+            foreach (var block in scene.Blocks)
+            {
+                if (block.Key.Equals(group.Key, StringComparison.OrdinalIgnoreCase)) continue;
+                if (IsColorGroup(block)) continue;
+                if (groupBounds.IntersectsWith(new Rect(block.X, block.Y, block.Width, block.Height)))
+                    hidden[block.Key] = new CollapsedGroupMember(group.Key, block);
+            }
+        }
+
+        return hidden;
+    }
+
+    private static int FindCollapsedProxyAnchor(RenderBlock group, RenderBlock member, int? memberAnchorIndex, Point otherPoint)
+    {
+        Rect memberBounds = new(member.X, member.Y, member.Width, member.Height);
+        int originalAnchor = memberAnchorIndex ?? FindNearestConnectionAnchor(memberBounds, otherPoint);
+        int side = GetAnchorSide(originalAnchor);
+        Rect expandedGroup = GetGroupExpandedBounds(group);
+        Point memberCenter = CenterOf(memberBounds);
+
+        double ratio = side is 0 or 2
+            ? (memberCenter.X - expandedGroup.Left) / Math.Max(1, expandedGroup.Width)
+            : (memberCenter.Y - expandedGroup.Top) / Math.Max(1, expandedGroup.Height);
+        int lane = Math.Clamp((int)Math.Floor(ratio * 4), 0, 3);
+        return AnchorForSideLane(side, lane);
+    }
+
+    private static int GetAnchorSide(int anchorIndex)
+    {
+        int safe = Math.Clamp(anchorIndex, 0, 15);
+        if (safe <= 3) return 0;
+        if (safe <= 7) return 1;
+        if (safe <= 11) return 2;
+        return 3;
+    }
+
+    private static int AnchorForSideLane(int side, int lane)
+    {
+        lane = Math.Clamp(lane, 0, 3);
+        return side switch
+        {
+            0 => lane,
+            1 => 4 + lane,
+            2 => 11 - lane,
+            _ => 15 - lane
+        };
+    }
+
+    private static bool IsColorGroup(RenderBlock block) =>
+        block.Kind == BlockKind.Container && string.Equals(block.ShapeType, "color-group", StringComparison.OrdinalIgnoreCase);
+
+    private static Rect GetGroupExpandedBounds(RenderBlock group) =>
+        group.GroupState is { } state
+            ? new Rect(state.ExpandedX, state.ExpandedY, state.ExpandedWidth, state.ExpandedHeight)
+            : new Rect(group.X, group.Y, group.Width, group.Height);
 }
 

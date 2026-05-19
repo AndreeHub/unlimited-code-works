@@ -1,4 +1,5 @@
 ﻿using ReviewScope.Domain;
+using System.IO;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -6,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Vortice;
 using Vortice.DCommon;
 using Vortice.Direct2D1;
@@ -23,6 +25,11 @@ using RectangleF = System.Drawing.RectangleF;
 using Color4 = Vortice.Mathematics.Color4;
 
 namespace ReviewScope.Canvas;
+
+internal sealed record ImageBitmapResource(ID2D1Bitmap Bitmap, int PixelWidth, int PixelHeight, DateTime LastWriteUtc) : IDisposable
+{
+    public void Dispose() => Bitmap.Dispose();
+}
 
 public sealed partial class CanvasViewport
 {
@@ -86,8 +93,8 @@ public sealed partial class CanvasViewport
     private void DrawGrid(Size viewSize)
     {
         float w = (float)viewSize.Width, h = (float)viewSize.Height;
-        var minor = GetBrush(WpfColor.FromArgb(42, 210, 218, 228));
-        var major = GetBrush(WpfColor.FromArgb(72, 190, 202, 216));
+        var minor = GetBrush(WpfColor.FromArgb(62, 198, 207, 219));
+        var major = GetBrush(WpfColor.FromArgb(104, 172, 184, 199));
         // Camera-aware grid: lines stay locked to world units so panning feels physical
         float spacing = 36f;
         float majorEvery = 5f;
@@ -109,16 +116,16 @@ public sealed partial class CanvasViewport
     private void DrawDots(Size viewSize)
     {
         float w = (float)viewSize.Width, h = (float)viewSize.Height;
-        const double worldSpacing = 28;
+        const double worldSpacing = 24;
         float spacing = (float)(worldSpacing * _camera.Zoom);
-        while (spacing < 14f) spacing *= 2f;
-        while (spacing > 34f) spacing *= 0.5f;
+        while (spacing < 13f) spacing *= 2f;
+        while (spacing > 30f) spacing *= 0.5f;
 
         float ox = (float)(_camera.OffsetX % spacing);
         float oy = (float)(_camera.OffsetY % spacing);
-        byte alpha = (byte)Math.Clamp(92 - Math.Abs(spacing - 22f) * 2.2f, 46, 92);
-        var dot = GetBrush(WpfColor.FromArgb(alpha, 198, 207, 219));
-        float r = Math.Clamp(spacing / 18f, 0.9f, 1.55f);
+        byte alpha = (byte)Math.Clamp(132 - Math.Abs(spacing - 20f) * 2.0f, 72, 132);
+        var dot = GetBrush(WpfColor.FromArgb(alpha, 176, 186, 200));
+        float r = Math.Clamp(spacing / 14f, 1.15f, 1.85f);
         for (float y = oy; y < h; y += spacing)
             for (float x = ox; x < w; x += spacing)
                 _rt!.FillEllipse(new Ellipse(new Vector2(x, y), r, r), dot);
@@ -182,24 +189,31 @@ public sealed partial class CanvasViewport
 
         WpfColor lineColor = conn.IsSelected
             ? WpfColor.FromArgb(230, 32, 104, 192)
-            : WpfColor.FromArgb(180, 69, 132, 203);
+            : ParseColor(conn.Stroke);
         float stroke = InvStroke(conn.IsSelected ? 2.2f : 1.6f);
 
         ID2D1PathGeometry geom = GetOrBuildConnectionGeometry(connVis);
         var brush = GetBrush(lineColor);
         _rt!.DrawGeometry(geom, brush, stroke);
-        if (conn.ArrowPosition is double t)
+        if (conn.ArrowKind == ConnectorArrowKind.None)
+        {
+            // no arrowhead
+        }
+        else if (conn.ArrowPosition is double t)
         {
             t = Math.Clamp(t, 0.04, 0.96);
             Point arrowPoint = EvaluateConnectionPoint(connVis, t);
             Vector2 tangent = EvaluateConnectionTangent(connVis, t);
-            if (!conn.ArrowForward) tangent = -tangent;
+            if (!conn.ArrowForward || conn.ArrowKind == ConnectorArrowKind.Backward) tangent = -tangent;
             DrawInlineArrow(arrowPoint, tangent, brush, stroke);
         }
         else
         {
-            GetConnectionPathPoints(connVis, out _, out _, out Point endLead);
-            DrawArrowhead(connVis.End, endLead, brush, stroke);
+            GetConnectionPathPoints(connVis, out Point startLead, out _, out Point endLead);
+            if (conn.ArrowKind is ConnectorArrowKind.Forward or ConnectorArrowKind.Both)
+                DrawArrowhead(connVis.End, endLead, brush, stroke);
+            if (conn.ArrowKind is ConnectorArrowKind.Backward or ConnectorArrowKind.Both)
+                DrawArrowhead(connVis.Start, startLead, brush, stroke);
         }
 
         if (!string.IsNullOrWhiteSpace(conn.Label))
@@ -226,16 +240,12 @@ public sealed partial class CanvasViewport
 
     private void DrawConnectionControlNodes(SceneConnectionVisual connVis)
     {
-        GetConnectionPathPoints(connVis, out Point startLead, out Point middleControl, out Point endLead);
-        var lineBrush = GetBrush(WpfColor.FromArgb(110, 80, 130, 190));
-        var fillBrush = GetBrush(WpfColor.FromRgb(255, 255, 255));
+        GetConnectionPathPoints(connVis, out _, out Point middleControl, out _);
         var nodeBrush = GetBrush(_selectedConnectionId == connVis.Connection.Id && _selectedConnectionControlKind == ConnectionControlNodeKind.Middle
             ? WpfColor.FromArgb(240, 35, 162, 109)
             : WpfColor.FromArgb(230, 32, 104, 192));
 
-        _rt!.DrawLine(new Vector2((float)startLead.X, (float)startLead.Y), new Vector2((float)middleControl.X, (float)middleControl.Y), lineBrush, InvStroke(0.9f));
-        _rt.DrawLine(new Vector2((float)endLead.X, (float)endLead.Y), new Vector2((float)middleControl.X, (float)middleControl.Y), lineBrush, InvStroke(0.9f));
-        DrawControlNode(middleControl, fillBrush, nodeBrush);
+        DrawControlPoint(middleControl, nodeBrush);
     }
 
     private void DrawConnectionPreview(Point start, int? sourceAnchorIndex, Point end, int? targetAnchorIndex, Point? draftMid, bool draftMidBends, WpfColor color)
@@ -278,7 +288,13 @@ public sealed partial class CanvasViewport
         var brush = GetBrush(color);
         _rt.DrawGeometry(path, brush, InvStroke(_connectionHoverTargetWorld is not null ? 2.1f : 1.5f));
         if (draftMid is Point p)
-            DrawControlNode(p, GetBrush(WpfColor.FromRgb(255, 255, 255)), GetBrush(WpfColor.FromArgb(230, 35, 162, 109)));
+            DrawControlPoint(p, GetBrush(WpfColor.FromArgb(230, 35, 162, 109)));
+    }
+
+    private void DrawControlPoint(Point p, ID2D1SolidColorBrush brush)
+    {
+        float r = Math.Max(3f, InvStroke(4f));
+        _rt!.FillEllipse(new Ellipse(new Vector2((float)p.X, (float)p.Y), r, r), brush);
     }
 
     private void DrawControlNode(Point p, ID2D1SolidColorBrush fill, ID2D1SolidColorBrush stroke)
@@ -317,6 +333,21 @@ public sealed partial class CanvasViewport
 
         float x1 = (float)connVis.Start.X, y1 = (float)connVis.Start.Y;
         float x2 = (float)connVis.End.X, y2 = (float)connVis.End.Y;
+        if (connVis.Connection.RouteKind is ConnectorRouteKind.Straight or ConnectorRouteKind.Orthogonal)
+        {
+            var linePath = _factory!.CreatePathGeometry();
+            using var lineSink = linePath.Open();
+            var points = BuildConnectionPolyline(connVis);
+            lineSink.BeginFigure(new Vector2(x1, y1), FigureBegin.Hollow);
+            foreach (var point in points.Skip(1))
+                lineSink.AddLine(new Vector2((float)point.X, (float)point.Y));
+            lineSink.EndFigure(FigureEnd.Open);
+            lineSink.Close();
+
+            _connectionGeoms[connVis.Connection.Id] = linePath;
+            return linePath;
+        }
+
         GetConnectionPathPoints(connVis, out Point startLead, out Point mid, out Point endLead);
         Point c1;
         Point c2;
@@ -364,6 +395,21 @@ public sealed partial class CanvasViewport
             case BlockKind.Note:
                 DrawNoteBlock(blockVis);
                 break;
+            case BlockKind.MarkdownDoc:
+                DrawMarkdownDocBlock(blockVis);
+                break;
+            case BlockKind.Shape:
+                DrawShapeBlock(blockVis);
+                break;
+            case BlockKind.Text:
+                DrawTextBlock(blockVis);
+                break;
+            case BlockKind.Image:
+                DrawImageBlock(blockVis);
+                break;
+            case BlockKind.Container:
+                DrawContainerBlock(blockVis);
+                break;
         }
     }
 
@@ -375,6 +421,11 @@ public sealed partial class CanvasViewport
             BlockKind.File => WpfColor.FromRgb(255, 255, 255),
             BlockKind.Extract => WpfColor.FromRgb(255, 255, 255),
             BlockKind.Note => WpfColor.FromRgb(255, 245, 201),
+            BlockKind.MarkdownDoc => WpfColor.FromRgb(255, 255, 255),
+            BlockKind.Shape => ParseColor(block.Style?.Fill ?? "#EFF6FF"),
+            BlockKind.Text => WpfColor.FromRgb(255, 255, 255),
+            BlockKind.Image => WpfColor.FromRgb(248, 250, 252),
+            BlockKind.Container => WpfColor.FromRgb(248, 250, 252),
             _ => WpfColor.FromRgb(255, 255, 255)
         };
         WpfColor border = block.IsSelected
@@ -433,20 +484,20 @@ public sealed partial class CanvasViewport
         _rt.FillRectangle(ToRF(footer), GetBrush(WpfColor.FromRgb(250, 252, 254)));
 
         // Header text
-        string icon = isFocused ? "â—‰ " : block.Kind == BlockKind.Extract ? "âš™ " : "";
+        string icon = isFocused ? "â-‰ " : block.Kind == BlockKind.Extract ? "âš™ " : "";
         string titleText = isFocused
             ? icon + block.Focused!.SymbolName
             : icon + block.Title;
         DrawText(titleText, (float)outer.X + 14, (float)outer.Y + 12, (float)outer.Width - 60, 14, WpfColor.FromRgb(31, 41, 51));
 
         string subtitle = isFocused
-            ? $"in {block.Title}  â€¢  lines {block.Focused!.StartLine}â€“{block.Focused.EndLine}"
+            ? $"in {block.Title}  *  lines {block.Focused!.StartLine}-{block.Focused.EndLine}"
             : block.Subtitle;
         DrawText(subtitle, (float)outer.X + 14, (float)outer.Y + 36, (float)outer.Width - 60, 10, WpfColor.FromRgb(117, 128, 143));
 
         if (block.IsCollapsed)
         {
-            DrawText("[ collapsed â€” double-click to expand ]",
+            DrawText("[ collapsed - double-click to expand ]",
                 (float)code.X + 16, (float)code.Y + 12, (float)code.Width - 32, 11, WpfColor.FromRgb(117, 128, 143));
         }
         else if (!string.IsNullOrWhiteSpace(block.Body))
@@ -462,9 +513,9 @@ public sealed partial class CanvasViewport
         // Footer text
         string footerFileName = block.FilePath is not null ? IOPath.GetFileName(block.FilePath) : string.Empty;
         string footerText = (block.Kind == BlockKind.Extract && block.StartLine.HasValue)
-            ? $"lines {block.StartLine}â€“{block.EndLine}  â€¢  {footerFileName}"
+            ? $"lines {block.StartLine}-{block.EndLine}  *  {footerFileName}"
             : isFocused
-                ? $"focused â€” Ctrl+click another line to refocus  â€¢  {footerFileName}"
+                ? $"focused - Ctrl+click another line to refocus  *  {footerFileName}"
                 : footerFileName;
         DrawText(footerText, (float)outer.X + 14, (float)footer.Y + 8, (float)outer.Width - 60, 9.5f, WpfColor.FromRgb(117, 128, 143));
 
@@ -486,7 +537,7 @@ public sealed partial class CanvasViewport
 
     private bool ShouldDrawConnectionAnchors(RenderBlock block) =>
         _camera.Zoom > UltraCompactZoom
-        && block.Kind is BlockKind.File or BlockKind.Extract
+        && block.Kind is not BlockKind.Note
         && (block.IsSelected || _isDrawingConnection || block.Key == _hoverAnchorBlockKey);
 
     private void DrawConnectionAnchors(RenderBlock block, Rect bounds, WpfColor accent)
@@ -496,7 +547,7 @@ public sealed partial class CanvasViewport
         var hoverStroke = GetBrush(WpfColor.FromArgb(235, 35, 162, 109));
         var sourceStroke = GetBrush(WpfColor.FromArgb(235, 32, 104, 192));
         float r = Math.Max(3.5f, InvStroke(4.5f));
-        for (int i = 0; i < 12; i++)
+        for (int i = 0; i < 16; i++)
         {
             Point p = GetConnectionAnchorPoint(bounds, i);
             bool isSource = _isDrawingConnection
@@ -588,6 +639,338 @@ public sealed partial class CanvasViewport
         var rect = new RectangleF(x, y, size, size);
         _rt!.FillRectangle(rect, GetBrush(WpfColor.FromRgb(255, 255, 255)));
         _rt.DrawRectangle(rect, GetBrush(WpfColor.FromArgb(220, 46, 125, 215)), InvStroke(1.0f));
+    }
+
+    private void DrawMarkdownDocBlock(SceneBlockVisual blockVis)
+    {
+        var block = blockVis.Block;
+        Rect outer = blockVis.Bounds;
+        float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
+        DrawCardShell(outer, block.IsSelected, ParseColor(block.Style?.Stroke ?? "#E2E8F0"), 8);
+        _rt!.FillRectangle(new RectangleF(x, y, w, 46), GetBrush(WpfColor.FromRgb(248, 250, 252)));
+        DrawText(block.Title, x + 16, y + 12, w - 32, 15, WpfColor.FromRgb(17, 24, 39));
+        DrawText(block.Subtitle, x + 16, y + 30, w - 32, 9.5f, WpfColor.FromRgb(100, 116, 139));
+        _rt.DrawLine(new Vector2(x, y + 46), new Vector2(x + w, y + 46), GetBrush(WpfColor.FromArgb(160, 226, 232, 240)), InvStroke(1));
+
+        _rt.PushAxisAlignedClip(new RectangleF(x + 14, y + 58, w - 28, h - 72), AntialiasMode.PerPrimitive);
+        float cy = y + 58;
+        foreach (string rawLine in (block.Body ?? string.Empty).Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n').Take(80))
+        {
+            string line = rawLine.TrimEnd();
+            if (line.Length == 0) { cy += 10; continue; }
+            int level = line.TakeWhile(c => c == '#').Count();
+            if (level > 0 && level <= 4 && line.Length > level && line[level] == ' ')
+            {
+                float size = level == 1 ? 18 : level == 2 ? 15 : 13;
+                DrawText(line[(level + 1)..], x + 18, cy, w - 42, size, WpfColor.FromRgb(15, 23, 42));
+                cy += size + 12;
+            }
+            else if (line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal))
+            {
+                DrawText("*", x + 20, cy, 16, 12, WpfColor.FromRgb(46, 125, 215));
+                DrawWrappedText(line[2..], x + 38, cy, w - 58, 42, 11.5f, WpfColor.FromRgb(51, 65, 85), wrap: true);
+                cy += 24;
+            }
+            else
+            {
+                DrawWrappedText(line, x + 18, cy, w - 42, 48, 11.5f, WpfColor.FromRgb(51, 65, 85), wrap: true);
+                cy += 24;
+            }
+            if (cy > y + h - 20) break;
+        }
+        _rt.PopAxisAlignedClip();
+        DrawGenericResizeHandle(outer, ParseColor(block.Style?.Stroke ?? "#2E7DD7"));
+    }
+
+    private void DrawShapeBlock(SceneBlockVisual blockVis)
+    {
+        var block = blockVis.Block;
+        Rect outer = blockVis.Bounds;
+        WpfColor fill = ParseColor(block.Style?.Fill ?? "#EFF6FF");
+        WpfColor stroke = ParseColor(block.Style?.Stroke ?? "#2E7DD7");
+        float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
+        string shape = block.ShapeType ?? "service";
+
+        if (shape is "database" or "cache" or "queue")
+        {
+            var rr = new RoundedRectangle(ToRF(outer), 16, 16);
+            _rt!.FillRoundedRectangle(rr, GetBrush(fill));
+            _rt.DrawRoundedRectangle(rr, GetBrush(stroke), block.IsSelected ? InvStroke(2) : InvStroke(1.3f));
+            _rt.DrawEllipse(new Ellipse(new Vector2(x + w / 2, y + 18), w / 2 - 8, 14), GetBrush(stroke), InvStroke(1.2f));
+        }
+        else if (shape == "risk" || shape == "decision")
+        {
+            using var path = _factory!.CreatePathGeometry();
+            using (var sink = path.Open())
+            {
+                sink.BeginFigure(new Vector2(x + w / 2, y), FigureBegin.Filled);
+                sink.AddLine(new Vector2(x + w, y + h / 2));
+                sink.AddLine(new Vector2(x + w / 2, y + h));
+                sink.AddLine(new Vector2(x, y + h / 2));
+                sink.EndFigure(FigureEnd.Closed);
+                sink.Close();
+            }
+            _rt!.FillGeometry(path, GetBrush(fill));
+            _rt.DrawGeometry(path, GetBrush(stroke), block.IsSelected ? InvStroke(2) : InvStroke(1.3f));
+        }
+        else
+        {
+            var rr = new RoundedRectangle(ToRF(outer), 8, 8);
+            _rt!.FillRoundedRectangle(rr, GetBrush(fill));
+            _rt.DrawRoundedRectangle(rr, GetBrush(stroke), block.IsSelected ? InvStroke(2) : InvStroke(1.3f));
+        }
+
+        DrawText(block.Title, x + 14, y + h / 2 - 8, w - 28, 13, ParseColor(block.Style?.Text ?? "#111827"));
+        if (ShouldDrawConnectionAnchors(block)) DrawConnectionAnchors(block, outer, stroke);
+        DrawGenericResizeHandle(outer, stroke);
+    }
+
+    private void DrawTextBlock(SceneBlockVisual blockVis)
+    {
+        var block = blockVis.Block;
+        Rect outer = blockVis.Bounds;
+        DrawCardShell(outer, block.IsSelected, ParseColor(block.Style?.Stroke ?? "#CBD5E1"), 6);
+        DrawWrappedText(block.Body ?? block.Title, (float)outer.X + 12, (float)outer.Y + 12, (float)outer.Width - 24, (float)outer.Height - 24, 14, ParseColor(block.Style?.Text ?? "#111827"), wrap: true);
+        DrawGenericResizeHandle(outer, ParseColor(block.Style?.Stroke ?? "#CBD5E1"));
+    }
+
+    private void DrawImageBlock(SceneBlockVisual blockVis)
+    {
+        var block = blockVis.Block;
+        Rect outer = blockVis.Bounds;
+        float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
+        DrawCardShell(outer, block.IsSelected, ParseColor(block.Style?.Stroke ?? "#CBD5E1"), 8);
+        DrawText(block.Title, x + 14, y + 12, w - 28, 12, WpfColor.FromRgb(30, 41, 59));
+
+        var imageArea = new Rect(outer.X + 12, outer.Y + 38, Math.Max(1, outer.Width - 24), Math.Max(1, outer.Height - 56));
+        _rt!.FillRectangle(ToRF(imageArea), GetBrush(WpfColor.FromRgb(241, 245, 249)));
+        var image = GetOrLoadImageBitmap(block.Source?.AssetPath ?? block.Source?.SourcePath);
+        if (image is not null)
+        {
+            Rect dest = FitRect(imageArea, image.PixelWidth, image.PixelHeight);
+            var target = new Vortice.Mathematics.Rect(
+                (float)dest.Left,
+                (float)dest.Top,
+                (float)dest.Width,
+                (float)dest.Height);
+            var source = new Vortice.Mathematics.Rect(0, 0, image.PixelWidth, image.PixelHeight);
+            _rt.DrawBitmap(image.Bitmap, target, (float)Math.Clamp(block.Style?.Opacity ?? 1, 0.05, 1), BitmapInterpolationMode.Linear, source);
+        }
+        else
+        {
+            DrawText("Image unavailable", x + 20, y + h / 2 - 10, w - 40, 13, WpfColor.FromRgb(100, 116, 139));
+            DrawWrappedText(block.Source?.AssetPath ?? block.Body ?? string.Empty, x + 20, y + h / 2 + 12, w - 40, 42, 9, WpfColor.FromRgb(100, 116, 139), wrap: true);
+        }
+
+        WpfColor stroke = ParseColor(block.Style?.Stroke ?? "#CBD5E1");
+        if (ShouldDrawConnectionAnchors(block))
+            DrawConnectionAnchors(block, outer, stroke);
+        DrawGenericResizeHandle(outer, stroke);
+    }
+
+    private ImageBitmapResource? GetOrLoadImageBitmap(string? path)
+    {
+        if (_rt is null || string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return null;
+
+        DateTime lastWrite = File.GetLastWriteTimeUtc(path);
+        if (_imageBitmaps.TryGetValue(path, out var cached) && cached.LastWriteUtc == lastWrite)
+            return cached;
+
+        if (cached is not null)
+            cached.Dispose();
+        _imageBitmaps.Remove(path);
+
+        try
+        {
+            var bitmapImage = new BitmapImage();
+            bitmapImage.BeginInit();
+            bitmapImage.CacheOption = BitmapCacheOption.OnLoad;
+            bitmapImage.UriSource = new Uri(path, UriKind.Absolute);
+            bitmapImage.EndInit();
+            bitmapImage.Freeze();
+
+            BitmapSource source = bitmapImage.Format == PixelFormats.Bgra32
+                ? bitmapImage
+                : new FormatConvertedBitmap(bitmapImage, PixelFormats.Bgra32, null, 0);
+            if (source.CanFreeze) source.Freeze();
+
+            int width = source.PixelWidth;
+            int height = source.PixelHeight;
+            int stride = width * 4;
+            byte[] pixels = new byte[stride * height];
+            source.CopyPixels(pixels, stride, 0);
+            ForceOpaqueAlpha(pixels);
+
+            var handle = GCHandle.Alloc(pixels, GCHandleType.Pinned);
+            try
+            {
+                var props = new BitmapProperties(new Vortice.DCommon.PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Ignore));
+                var bitmap = _rt.CreateBitmap(new Vortice.Mathematics.SizeI(width, height), handle.AddrOfPinnedObject(), (uint)stride, props);
+                var resource = new ImageBitmapResource(bitmap, width, height, lastWrite);
+                _imageBitmaps[path] = resource;
+                return resource;
+            }
+            finally
+            {
+                handle.Free();
+            }
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void ForceOpaqueAlpha(byte[] pixels)
+    {
+        for (int i = 3; i < pixels.Length; i += 4)
+            pixels[i] = 255;
+    }
+
+    private static Rect FitRect(Rect area, int pixelWidth, int pixelHeight)
+    {
+        if (pixelWidth <= 0 || pixelHeight <= 0) return area;
+        double scale = Math.Min(area.Width / pixelWidth, area.Height / pixelHeight);
+        double width = pixelWidth * scale;
+        double height = pixelHeight * scale;
+        return new Rect(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2, width, height);
+    }
+
+    private void DrawContainerBlock(SceneBlockVisual blockVis)
+    {
+        var block = blockVis.Block;
+        Rect outer = blockVis.Bounds;
+        if (IsColorGroup(block))
+        {
+            DrawColorGroupBlock(blockVis);
+            return;
+        }
+
+        WpfColor stroke = ParseColor(block.Style?.Stroke ?? "#64748B");
+        float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
+        _rt!.FillRoundedRectangle(new RoundedRectangle(ToRF(outer), 8, 8), GetBrush(WpfColor.FromArgb(58, 248, 250, 252)));
+        _rt.DrawRoundedRectangle(new RoundedRectangle(ToRF(outer), 8, 8), GetBrush(stroke), block.IsSelected ? InvStroke(2) : InvStroke(1.3f));
+        _rt.FillRectangle(new RectangleF(x, y, w, 32), GetBrush(WpfColor.FromArgb(70, stroke.R, stroke.G, stroke.B)));
+        DrawText(block.Title, x + 12, y + 8, w - 24, 12, WpfColor.FromRgb(51, 65, 85));
+        DrawGenericResizeHandle(outer, stroke);
+    }
+
+    private void DrawColorGroupBlock(SceneBlockVisual blockVis)
+    {
+        var block = blockVis.Block;
+        Rect outer = blockVis.Bounds;
+        var style = block.Style ?? new BoardItemStyle("#EAF4FF", "#2E7DD7", "#17324D", 1.6, Opacity: 0.18);
+        WpfColor fill = ParseColor(style.Fill);
+        WpfColor stroke = ParseColor(style.Stroke);
+        WpfColor text = ParseColor(style.Text);
+        float radius = (float)Math.Clamp(style.CornerRadius, 4, 10);
+        float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
+        bool isEditing = _editingGroupKey == block.Key;
+        string titleText = isEditing ? _editTitle : block.Title;
+
+        _rt!.FillRoundedRectangle(
+            new RoundedRectangle(ToRF(outer), radius, radius),
+            GetBrush(WpfColor.FromArgb((byte)Math.Clamp(style.Opacity * 255, 24, 72), fill.R, fill.G, fill.B)));
+        _rt.DrawRoundedRectangle(
+            new RoundedRectangle(ToRF(outer), radius, radius),
+            GetBrush(block.IsSelected ? WpfColor.FromRgb(46, 125, 215) : stroke),
+            block.IsSelected ? InvStroke(2.2f) : InvStroke((float)style.StrokeWidth));
+
+        float headerH = block.IsCollapsed ? 42 : 36;
+        _rt.FillRectangle(new RectangleF(x, y, w, headerH), GetBrush(WpfColor.FromArgb(54, stroke.R, stroke.G, stroke.B)));
+        float titleSize = block.IsCollapsed ? 17f : 16f;
+        if (isEditing)
+        {
+            float titleW = w - 58;
+            _rt.FillRoundedRectangle(
+                new RoundedRectangle(new RectangleF(x + 10, y + 5, titleW + 8, 27), 4, 4),
+                GetBrush(WpfColor.FromArgb(215, 255, 255, 255)));
+            DrawEditSelection(titleText, titleSize, x + 14, y + 8, titleW, wrap: false);
+            DrawText(titleText, x + 14, y + 8, titleW, titleSize, text);
+            if (_editCursorVisible)
+                DrawNoteCursor(titleText, titleSize, x + 14, y + 8, titleW, _editCursorPos, wrap: false);
+        }
+        else
+        {
+            DrawText(titleText, x + 14, y + 8, w - 58, titleSize, text);
+        }
+
+        if (block.IsCollapsed)
+        {
+            DrawText("double-click to expand", x + 14, y + 28, w - 58, 8.5f, WpfColor.FromArgb(180, text.R, text.G, text.B));
+            DrawCollapsedGroupSummary(block, new Rect(outer.X + 12, outer.Y + headerH + 10, outer.Width - 24, outer.Height - headerH - 20), stroke);
+        }
+        else
+        {
+            var count = GetGroupMemberBlocks(block).Count;
+            string subtitle = count == 0 ? "empty group" : $"{count} item{(count == 1 ? string.Empty : "s")}";
+            DrawText(subtitle, x + w - 150, y + 10, 132, 9.5f, WpfColor.FromArgb(180, text.R, text.G, text.B), rightAlign: true);
+            DrawGenericResizeHandle(outer, stroke);
+        }
+    }
+
+    private void DrawCollapsedGroupSummary(RenderBlock group, Rect area, WpfColor accent)
+    {
+        var members = GetGroupMemberBlocks(group)
+            .Where(b => b.Kind is BlockKind.File or BlockKind.Extract)
+            .Take(12)
+            .ToList();
+        if (members.Count == 0)
+        {
+            DrawText("empty", (float)area.X, (float)area.Y + 8, (float)area.Width, 10, WpfColor.FromArgb(160, accent.R, accent.G, accent.B));
+            return;
+        }
+
+        const float iconW = 26, iconH = 22, gap = 7;
+        float x = (float)area.X;
+        float y = (float)area.Y;
+        int perRow = Math.Max(1, (int)Math.Floor((area.Width + gap) / (iconW + gap)));
+        for (int i = 0; i < members.Count; i++)
+        {
+            int row = i / perRow;
+            int col = i % perRow;
+            float ix = x + col * (iconW + gap);
+            float iy = y + row * (iconH + gap);
+            if (iy + iconH > area.Bottom) break;
+
+            var rr = new RoundedRectangle(new RectangleF(ix, iy, iconW, iconH), 4, 4);
+            _rt!.FillRoundedRectangle(rr, GetBrush(WpfColor.FromRgb(255, 255, 255)));
+            _rt.DrawRoundedRectangle(rr, GetBrush(WpfColor.FromArgb(150, accent.R, accent.G, accent.B)), InvStroke(1));
+            _rt.FillRectangle(new RectangleF(ix + 4, iy + 5, iconW - 8, 2.2f), GetBrush(WpfColor.FromArgb(110, accent.R, accent.G, accent.B)));
+            _rt.FillRectangle(new RectangleF(ix + 4, iy + 10, iconW - 12, 2.2f), GetBrush(WpfColor.FromArgb(70, accent.R, accent.G, accent.B)));
+            _rt.FillRectangle(new RectangleF(ix + 4, iy + 15, iconW - 15, 2.2f), GetBrush(WpfColor.FromArgb(70, accent.R, accent.G, accent.B)));
+        }
+
+        int remaining = GetGroupMemberBlocks(group).Count(b => b.Kind is BlockKind.File or BlockKind.Extract) - members.Count;
+        if (remaining > 0)
+            DrawText($"+{remaining}", (float)area.Right - 32, (float)area.Bottom - 18, 32, 10, WpfColor.FromArgb(190, accent.R, accent.G, accent.B), rightAlign: true);
+    }
+
+    private List<RenderBlock> GetGroupMemberBlocks(RenderBlock group)
+    {
+        Rect groupBounds = GetGroupExpandedBounds(group);
+        return Scene.Blocks
+            .Where(b => !b.Key.Equals(group.Key, StringComparison.OrdinalIgnoreCase)
+                && !IsColorGroup(b)
+                && groupBounds.IntersectsWith(new Rect(b.X, b.Y, b.Width, b.Height)))
+            .ToList();
+    }
+
+    private void DrawCardShell(Rect outer, bool selected, WpfColor stroke, float radius)
+    {
+        _rt!.FillRoundedRectangle(new RoundedRectangle(new RectangleF((float)outer.X + 2, (float)outer.Y + 5, (float)outer.Width, (float)outer.Height), radius, radius), GetBrush(WpfColor.FromArgb(16, 35, 49, 66)));
+        var shell = new RoundedRectangle(ToRF(outer), radius, radius);
+        _rt.FillRoundedRectangle(shell, GetBrush(WpfColor.FromRgb(255, 255, 255)));
+        _rt.DrawRoundedRectangle(shell, GetBrush(selected ? WpfColor.FromRgb(46, 125, 215) : stroke), selected ? InvStroke(2) : InvStroke(1.1f));
+    }
+
+    private void DrawGenericResizeHandle(Rect outer, WpfColor color)
+    {
+        if (_camera.Zoom <= UltraCompactZoom) return;
+        const float rh = 12;
+        _rt!.FillRectangle(new RectangleF((float)outer.Right - rh, (float)outer.Bottom - rh, rh, rh),
+            GetBrush(WpfColor.FromArgb(70, color.R, color.G, color.B)));
     }
 
     private void DrawNoteCursor(string text, float fontSize, float textX, float textY, float maxW, int cursorPos, bool wrap = false)
@@ -816,7 +1199,7 @@ public sealed partial class CanvasViewport
             : WpfColor.FromRgb(235, 154, 40);
         _rt!.FillRectangle(new RectangleF((float)codeRect.X, y1, (float)codeRect.Width, y2 - y1),
             GetBrush(WpfColor.FromArgb(48, c.R, c.G, c.B)));
-        string hint = _isFocusMode ? "Ctrl+click â€” focus this function" : "Alt+click â€” extract to new block";
+        string hint = _isFocusMode ? "Ctrl+click - focus this function" : "Alt+click - extract to new block";
         DrawText(hint, (float)codeRect.X + 8, y1 - 14, 240, 9, c);
     }
 
@@ -948,6 +1331,8 @@ public sealed partial class CanvasViewport
         _textFormats.Clear();
         foreach (var g in _connectionGeoms.Values) g.Dispose();
         _connectionGeoms.Clear();
+        foreach (var image in _imageBitmaps.Values) image.Dispose();
+        _imageBitmaps.Clear();
         _rt?.Dispose(); _rt = null;
     }
 

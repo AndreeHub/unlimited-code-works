@@ -9,163 +9,542 @@
         Background="{StaticResource ShellBg}"
         FontFamily="{StaticResource AppFont}">
 
+    <Window.InputBindings>
+        <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoCommand}"/>
+        <KeyBinding Key="Y" Modifiers="Control" Command="{Binding RedoCommand}"/>
+        <KeyBinding Key="Z" Modifiers="Control+Shift" Command="{Binding RedoCommand}"/>
+    </Window.InputBindings>
+
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolVis"/>
+
+        <Style x:Key="BrowserIconPathStyle" TargetType="Path">
+            <Setter Property="Width" Value="14"/>
+            <Setter Property="Height" Value="14"/>
+            <Setter Property="Stretch" Value="Uniform"/>
+            <Setter Property="Fill" Value="Transparent"/>
+            <Setter Property="Stroke" Value="{StaticResource MutedForeground}"/>
+            <Setter Property="StrokeThickness" Value="1.45"/>
+            <Setter Property="StrokeLineJoin" Value="Round"/>
+            <Setter Property="StrokeStartLineCap" Value="Round"/>
+            <Setter Property="StrokeEndLineCap" Value="Round"/>
+            <Setter Property="Data" Value="M4,2.5 H10 L13,5.5 V13.5 H4 Z M10,2.5 V5.5 H13"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IconKind}" Value="project">
+                    <Setter Property="Stroke" Value="{StaticResource AccentBrush}"/>
+                    <Setter Property="Data" Value="M2.5,4.5 H6 L7.4,6 H13.5 V12.5 H2.5 Z M4.5,2.5 H9.5 V4.5 H4.5 Z"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="folder">
+                    <Setter Property="Stroke" Value="{StaticResource SubtleForeground}"/>
+                    <Setter Property="Data" Value="M2.5,5 H6 L7.4,6.5 H13.5 V12.5 H2.5 Z"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="solution">
+                    <Setter Property="Stroke" Value="{StaticResource AccentBrush}"/>
+                    <Setter Property="Data" Value="M3,3.5 H7 V7.5 H3 Z M9,3.5 H13 V7.5 H9 Z M3,9 H7 V13 H3 Z M9,9 H13 V13 H9 Z"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="project-file">
+                    <Setter Property="Stroke" Value="{StaticResource AccentBrush}"/>
+                    <Setter Property="Data" Value="M3,4 H7 V8 H3 Z M9,4 H13 V8 H9 Z M5,8 V11 H11 M8,11 V13.5"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="csharp">
+                    <Setter Property="Stroke" Value="#4F7DD9"/>
+                    <Setter Property="Data" Value="M4,2.5 H10 L13,5.5 V13.5 H4 Z M10,2.5 V5.5 H13 M7.4,8 L6,9.3 L7.4,10.6 M10.6,8 L12,9.3 L10.6,10.6"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="xaml">
+                    <Setter Property="Stroke" Value="#8B5CF6"/>
+                    <Setter Property="Data" Value="M4,2.5 H10 L13,5.5 V13.5 H4 Z M10,2.5 V5.5 H13 M8,7.7 L6.5,9.5 L8,11.3 M10,7.7 L11.5,9.5 L10,11.3"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="markdown">
+                    <Setter Property="Stroke" Value="#0F766E"/>
+                    <Setter Property="Data" Value="M3,4 H13 V12 H3 Z M5,10 V6.5 L7.3,8.9 L9.6,6.5 V10 M11.4,6.5 V10"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="json">
+                    <Setter Property="Stroke" Value="#B7791F"/>
+                    <Setter Property="Data" Value="M4,2.5 H10 L13,5.5 V13.5 H4 Z M10,2.5 V5.5 H13 M7.2,7.8 C6.3,7.8 6.2,8.6 6.2,9.1 C6.2,9.8 5.7,10 5.1,10 M7.2,12.2 C6.3,12.2 6.2,11.4 6.2,10.9 C6.2,10.2 5.7,10 5.1,10 M10.8,7.8 C11.7,7.8 11.8,8.6 11.8,9.1 C11.8,9.8 12.3,10 12.9,10 M10.8,12.2 C11.7,12.2 11.8,11.4 11.8,10.9 C11.8,10.2 12.3,10 12.9,10"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="xml">
+                    <Setter Property="Stroke" Value="#B7791F"/>
+                    <Setter Property="Data" Value="M4,2.5 H10 L13,5.5 V13.5 H4 Z M10,2.5 V5.5 H13 M7.3,8 L5.9,9.5 L7.3,11 M10.7,8 L12.1,9.5 L10.7,11"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="image">
+                    <Setter Property="Stroke" Value="#C07AB8"/>
+                    <Setter Property="Data" Value="M3,4 H13 V12 H3 Z M5,10 L7,8 L8.8,9.8 L10,8.7 L12,10.8 M10.8,6.2 H10.9"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="class">
+                    <Setter Property="Stroke" Value="#4F7DD9"/>
+                    <Setter Property="Data" Value="M3.5,3.5 H12.5 V12.5 H3.5 Z M5.5,6 H10.5 M5.5,8 H10.5 M5.5,10 H8.5"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="interface">
+                    <Setter Property="Stroke" Value="#0F766E"/>
+                    <Setter Property="Data" Value="M5,4.5 H11 M5,8 H11 M5,11.5 H11 M3,4.5 H3.1 M3,8 H3.1 M3,11.5 H3.1"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="record">
+                    <Setter Property="Stroke" Value="#4F7DD9"/>
+                    <Setter Property="Data" Value="M3.5,4.5 H12.5 V11.5 H3.5 Z M5.5,6.5 H10.5 M5.5,9.5 H8.5"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="struct">
+                    <Setter Property="Stroke" Value="#4F7DD9"/>
+                    <Setter Property="Data" Value="M4,4 H7 V7 H4 Z M9,4 H12 V7 H9 Z M4,9 H7 V12 H4 Z M9,9 H12 V12 H9 Z"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="enum">
+                    <Setter Property="Stroke" Value="#B7791F"/>
+                    <Setter Property="Data" Value="M4,4.5 H5 M7,4.5 H12 M4,8 H5 M7,8 H12 M4,11.5 H5 M7,11.5 H12"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="method">
+                    <Setter Property="Stroke" Value="#23A26D"/>
+                    <Setter Property="Data" Value="M8,2.8 C5.1,2.8 2.8,5.1 2.8,8 C2.8,10.9 5.1,13.2 8,13.2 C10.9,13.2 13.2,10.9 13.2,8 C13.2,5.1 10.9,2.8 8,2.8 Z M8,5.2 V8 L10.2,10"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="constructor">
+                    <Setter Property="Stroke" Value="#23A26D"/>
+                    <Setter Property="Data" Value="M5,5.5 C5.8,4.2 7.5,3.6 9,4.2 M11.2,6.3 C12.1,8.1 11.5,10.3 9.7,11.4 C7.7,12.6 5.2,12 4,10 C2.9,8.3 3.2,6.1 4.6,4.8 M8.9,2.7 L9.1,4.4 L7.5,4.6"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="property">
+                    <Setter Property="Stroke" Value="#8B5CF6"/>
+                    <Setter Property="Data" Value="M5,3.5 H11 V12.5 H5 Z M7,6.2 H9 M7,8.4 H9 M7,10.6 H9"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="field">
+                    <Setter Property="Stroke" Value="#8B5CF6"/>
+                    <Setter Property="Data" Value="M4,5 H12 V11 H4 Z M6,7 H10 M6,9 H10"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="symbol">
+                    <Setter Property="Stroke" Value="{StaticResource AccentBrush}"/>
+                    <Setter Property="Data" Value="M8,3 L12.3,5.5 V10.5 L8,13 L3.7,10.5 V5.5 Z"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="empty">
+                    <Setter Property="Stroke" Value="{StaticResource MutedForeground}"/>
+                    <Setter Property="Data" Value="M5,5 L11,11 M11,5 L5,11"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="note">
+                    <Setter Property="Stroke" Value="#D49A4A"/>
+                    <Setter Property="Data" Value="M4,3.5 H12 V10 L9.5,12.5 H4 Z M9.5,12.5 V10 H12"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="text">
+                    <Setter Property="Stroke" Value="#1F2933"/>
+                    <Setter Property="Data" Value="M4,4.5 H12 M8,4.5 V12 M5.5,12 H10.5"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="shape">
+                    <Setter Property="Stroke" Value="#4F7DD9"/>
+                    <Setter Property="Data" Value="M8,3 L13,8 L8,13 L3,8 Z"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="database">
+                    <Setter Property="Stroke" Value="#0F766E"/>
+                    <Setter Property="Data" Value="M4,5 C4,3.9 5.8,3 8,3 C10.2,3 12,3.9 12,5 C12,6.1 10.2,7 8,7 C5.8,7 4,6.1 4,5 Z M4,5 V11 C4,12.1 5.8,13 8,13 C10.2,13 12,12.1 12,11 V5 M4,8 C4,9.1 5.8,10 8,10 C10.2,10 12,9.1 12,8"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="risk">
+                    <Setter Property="Stroke" Value="#E05252"/>
+                    <Setter Property="Data" Value="M8,3 L13,12.5 H3 Z M8,6.5 V9 M8,11 H8.1"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="container">
+                    <Setter Property="Stroke" Value="#64748B"/>
+                    <Setter Property="Data" Value="M3,4 H13 V12 H3 Z M5,6 H11"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="connector">
+                    <Setter Property="Stroke" Value="{StaticResource AccentBrush}"/>
+                    <Setter Property="Data" Value="M4,8 H12 M4,8 L6,6 M4,8 L6,10 M12,8 L10,6 M12,8 L10,10"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="search">
+                    <Setter Property="Stroke" Value="{StaticResource MutedForeground}"/>
+                    <Setter Property="Data" Value="M7,3.5 C5.1,3.5 3.5,5.1 3.5,7 C3.5,8.9 5.1,10.5 7,10.5 C8.9,10.5 10.5,8.9 10.5,7 C10.5,5.1 8.9,3.5 7,3.5 Z M9.8,9.8 L12.5,12.5"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="BrowserTreeItemStyle" TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
+            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+            <Setter Property="Padding" Value="1,1"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+
+        <Style x:Key="HeaderRibbonButton" TargetType="Button" BasedOn="{StaticResource GhostButton}">
+            <Setter Property="Padding" Value="7,2"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="MinHeight" Value="20"/>
+        </Style>
     </Window.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="44"/>
+            <RowDefinition Height="94"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="26"/>
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,0,0,1">
             <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="57"/>
+                    <RowDefinition Height="36"/>
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="260"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0">
-                    <Border Width="20" Height="20" CornerRadius="4" Background="{StaticResource AccentSoft}" Margin="0,0,8,0">
-                        <TextBlock Text="UCW" Foreground="{StaticResource AccentBrush}" FontSize="8" FontWeight="Bold"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
-                    <TextBlock Text="unlimited-code-works" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"
-                               VerticalAlignment="Center"/>
-                </StackPanel>
+                <Border Grid.Row="0" Grid.Column="0"
+                        BorderBrush="{StaticResource PanelBorder}"
+                        BorderThickness="1"
+                        CornerRadius="5"
+                        Padding="8,3"
+                        Margin="12,0,10,0"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Open Project" Command="{Binding OpenWorkspaceCommand}" Margin="0,0,4,0"/>
+                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Folder" Command="{Binding OpenFolderCommand}" Margin="0,0,4,0"/>
+                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Reload" Command="{Binding ReloadCodeCommand}"/>
+                    </StackPanel>
+                </Border>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Style="{StaticResource GhostButton}" Content="Load Project" Command="{Binding OpenWorkspaceCommand}" Margin="0,0,4,0"/>
-                    <Button Style="{StaticResource GhostButton}" Content="Open Folder" Command="{Binding OpenFolderCommand}" Margin="0,0,10,0"/>
-                    <Button Style="{StaticResource GhostButton}" Content="Reload Code" Command="{Binding ReloadCodeCommand}" Margin="0,0,4,0"/>
-                    <Button Style="{StaticResource GhostButton}" Content="Export Notes" Command="{Binding ExportAnnotationsCommand}"/>
-                </StackPanel>
+                <Border Grid.Row="0" Grid.Column="0"
+                        BorderBrush="{StaticResource PanelBorder}"
+                        BorderThickness="1"
+                        CornerRadius="5"
+                        Padding="8,3"
+                        Margin="244,0,10,0"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Undo" Command="{Binding UndoCommand}" Margin="0,0,4,0"/>
+                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Redo" Command="{Binding RedoCommand}"/>
+                    </StackPanel>
+                </Border>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
-                    <Button Style="{StaticResource ToolButton}" Content="-" Width="30" Padding="0" Margin="0,0,4,0"/>
-                    <Button Style="{StaticResource ToolButton}" Content="100%" Width="58" Padding="0" Margin="0,0,4,0"/>
-                    <Button Style="{StaticResource ToolButton}" Content="+" Width="30" Padding="0" Margin="0,0,8,0"/>
+                <Border Grid.Row="0" Grid.Column="2"
+                        BorderBrush="{StaticResource PanelBorder}"
+                        BorderThickness="1"
+                        CornerRadius="5"
+                        Padding="8,6"
+                        Margin="0,0,10,0"
+                        VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <Border Width="18" Height="18" CornerRadius="4" Background="{StaticResource AccentSoft}" Margin="0,0,7,0">
+                            <TextBlock Text="UCW" Foreground="{StaticResource AccentBrush}" FontSize="7" FontWeight="Bold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <TextBlock Text="unlimited-code-works" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Grid.Row="0" Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
                     <Button Style="{StaticResource ToolButton}" Content="Frame" Click="OnFrameAll" Margin="0,0,4,0"/>
                     <Button Style="{StaticResource ToolButton}" Content="Grid" Command="{Binding ToggleBackgroundCommand}"/>
                 </StackPanel>
+
+                <Border Grid.Row="1" Grid.ColumnSpan="4" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,1,0,0">
+                    <DockPanel Margin="12,3,12,3">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button x:Name="NewSessionButton" Style="{StaticResource ToolButton}" Content="New" Command="{Binding CreateNewSessionCommand}" Margin="0,0,4,0"/>
+                            <Button Style="{StaticResource ToolButton}" Content="Delete" Command="{Binding DeleteSelectedSessionCommand}"/>
+                        </StackPanel>
+                        <TextBlock DockPanel.Dock="Left" Text="Sessions:" Foreground="{StaticResource SubtleForeground}"
+                                   FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <ListBox x:Name="SessionTabs"
+                                 ItemsSource="{Binding Sessions}"
+                                 SelectedItem="{Binding SelectedSession}"
+                                 SelectionChanged="OnSessionTabSelectionChanged"
+                                 MouseDoubleClick="OnSessionDoubleClick"
+                                 PreviewMouseLeftButtonDown="OnSessionTabMouseLeftButtonDown"
+                                 PreviewMouseMove="OnSessionTabMouseMove"
+                                 PreviewMouseLeftButtonUp="OnSessionTabMouseLeftButtonUp"
+                                 LostMouseCapture="OnSessionTabLostMouseCapture"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                 ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    <EventSetter Event="Loaded" Handler="OnSessionTabLoaded"/>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <TextBlock x:Name="SessionNameText"
+                                                   Text="{Binding Name}"
+                                                   FontSize="11"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"
+                                                   ToolTip="Double-click to rename. Drag to reorder."/>
+                                        <TextBox x:Name="SessionNameEditor"
+                                                 Text="{Binding Name, Mode=OneWay}"
+                                                 Visibility="Collapsed"
+                                                 MinWidth="110"
+                                                 MaxWidth="220"
+                                                 Height="22"
+                                                 MinHeight="0"
+                                                 FontSize="11"
+                                                 Padding="6,1"
+                                                 VerticalAlignment="Center"
+                                                 VerticalContentAlignment="Center"
+                                                 KeyDown="OnSessionNameEditKeyDown"
+                                                 LostFocus="OnSessionNameEditLostFocus"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+                </Border>
             </Grid>
         </Border>
 
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="270" MinWidth="220" MaxWidth="380"/>
-                <ColumnDefinition Width="1"/>
+                <ColumnDefinition Width="270" MinWidth="160"/>
+                <ColumnDefinition Width="5"/>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="1"/>
-                <ColumnDefinition Width="300" MinWidth="250" MaxWidth="420"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="300" MinWidth="180"/>
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,0,1,0">
-                <TabControl>
-                    <TabItem Header="Explorer">
-                        <Grid Margin="8,8,8,0">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                                <RowDefinition Height="190"/>
-                            </Grid.RowDefinitions>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" MinHeight="80"/>
+                        <RowDefinition Height="4" MinHeight="0"/>
+                        <RowDefinition Height="200" MinHeight="0"/>
+                    </Grid.RowDefinitions>
 
-                            <StackPanel Grid.Row="0" Margin="2,0,2,8">
-                                <TextBlock Text="{Binding WorkspacePath}" Foreground="{StaticResource ForegroundBrush}"
-                                           FontWeight="SemiBold" FontSize="11" TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Text="Source files" Foreground="{StaticResource MutedForeground}" FontSize="10" Margin="0,3,0,0"/>
-                            </StackPanel>
+                    <TabControl Grid.Row="0" Margin="10,8,10,0">
+                        <TabItem Header="Explorer">
+                            <Grid Margin="0,10,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
 
-                            <TreeView Grid.Row="1" x:Name="ExplorerTree"
-                                      ItemsSource="{Binding ExplorerRoots}"
-                                      MouseDoubleClick="OnExplorerDoubleClick"
-                                      VirtualizingPanel.IsVirtualizing="True">
-                                <TreeView.ItemTemplate>
-                                    <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                                        <StackPanel Orientation="Horizontal" Margin="0,2">
-                                            <TextBlock Text="{Binding IsFile, Converter={x:Null}}" Visibility="Collapsed"/>
-                                            <TextBlock Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}" FontSize="10"/>
-                                        </StackPanel>
-                                    </HierarchicalDataTemplate>
-                                </TreeView.ItemTemplate>
-                                <TreeView.ItemContainerStyle>
-                                    <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
-                                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
-                                    </Style>
-                                </TreeView.ItemContainerStyle>
-                            </TreeView>
-
-                            <Border Grid.Row="2" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,1,0,0" Margin="-8,8,-8,0">
-                                <Grid Margin="8,8,8,0">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="*"/>
-                                        <RowDefinition Height="Auto"/>
-                                    </Grid.RowDefinitions>
-                                    <TextBlock Text="Sessions" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" Margin="2,0,0,6"/>
-                                    <ListBox Grid.Row="1" ItemsSource="{Binding Sessions}"
-                                             SelectedItem="{Binding SelectedSession}"
-                                             MouseDoubleClick="OnSessionDoubleClick">
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding Name}" FontSize="12"/>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
-                                    <Button Grid.Row="2" Style="{StaticResource AccentButton}" Content="New Session"
-                                            Command="{Binding CreateNewSessionCommand}" HorizontalAlignment="Stretch" Margin="0,8,0,8"/>
+                                <Grid Grid.Row="0" Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding WorkspacePath}" Foreground="{StaticResource ForegroundBrush}"
+                                                   FontWeight="SemiBold" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                        <DockPanel Margin="0,4,0,0">
+                                            <TextBlock DockPanel.Dock="Left" Text="Branch" Foreground="{StaticResource MutedForeground}"
+                                                       FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                            <ComboBox x:Name="BranchComboBox"
+                                                      Style="{StaticResource BranchComboBox}"
+                                                      ItemsSource="{Binding AvailableBranches}"
+                                                      SelectedItem="{Binding SelectedBranch, Mode=TwoWay}"
+                                                      SelectionChanged="OnBranchComboSelectionChanged"/>
+                                        </DockPanel>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="6,0,0,0">
+                                        <Button Style="{StaticResource ToolButton}" Click="OnCollapseAll"
+                                                Width="26" Height="26" MinHeight="0" Padding="0" Margin="0,0,3,0"
+                                                ToolTip="Collapse all">
+                                            <Viewbox Width="12" Height="12">
+                                                <Path Style="{StaticResource BrowserIconPathStyle}"
+                                                      Data="M3,4 H13 M5,7 H11 M7,10 H9"/>
+                                            </Viewbox>
+                                        </Button>
+                                        <Button Style="{StaticResource ToolButton}" Click="OnExpandAll"
+                                                Width="26" Height="26" MinHeight="0" Padding="0"
+                                                ToolTip="Expand all">
+                                            <Viewbox Width="12" Height="12">
+                                                <Path Style="{StaticResource BrowserIconPathStyle}"
+                                                      Data="M3,4 H9 M3,8 H11 M3,12 H13"/>
+                                            </Viewbox>
+                                        </Button>
+                                    </StackPanel>
                                 </Grid>
-                            </Border>
-                        </Grid>
-                    </TabItem>
 
-                    <TabItem Header="Symbols">
-                        <Grid Margin="12">
+                                <DockPanel Grid.Row="1" Margin="0,0,0,8">
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Command="{Binding ApplyExplorerSearchCommand}"
+                                            Width="32" Height="28" MinHeight="0" Padding="0" Margin="6,0,0,0" ToolTip="Find files">
+                                        <Viewbox Width="13" Height="13">
+                                            <Path Style="{StaticResource BrowserIconPathStyle}" Data="M7,3.5 C5.1,3.5 3.5,5.1 3.5,7 C3.5,8.9 5.1,10.5 7,10.5 C8.9,10.5 10.5,8.9 10.5,7 C10.5,5.1 8.9,3.5 7,3.5 Z M9.8,9.8 L12.5,12.5"/>
+                                        </Viewbox>
+                                    </Button>
+                                    <TextBox Text="{Binding ExplorerSearchQuery, UpdateSourceTrigger=PropertyChanged}" FontSize="11"
+                                             Height="28" MinHeight="0" Padding="8,3" VerticalContentAlignment="Center"
+                                             KeyDown="OnExplorerSearchKeyDown"/>
+                                </DockPanel>
+
+                                <TreeView Grid.Row="2" x:Name="ExplorerTree"
+                                          ItemsSource="{Binding ExplorerRoots}"
+                                          MouseDoubleClick="OnExplorerDoubleClick"
+                                          VirtualizingPanel.IsVirtualizing="True"
+                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                    <TreeView.ItemTemplate>
+                                        <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                            <Grid Height="22" ToolTip="{Binding FilePath}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="18"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}"
+                                                           FontSize="10.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                            </Grid>
+                                        </HierarchicalDataTemplate>
+                                    </TreeView.ItemTemplate>
+                                    <TreeView.ItemContainerStyle>
+                                        <StaticResource ResourceKey="BrowserTreeItemStyle"/>
+                                    </TreeView.ItemContainerStyle>
+                                </TreeView>
+                            </Grid>
+                        </TabItem>
+
+                        <TabItem Header="Symbols">
+                            <Grid Margin="0,10,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="{Binding SelectedSymbolsHeader}" Foreground="{StaticResource ForegroundBrush}"
+                                           FontSize="11" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,0,8"/>
+                                <TreeView Grid.Row="1" ItemsSource="{Binding SymbolRoots}"
+                                          MouseDoubleClick="OnSymbolsDoubleClick"
+                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                    <TreeView.ItemTemplate>
+                                        <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                            <Grid Margin="0,2" ToolTip="Double-click to add to canvas">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="18"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Top" Margin="0,1,0,0"/>
+                                                <StackPanel Grid.Column="1">
+                                                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}"
+                                                               FontSize="10.5" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding RangeText}" Foreground="{StaticResource MutedForeground}"
+                                                               FontSize="9.5" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                            </Grid>
+                                        </HierarchicalDataTemplate>
+                                    </TreeView.ItemTemplate>
+                                    <TreeView.ItemContainerStyle>
+                                        <StaticResource ResourceKey="BrowserTreeItemStyle"/>
+                                    </TreeView.ItemContainerStyle>
+                                </TreeView>
+                            </Grid>
+                        </TabItem>
+
+                        <TabItem Header="Search">
+                            <Grid Margin="0,10,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <DockPanel Grid.Row="0" Margin="0,0,0,8">
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Command="{Binding RefreshBoardSearchCommand}"
+                                            Width="32" Height="28" MinHeight="0" Padding="0" Margin="6,0,0,0" ToolTip="Search board">
+                                        <Viewbox Width="13" Height="13">
+                                            <Path Style="{StaticResource BrowserIconPathStyle}" Data="M7,3.5 C5.1,3.5 3.5,5.1 3.5,7 C3.5,8.9 5.1,10.5 7,10.5 C8.9,10.5 10.5,8.9 10.5,7 C10.5,5.1 8.9,3.5 7,3.5 Z M9.8,9.8 L12.5,12.5"/>
+                                        </Viewbox>
+                                    </Button>
+                                    <TextBox Text="{Binding BoardSearchQuery, UpdateSourceTrigger=PropertyChanged}" FontSize="11"
+                                             Height="28" MinHeight="0" Padding="8,3" VerticalContentAlignment="Center"/>
+                                </DockPanel>
+                                <ListBox Grid.Row="1" ItemsSource="{Binding BoardSearchResults}" MouseDoubleClick="OnBoardSearchDoubleClick">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="20"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Top" Margin="0,2,0,0"/>
+                                                <StackPanel Grid.Column="1">
+                                                    <TextBlock Text="{Binding Title}" FontSize="10.5" Foreground="{StaticResource ForegroundBrush}" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding Detail}" FontSize="9.5" Foreground="{StaticResource MutedForeground}" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Grid>
+                        </TabItem>
+                    </TabControl>
+
+                    <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch"
+                                  ResizeDirection="Rows" Cursor="SizeNS"
+                                  Background="{StaticResource SoftBorder}"
+                                  Visibility="{Binding IsSymbolsPanelVisible, Converter={StaticResource BoolVis}}">
+                        <GridSplitter.Style>
+                            <Style TargetType="GridSplitter">
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource PanelBorder}"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </GridSplitter.Style>
+                    </GridSplitter>
+                    <Border Grid.Row="2" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,1,0,0"
+                            Visibility="{Binding IsSymbolsPanelVisible, Converter={StaticResource BoolVis}}">
+                        <Grid Margin="10,8,10,8">
                             <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
-                            <TextBox Grid.Row="0" Text="Filter symbols..." Foreground="{StaticResource MutedForeground}" Margin="0,0,0,10"/>
-                            <TreeView Grid.Row="1" ItemsSource="{Binding SymbolRoots}">
+                            <DockPanel Grid.Row="0" Margin="0,0,0,8">
+                                <Button DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Content="X" Width="24" Height="22"
+                                        MinHeight="0" Padding="0" FontSize="10" ToolTip="Close symbols panel"
+                                        Command="{Binding CloseSymbolsPanelCommand}"/>
+                                <TextBlock Text="{Binding SelectedSymbolsHeader}" Foreground="{StaticResource ForegroundBrush}"
+                                           FontSize="11" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                            </DockPanel>
+                            <TextBox Grid.Row="1" FontSize="11" Height="28" MinHeight="0" Padding="8,3"
+                                     VerticalContentAlignment="Center" Margin="0,0,0,8"/>
+                            <TreeView Grid.Row="2" ItemsSource="{Binding SymbolRoots}"
+                                      MouseDoubleClick="OnSymbolsDoubleClick"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                                 <TreeView.ItemTemplate>
                                     <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                                        <StackPanel Margin="0,2">
-                                            <TextBlock Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}" FontSize="11"/>
-                                            <TextBlock Text="{Binding Detail}" Foreground="{StaticResource MutedForeground}" FontSize="9"/>
-                                        </StackPanel>
+                                        <Grid Margin="0,2" ToolTip="Double-click to add to canvas">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="18"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Top" Margin="0,1,0,0"/>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}"
+                                                           FontSize="10.5" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding RangeText}" Foreground="{StaticResource MutedForeground}"
+                                                           FontSize="9.5" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                        </Grid>
                                     </HierarchicalDataTemplate>
                                 </TreeView.ItemTemplate>
                                 <TreeView.ItemContainerStyle>
-                                    <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
-                                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
-                                    </Style>
+                                    <StaticResource ResourceKey="BrowserTreeItemStyle"/>
                                 </TreeView.ItemContainerStyle>
                             </TreeView>
                         </Grid>
-                    </TabItem>
-
-                    <TabItem Header="Search">
-                        <Grid Margin="12">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-                            <TextBox Grid.Row="0" Text="Search project..." Foreground="{StaticResource MutedForeground}" Margin="0,0,0,10"/>
-                            <TextBlock Grid.Row="1" Text="Search results will appear here." Foreground="{StaticResource SubtleForeground}" FontSize="12"/>
-                        </Grid>
-                    </TabItem>
-                </TabControl>
+                    </Border>
+                </Grid>
             </Border>
 
-            <GridSplitter Grid.Column="1" Width="1" HorizontalAlignment="Stretch" Background="{StaticResource PanelBorder}"/>
+            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Cursor="SizeWE"
+                          Background="{StaticResource SoftBorder}">
+                <GridSplitter.Style>
+                    <Style TargetType="GridSplitter">
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{StaticResource PanelBorder}"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </GridSplitter.Style>
+            </GridSplitter>
 
             <Grid Grid.Column="2" Background="{StaticResource CanvasBg}">
                 <canvas:CanvasViewport x:Name="CanvasViewport"
                                        Scene="{Binding Scene, Mode=TwoWay}"
                                        BackgroundMode="{Binding BackgroundMode, Mode=TwoWay}"
+                                       SnapToGrid="{Binding SnapToGrid}"
                                        AllowDrop="True"
                                        Drop="OnCanvasDrop"
                                        DragOver="OnCanvasDragOver"/>
@@ -174,18 +553,78 @@
                         Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}"
                         BorderThickness="1" CornerRadius="6" Padding="5">
                     <StackPanel>
-                        <Button Style="{StaticResource RailButton}" Content="P" ToolTip="Pointer"/>
-                        <Button Style="{StaticResource RailButton}" Content="H" ToolTip="Pan"/>
-                        <Button Style="{StaticResource RailButton}" Content="L" ToolTip="Add layer" Command="{Binding AddSwimLaneCommand}"/>
-                        <Button Style="{StaticResource RailButton}" Content="N" ToolTip="Note"/>
-                        <Button Style="{StaticResource RailButton}" Content="F" ToolTip="Frame all" Click="OnFrameAll"/>
-                        <Button Style="{StaticResource RailButton}" Content="B" ToolTip="Background" Command="{Binding ToggleBackgroundCommand}"/>
+                        <Button Style="{StaticResource RailButton}" ToolTip="Pointer">
+                            <Viewbox Width="16" Height="16">
+                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M5,3 L11.5,8.4 L8.8,8.9 L10.4,12.5 L8.8,13.1 L7.2,9.5 L5,11.3 Z"/>
+                            </Viewbox>
+                        </Button>
+                        <Button Style="{StaticResource RailButton}" ToolTip="Pan">
+                            <Viewbox Width="16" Height="16">
+                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M5,8 V5.5 C5,4.9 5.4,4.5 6,4.5 C6.6,4.5 7,4.9 7,5.5 V8 M7,7 V4.5 C7,3.9 7.4,3.5 8,3.5 C8.6,3.5 9,3.9 9,4.5 V8 M9,7 V5.5 C9,4.9 9.4,4.5 10,4.5 C10.6,4.5 11,4.9 11,5.5 V8.5 C11,11.1 9.4,13 7.2,13 H6.7 C5.2,13 4,11.8 4,10.3 V8.5 C4,7.9 4.4,7.5 5,7.5 C5.6,7.5 6,7.9 6,8.5 V9.5"/>
+                            </Viewbox>
+                        </Button>
+                        <Button Style="{StaticResource RailButton}" ToolTip="Add layer" Command="{Binding AddSwimLaneCommand}">
+                            <Viewbox Width="16" Height="16">
+                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M4,5 L8,3 L12,5 L8,7 Z M4,8 L8,10 L12,8 M4,11 L8,13 L12,11"/>
+                            </Viewbox>
+                        </Button>
+                        <Button Style="{StaticResource RailButton}" ToolTip="Note" Command="{Binding AddNoteCardCommand}">
+                            <Viewbox Width="16" Height="16">
+                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M4,3.5 H12 V10 L9.5,12.5 H4 Z M9.5,12.5 V10 H12"/>
+                            </Viewbox>
+                        </Button>
+                        <Button Style="{StaticResource RailButton}" ToolTip="Text" Command="{Binding AddTextCardCommand}">
+                            <Viewbox Width="16" Height="16">
+                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M4,4.5 H12 M8,4.5 V12 M5.5,12 H10.5"/>
+                            </Viewbox>
+                        </Button>
+                        <Button Style="{StaticResource RailButton}" ToolTip="Service symbol" Command="{Binding AddShapeCommand}" CommandParameter="service">
+                            <Viewbox Width="16" Height="16">
+                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M8,3 L13,8 L8,13 L3,8 Z"/>
+                            </Viewbox>
+                        </Button>
+                        <Button Style="{StaticResource RailButton}" ToolTip="Database symbol" Command="{Binding AddShapeCommand}" CommandParameter="database">
+                            <Viewbox Width="16" Height="16">
+                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M4,5 C4,3.9 5.8,3 8,3 C10.2,3 12,3.9 12,5 C12,6.1 10.2,7 8,7 C5.8,7 4,6.1 4,5 Z M4,5 V11 C4,12.1 5.8,13 8,13 C10.2,13 12,12.1 12,11 V5 M4,8 C4,9.1 5.8,10 8,10 C10.2,10 12,9.1 12,8"/>
+                            </Viewbox>
+                        </Button>
+                        <Button Style="{StaticResource RailButton}" ToolTip="Risk symbol" Command="{Binding AddShapeCommand}" CommandParameter="risk">
+                            <Viewbox Width="16" Height="16">
+                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M8,3 L13,12.5 H3 Z M8,6.5 V9 M8,11 H8.1"/>
+                            </Viewbox>
+                        </Button>
+                        <Button Style="{StaticResource RailButton}" ToolTip="Container" Command="{Binding AddContainerCardCommand}">
+                            <Viewbox Width="16" Height="16">
+                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M3,4 H13 V12 H3 Z M5,6 H11"/>
+                            </Viewbox>
+                        </Button>
+                        <Button Style="{StaticResource RailButton}" ToolTip="Frame all" Click="OnFrameAll">
+                            <Viewbox Width="16" Height="16">
+                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M4,6 V4 H6 M10,4 H12 V6 M12,10 V12 H10 M6,12 H4 V10 M6,8 H10"/>
+                            </Viewbox>
+                        </Button>
+                        <Button Style="{StaticResource RailButton}" ToolTip="Background" Command="{Binding ToggleBackgroundCommand}">
+                            <Viewbox Width="16" Height="16">
+                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M4,4 H6 V6 H4 Z M10,4 H12 V6 H10 Z M4,10 H6 V12 H4 Z M10,10 H12 V12 H10 Z"/>
+                            </Viewbox>
+                        </Button>
                     </StackPanel>
                 </Border>
 
             </Grid>
 
-            <GridSplitter Grid.Column="3" Width="1" HorizontalAlignment="Stretch" Background="{StaticResource PanelBorder}"/>
+            <GridSplitter Grid.Column="3" HorizontalAlignment="Stretch" Cursor="SizeWE"
+                          Background="{StaticResource SoftBorder}">
+                <GridSplitter.Style>
+                    <Style TargetType="GridSplitter">
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{StaticResource PanelBorder}"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </GridSplitter.Style>
+            </GridSplitter>
 
             <Border Grid.Column="4" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1,0,0,0">
                 <Grid>
@@ -196,33 +635,97 @@
 
                     <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
                         <StackPanel Margin="14,14">
-                            <TextBlock Text="Current selection" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SubtleForeground}" Margin="0,0,0,10"/>
+                            <TextBlock Text="Inspector" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SubtleForeground}" Margin="0,0,0,8"/>
                             <TextBlock Text="{Binding SelectedObjectTitle}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" TextWrapping="Wrap"/>
-                            <TextBlock Text="{Binding SelectedObjectKind}" FontSize="12" Foreground="{StaticResource SubtleForeground}" Margin="0,4,0,4"/>
-                            <TextBlock Text="{Binding SelectedObjectPath}" FontSize="11" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap"/>
-                            <TextBlock Text="{Binding SelectedObjectLineRange}" FontSize="11" Foreground="{StaticResource MutedForeground}" Margin="0,2,0,18"/>
+                            <TextBlock Text="{Binding SelectedObjectKind}" FontSize="12" Foreground="{StaticResource SubtleForeground}" Margin="0,4,0,2"/>
+                            <TextBlock Text="{Binding SelectedObjectLineRange}" FontSize="10" Foreground="{StaticResource MutedForeground}" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
-                            <TextBlock Text="Data" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" Margin="0,0,0,10"/>
-                            <Grid Margin="0,0,0,18">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="82"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="24"/>
-                                    <RowDefinition Height="24"/>
-                                    <RowDefinition Height="24"/>
-                                    <RowDefinition Height="24"/>
-                                </Grid.RowDefinitions>
-                                <TextBlock Text="X" Foreground="{StaticResource SubtleForeground}" FontSize="12"/>
-                                <TextBlock Grid.Column="1" Text="{Binding SelectedObjectX}" Foreground="{StaticResource ForegroundBrush}" FontSize="12"/>
-                                <TextBlock Grid.Row="1" Text="Y" Foreground="{StaticResource SubtleForeground}" FontSize="12"/>
-                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedObjectY}" Foreground="{StaticResource ForegroundBrush}" FontSize="12"/>
-                                <TextBlock Grid.Row="2" Text="Width" Foreground="{StaticResource SubtleForeground}" FontSize="12"/>
-                                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedObjectWidth}" Foreground="{StaticResource ForegroundBrush}" FontSize="12"/>
-                                <TextBlock Grid.Row="3" Text="Height" Foreground="{StaticResource SubtleForeground}" FontSize="12"/>
-                                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SelectedObjectHeight}" Foreground="{StaticResource ForegroundBrush}" FontSize="12"/>
-                            </Grid>
+                            <Expander Header="Geometry" IsExpanded="True" Margin="0,0,0,8" Visibility="{Binding HasBoardSelection, Converter={StaticResource BoolVis}}">
+                                <UniformGrid Columns="4" Margin="0,8,0,0">
+                                    <StackPanel Margin="0,0,8,0">
+                                        <TextBlock Text="X" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
+                                        <TextBox Text="{Binding SelectedObjectX, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,8,0">
+                                        <TextBlock Text="Y" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
+                                        <TextBox Text="{Binding SelectedObjectY, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,8,0">
+                                        <TextBlock Text="W" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
+                                        <TextBox Text="{Binding SelectedObjectWidth, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Text="H" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
+                                        <TextBox Text="{Binding SelectedObjectHeight, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
+                                    </StackPanel>
+                                </UniformGrid>
+                            </Expander>
+
+                            <Expander Header="Appearance" IsExpanded="True" Margin="0,0,0,8" Visibility="{Binding HasBoardSelection, Converter={StaticResource BoolVis}}">
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="58"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="Fill" Foreground="{StaticResource SubtleForeground}" FontSize="11" Margin="0,6,0,0"/>
+                                    <TextBox Grid.Column="1" Text="{Binding SelectedFill, UpdateSourceTrigger=PropertyChanged}" FontSize="11"/>
+                                    <TextBlock Grid.Row="1" Text="Stroke" Foreground="{StaticResource SubtleForeground}" FontSize="11" Margin="0,6,0,0"/>
+                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SelectedStroke, UpdateSourceTrigger=PropertyChanged}" FontSize="11"/>
+                                    <TextBlock Grid.Row="2" Text="Text" Foreground="{StaticResource SubtleForeground}" FontSize="11" Margin="0,6,0,0"/>
+                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SelectedTextColor, UpdateSourceTrigger=PropertyChanged}" FontSize="11"/>
+                                    <StackPanel Grid.Row="3" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0">
+                                        <CheckBox Content="Dashed" IsChecked="{Binding SelectedDashed}" Margin="0,0,12,0"/>
+                                        <CheckBox Content="Locked" IsChecked="{Binding SelectedLocked}" Margin="0,0,12,0"/>
+                                        <CheckBox Content="Snap" IsChecked="{Binding SnapToGrid}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Expander>
+
+                            <Expander Header="Connector" IsExpanded="True" Margin="0,0,0,8" Visibility="{Binding SelectionIsConnection, Converter={StaticResource BoolVis}}">
+                                <StackPanel Margin="0,8,0,0">
+                                    <TextBox Text="{Binding SelectedConnectionLabel, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Margin="0,0,0,8"/>
+                                    <UniformGrid Columns="3" Margin="0,0,0,6">
+                                        <Button Style="{StaticResource ToolButton}" Content="Curve" Command="{Binding SetConnectorRouteCommand}" CommandParameter="Curved" Margin="0,0,4,0"/>
+                                        <Button Style="{StaticResource ToolButton}" Content="Line" Command="{Binding SetConnectorRouteCommand}" CommandParameter="Straight" Margin="0,0,4,0"/>
+                                        <Button Style="{StaticResource ToolButton}" Content="Elbow" Command="{Binding SetConnectorRouteCommand}" CommandParameter="Orthogonal"/>
+                                    </UniformGrid>
+                                    <UniformGrid Columns="4">
+                                        <Button Style="{StaticResource ToolButton}" Content="None" Command="{Binding SetConnectorArrowCommand}" CommandParameter="None" Margin="0,0,4,0"/>
+                                        <Button Style="{StaticResource ToolButton}" Content="Fwd" Command="{Binding SetConnectorArrowCommand}" CommandParameter="Forward" Margin="0,0,4,0"/>
+                                        <Button Style="{StaticResource ToolButton}" Content="Back" Command="{Binding SetConnectorArrowCommand}" CommandParameter="Backward" Margin="0,0,4,0"/>
+                                        <Button Style="{StaticResource ToolButton}" Content="Both" Command="{Binding SetConnectorArrowCommand}" CommandParameter="Both"/>
+                                    </UniformGrid>
+                                </StackPanel>
+                            </Expander>
+
+                            <Expander Header="Arrange" IsExpanded="True" Margin="0,0,0,8" Visibility="{Binding SelectionIsBlock, Converter={StaticResource BoolVis}}">
+                                <UniformGrid Columns="4" Margin="0,8,0,0">
+                                    <Button Style="{StaticResource ToolButton}" Content="Front" Command="{Binding ChangeZOrderCommand}" CommandParameter="front" Margin="0,0,4,0"/>
+                                    <Button Style="{StaticResource ToolButton}" Content="Fwd" Command="{Binding ChangeZOrderCommand}" CommandParameter="forward" Margin="0,0,4,0"/>
+                                    <Button Style="{StaticResource ToolButton}" Content="Back" Command="{Binding ChangeZOrderCommand}" CommandParameter="backward" Margin="0,0,4,0"/>
+                                    <Button Style="{StaticResource ToolButton}" Content="Rear" Command="{Binding ChangeZOrderCommand}" CommandParameter="back"/>
+                                </UniformGrid>
+                            </Expander>
+
+                            <Button Style="{StaticResource AccentButton}" Content="Apply" Command="{Binding ApplySelectionPropertiesCommand}" HorizontalAlignment="Stretch" Margin="0,0,0,14" Visibility="{Binding HasBoardSelection, Converter={StaticResource BoolVis}}"/>
+
+                            <TextBlock Text="Board files" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" Margin="0,0,0,8"/>
+                            <ItemsControl ItemsSource="{Binding BoardFileUsages}" Margin="0,0,0,12">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="0,0,0,8">
+                                            <TextBlock Text="{Binding Title}" FontSize="11" Foreground="{StaticResource ForegroundBrush}" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding Detail}" FontSize="10" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
                     </ScrollViewer>
 
@@ -236,13 +739,18 @@
                                 <TextBlock Text="Mini Map" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
                                 <TextBlock Text="{Binding Scene.Blocks.Count, StringFormat={}{0} blocks}" FontSize="11" Foreground="{StaticResource SubtleForeground}" Margin="0,3,0,0"/>
                             </StackPanel>
-                            <controls:SceneMiniMap Grid.Row="1"
-                                                   Scene="{Binding Scene}"
-                                                   Camera="{Binding Camera, ElementName=CanvasViewport, Mode=TwoWay}"
-                                                   ViewportWidth="{Binding ActualWidth, ElementName=CanvasViewport}"
-                                                   ViewportHeight="{Binding ActualHeight, ElementName=CanvasViewport}"
-                                                   Height="174" Margin="0,8,0,0"
-                                                   HorizontalAlignment="Stretch"/>
+                            <Border Grid.Row="1" Margin="0,8,0,0" Height="154"
+                                    BorderBrush="{StaticResource PanelBorder}" BorderThickness="1"
+                                    Background="#FFFFFF" CornerRadius="6" ClipToBounds="True">
+                                <controls:SceneMiniMap
+                                    Scene="{Binding Scene}"
+                                    Camera="{Binding Camera, ElementName=CanvasViewport, Mode=TwoWay}"
+                                    ViewportWidth="{Binding ActualWidth, ElementName=CanvasViewport}"
+                                    ViewportHeight="{Binding ActualHeight, ElementName=CanvasViewport}"
+                                    ClipToBounds="True"
+                                    HorizontalAlignment="Stretch"
+                                    VerticalAlignment="Stretch"/>
+                            </Border>
                         </Grid>
                     </Border>
                 </Grid>

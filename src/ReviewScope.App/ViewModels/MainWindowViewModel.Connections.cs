@@ -26,7 +26,7 @@ public sealed partial class MainWindowViewModel
             MidControlY: args.MidControlY,
             MidControlBends: args.MidControlBends);
         var connections = Scene.Connections.Append(conn).ToList();
-        Scene = Scene with { Connections = connections };
+        SetSceneFromUserAction(Scene with { Connections = connections });
         await PersistSessionAsync();
 }
 }

@@ -25,7 +25,7 @@ public sealed partial class MainWindowViewModel
         string key = $"lane::{Guid.NewGuid():N}";
         var lane = new RenderSwimLane(Guid.NewGuid(), key, name, color, 100, 100, 600, 400);
         var lanes = Scene.SwimLanes.Append(lane).ToList();
-        Scene = Scene with { SwimLanes = lanes };
+        SetSceneFromUserAction(Scene with { SwimLanes = lanes }, $"Added {name}");
         await PersistSessionAsync();
 }
 }
