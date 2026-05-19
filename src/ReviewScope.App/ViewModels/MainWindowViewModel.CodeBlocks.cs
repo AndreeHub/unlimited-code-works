@@ -208,11 +208,38 @@ public sealed partial class MainWindowViewModel
             SemanticTokens: tokens);
 
         var blocks = Scene.Blocks.Append(extract).ToList();
-        // Optionally auto-connect
-        var connection = new RenderConnection(Guid.NewGuid(), args.SourceBlock.Key, key);
+        var connection = CreateCurvedExtractConnection(args.SourceBlock, extract);
         var connections = Scene.Connections.Append(connection).ToList();
         SetSceneFromUserAction(Scene with { Blocks = blocks, Connections = connections }, $"Extracted: {symbolName}");
         await PersistSessionAsync();
+    }
+
+    private static RenderConnection CreateCurvedExtractConnection(RenderBlock source, RenderBlock target)
+    {
+        var (sourceAnchor, targetAnchor) = ChooseCurvedConnectionAnchors(source, target);
+        return new RenderConnection(
+            Guid.NewGuid(),
+            source.Key,
+            target.Key,
+            SourceAnchorIndex: sourceAnchor,
+            TargetAnchorIndex: targetAnchor,
+            RouteKind: ConnectorRouteKind.Curved,
+            ArrowKind: ConnectorArrowKind.Forward);
+    }
+
+    private static (int SourceAnchor, int TargetAnchor) ChooseCurvedConnectionAnchors(RenderBlock source, RenderBlock target)
+    {
+        double sourceCx = source.X + source.Width / 2;
+        double sourceCy = source.Y + source.Height / 2;
+        double targetCx = target.X + target.Width / 2;
+        double targetCy = target.Y + target.Height / 2;
+        double dx = targetCx - sourceCx;
+        double dy = targetCy - sourceCy;
+
+        if (Math.Abs(dy) > Math.Abs(dx) * 0.75)
+            return dy < 0 ? (2, 9) : (9, 2);
+
+        return dx >= 0 ? (5, 14) : (14, 5);
     }
 
     // -----------------------------------------------------------------------
