@@ -59,6 +59,7 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private const int WsTabStop = 0x00010000, SsNotify = 0x00000100;
     private const int WmPaint = 0x000F, WmSize = 0x0005, WmEraseBkgnd = 0x0014;
     private const int WmKeyDown = 0x0100, WmKeyUp = 0x0101, WmChar = 0x0102, WmKillFocus = 0x0008;
+    private const int WmSysKeyDown = 0x0104, WmSysKeyUp = 0x0105, WmSysChar = 0x0106;
     private const int WmMouseMove = 0x0200, WmLButtonDown = 0x0201, WmLButtonUp = 0x0202;
     private const int WmRButtonDown = 0x0204, WmRButtonUp = 0x0205;
     private const int WmMButtonDown = 0x0207, WmMButtonUp = 0x0208;
@@ -362,6 +363,9 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
             case WmChar: if (_editingNoteKey is not null || _editingGroupKey is not null) { HandleChar((char)wParam.ToInt32()); handled = true; } break;
             case WmKeyDown: HandleKeyDown(wParam); if (_editingNoteKey is not null || _editingGroupKey is not null) handled = true; break;
             case WmKeyUp: HandleKeyUp(wParam); break;
+            case WmSysKeyDown: HandleKeyDown(wParam); handled = true; break;
+            case WmSysKeyUp: HandleKeyUp(wParam); handled = true; break;
+            case WmSysChar: handled = true; break;
             case WmKillFocus:
                 _isFocusMode = false;
                 _isExtractMode = false;
