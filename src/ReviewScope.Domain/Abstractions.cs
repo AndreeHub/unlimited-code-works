@@ -19,6 +19,9 @@ public interface ISymbolScopeService
 {
     // Returns (startLine, endLine) of the symbol at the given position, 1-based
     Task<(int StartLine, int EndLine, string SymbolName, string ContainingType)?> GetSymbolScopeAsync(string filePath, int line, int column, CancellationToken cancellationToken);
+
+    // Returns the source definition scope for a function-like symbol at the given position, 1-based.
+    Task<(string FilePath, int StartLine, int EndLine, string SymbolName, string ContainingType)?> GetFunctionDefinitionScopeAsync(string filePath, int line, int column, CancellationToken cancellationToken);
 }
 
 public interface ISessionRepository

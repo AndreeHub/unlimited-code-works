@@ -190,12 +190,11 @@ public sealed partial class MainWindowViewModel
     {
         var id = Guid.NewGuid();
         Size blockSize = MeasureImageBlockSize(pixelWidth, pixelHeight);
-        double itemX = x ?? 160 + Scene.Blocks.Count * 20;
-        double itemY = y ?? 140 + Scene.Blocks.Count * 16;
+        var placement = FindOpenCanvasPlacement(blockSize.Width, blockSize.Height, x, y);
         var image = new RenderBlock(
             id, $"image::{id:N}", BlockKind.Image,
             title, "Image / screenshot",
-            itemX, itemY, blockSize.Width, blockSize.Height,
+            placement.X, placement.Y, blockSize.Width, blockSize.Height,
             Body: title,
             LayerKey: "layer::screenshots",
             ShapeType: "image",

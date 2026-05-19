@@ -16,7 +16,7 @@ public sealed partial class MainWindowViewModel
     // -----------------------------------------------------------------------
     // File drag onto canvas
     // -----------------------------------------------------------------------
-    public async Task AddFileToCanvasAsync(string filePath)
+    public async Task AddFileToCanvasAsync(string filePath, double? x = null, double? y = null)
     {
         if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath)) return;
 
@@ -35,17 +35,16 @@ public sealed partial class MainWindowViewModel
             ? await _semanticSpan.GetTokenSpansAsync(filePath, 1, body.Split('\n').Length, CancellationToken.None)
             : Array.Empty<SemanticTokenSpan>();
 
-        double x = 96 + Scene.Blocks.Count * 40;
-        double y = 72 + Scene.Blocks.Count * 20;
         double width = DefaultFileBlockWidth;
         double lineCount = body.Split('\n').Length;
         double height = MeasureUnfocusedFileBlockHeight((int)lineCount);
+        var placement = FindOpenCanvasPlacement(width, height, x, y);
 
         var block = new RenderBlock(
             Guid.NewGuid(), key, BlockKind.File,
             Path.GetFileName(filePath),
             GetRelativePath(filePath),
-            x, y, width, height,
+            placement.X, placement.Y, width, height,
             FilePath: filePath,
             StartLine: 1,
             EndLine: (int)lineCount,
@@ -99,11 +98,10 @@ public sealed partial class MainWindowViewModel
             ? await _semanticSpan.GetTokenSpansAsync(filePath, 1, totalLines, CancellationToken.None)
             : Array.Empty<SemanticTokenSpan>();
 
-        double x = 96 + Scene.Blocks.Count * 40;
-        double y = 72 + Scene.Blocks.Count * 20;
         double fullWidth = DefaultFileBlockWidth;
         double fullHeight = MeasureUnfocusedFileBlockHeight(totalLines);
         double focusedHeight = MeasureCodeBlockHeight(end - start + 1, MinScopedBlockHeight);
+        var placement = FindOpenCanvasPlacement(fullWidth, focusedHeight);
 
         // Create a full file block pre-focused on the symbol range.
         // The user can click the restore button (↗) to expand back to the full file.
@@ -112,7 +110,7 @@ public sealed partial class MainWindowViewModel
             Guid.NewGuid(), fileKey, BlockKind.File,
             Path.GetFileName(filePath),
             GetRelativePath(filePath),
-            x, y, fullWidth, focusedHeight,
+            placement.X, placement.Y, fullWidth, focusedHeight,
             FilePath: filePath,
             StartLine: 1,
             EndLine: totalLines,
@@ -139,22 +137,54 @@ public sealed partial class MainWindowViewModel
     // -----------------------------------------------------------------------
     public async Task HandleExtractRequestAsync(ExtractRequestedArgs args)
     {
-        var scope = await _symbolScope.GetSymbolScopeAsync(
+        var definitionScope = await _symbolScope.GetFunctionDefinitionScopeAsync(
             args.SourceBlock.FilePath!, args.Line, args.Column, CancellationToken.None);
-        if (scope is null)
+
+        string sourceFilePath;
+        int startLine;
+        int endLine;
+        string symbolName;
+        string containingType;
+
+        if (definitionScope is not null)
         {
-            StatusMessage = "No function found at that position.";
+            sourceFilePath = definitionScope.Value.FilePath;
+            startLine = definitionScope.Value.StartLine;
+            endLine = definitionScope.Value.EndLine;
+            symbolName = definitionScope.Value.SymbolName;
+            containingType = definitionScope.Value.ContainingType;
+        }
+        else
+        {
+            var scope = await _symbolScope.GetSymbolScopeAsync(
+                args.SourceBlock.FilePath!, args.Line, args.Column, CancellationToken.None);
+            if (scope is null)
+            {
+                StatusMessage = "No function found at that position.";
+                return;
+            }
+
+            sourceFilePath = args.SourceBlock.FilePath!;
+            startLine = scope.Value.StartLine;
+            endLine = scope.Value.EndLine;
+            symbolName = scope.Value.SymbolName;
+            containingType = scope.Value.ContainingType;
+        }
+
+        if (!File.Exists(sourceFilePath))
+        {
+            StatusMessage = "Function source file was not found.";
             return;
         }
 
-        string body = await File.ReadAllTextAsync(args.SourceBlock.FilePath!);
+        string body = await File.ReadAllTextAsync(sourceFilePath);
         string[] allLines = body.Split('\n');
-        string extractedBody = string.Join('\n', allLines.Skip(scope.Value.StartLine - 1).Take(scope.Value.EndLine - scope.Value.StartLine + 1));
+        string extractedBody = string.Join('\n', allLines.Skip(startLine - 1).Take(endLine - startLine + 1));
 
         var tokens = await _semanticSpan.GetTokenSpansAsync(
-            args.SourceBlock.FilePath!, scope.Value.StartLine, scope.Value.EndLine, CancellationToken.None);
+            sourceFilePath, startLine, endLine, CancellationToken.None);
 
-        string key = $"extract::{args.SourceBlock.FilePath!.ToLowerInvariant()}::{scope.Value.SymbolName}::{scope.Value.StartLine}";
+        string key = $"extract::{sourceFilePath.ToLowerInvariant()}::{symbolName}::{startLine}";
         if (Scene.Blocks.Any(b => b.Key.Equals(key, StringComparison.OrdinalIgnoreCase)))
         {
             StatusMessage = "This function is already extracted.";
@@ -163,17 +193,17 @@ public sealed partial class MainWindowViewModel
 
         double x = args.SourceBlock.X + args.SourceBlock.Width + 80;
         double y = args.SourceBlock.Y;
-        double lineCount = scope.Value.EndLine - scope.Value.StartLine + 1;
+        double lineCount = endLine - startLine + 1;
         double height = MeasureCodeBlockHeight((int)lineCount, MinScopedBlockHeight);
 
         var extract = new RenderBlock(
             Guid.NewGuid(), key, BlockKind.Extract,
-            $"{scope.Value.SymbolName}(...)",
-            $"{scope.Value.ContainingType}  *  {Path.GetFileName(args.SourceBlock.FilePath!)}",
+            $"{symbolName}(...)",
+            $"{containingType}  *  {Path.GetFileName(sourceFilePath)}",
             x, y, 640, height,
-            FilePath: args.SourceBlock.FilePath,
-            StartLine: scope.Value.StartLine,
-            EndLine: scope.Value.EndLine,
+            FilePath: sourceFilePath,
+            StartLine: startLine,
+            EndLine: endLine,
             Body: extractedBody,
             SemanticTokens: tokens);
 
@@ -181,7 +211,7 @@ public sealed partial class MainWindowViewModel
         // Optionally auto-connect
         var connection = new RenderConnection(Guid.NewGuid(), args.SourceBlock.Key, key);
         var connections = Scene.Connections.Append(connection).ToList();
-        SetSceneFromUserAction(Scene with { Blocks = blocks, Connections = connections }, $"Extracted: {scope.Value.SymbolName}");
+        SetSceneFromUserAction(Scene with { Blocks = blocks, Connections = connections }, $"Extracted: {symbolName}");
         await PersistSessionAsync();
     }
 

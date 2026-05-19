@@ -105,15 +105,13 @@ public sealed partial class CanvasViewport
             }
             return;
         }
-        if (key == Key.LeftCtrl || key == Key.RightCtrl) { _isFocusMode = true; RenderNative(); }
         if (key == Key.LeftAlt || key == Key.RightAlt) { _isExtractMode = true; RenderNative(); }
     }
 
     private void HandleKeyUp(IntPtr wParam)
     {
         Key key = KeyInterop.KeyFromVirtualKey((int)wParam.ToInt64());
-        if (key == Key.LeftCtrl || key == Key.RightCtrl) { _isFocusMode = false; _extractHoverBlock = null; RenderNative(); }
-        if (key == Key.LeftAlt || key == Key.RightAlt) { _isExtractMode = false; _extractHoverBlock = null; RenderNative(); }
+        if (key == Key.LeftAlt || key == Key.RightAlt) { _isExtractMode = false; RenderNative(); }
         if (key == Key.Escape) { ClearConnectionDrawingState(); RenderNative(); }
     }
 
@@ -713,28 +711,6 @@ public sealed partial class CanvasViewport
                 MoveBlocks(_draggedKeys, delta.X, delta.Y);
             }
             return;
-        }
-
-        // Focus/Extract-mode hover: highlight function scope under cursor
-        if (_isFocusMode || _isExtractMode)
-        {
-            var hoverBlock = HitBlock(world);
-            if (hoverBlock?.Block.Kind is BlockKind.File or BlockKind.Extract && hoverBlock.Block.Body is not null)
-            {
-                int codeLine = WorldToCodeLine(hoverBlock, world);
-                if (_extractHoverBlock?.Block.Key != hoverBlock.Block.Key || _extractHoverLine != codeLine)
-                {
-                    _extractHoverBlock = hoverBlock;
-                    _extractHoverLine = codeLine;
-                    _extractHoverStartLine = codeLine;
-                    _extractHoverEndLine = codeLine;
-                    RenderNative();
-                }
-            }
-            else
-            {
-                if (_extractHoverBlock is not null) { _extractHoverBlock = null; RenderNative(); }
-            }
         }
 
         UpdateHoverCursor(screen);

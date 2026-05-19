@@ -180,12 +180,8 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private string? _hoverAnchorBlockKey;
     private int? _hoverAnchorIndex;
 
-    // Modifier highlight state (Ctrl=focus, Alt=extract)
-    private bool _isFocusMode;            // Ctrl held - collapse to function
-    private bool _isExtractMode;          // Alt held - extract function to new block
-    private SceneBlockVisual? _extractHoverBlock;
-    private int _extractHoverLine;
-    private int _extractHoverStartLine, _extractHoverEndLine;
+    // Modifier highlight state (Alt=extract function to new block)
+    private bool _isExtractMode;
 
     // Click tracking
     private long _lastClickTick = -1;
@@ -367,7 +363,6 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
             case WmSysKeyUp: HandleKeyUp(wParam); handled = true; break;
             case WmSysChar: handled = true; break;
             case WmKillFocus:
-                _isFocusMode = false;
                 _isExtractMode = false;
                 if (_editingNoteKey is not null) CommitNoteEdit(save: true);
                 else if (_editingGroupKey is not null) CommitGroupTitleEdit(save: true);

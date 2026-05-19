@@ -20,6 +20,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private const double MinScopedBlockHeight = 180;
     private const double CodeLineHeight = 18;
     private const double CodeBlockVerticalChrome = 108 + 30 + 24;
+    private const double NewBlockStartX = 96;
+    private const double NewBlockStartY = 72;
+    private const double NewBlockGapX = 56;
+    private const double NewBlockGapY = 72;
+    private const double NewBlockRowWidth = 5200;
 
     private readonly WorkspaceManager _workspace;
     private readonly FileStructureService _fileStructure;
@@ -128,6 +133,35 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private int NextBlockZIndex() =>
         Scene.Blocks.Count == 0 ? 0 : Scene.Blocks.Max(b => b.ZIndex) + 1;
+
+    private (double X, double Y) FindOpenCanvasPlacement(double width, double height, double? preferredX = null, double? preferredY = null)
+    {
+        double originX = preferredX ?? Scene.Blocks.Select(b => b.X).DefaultIfEmpty(NewBlockStartX).Min();
+        double originY = preferredY ?? Scene.Blocks.Select(b => b.Y).DefaultIfEmpty(NewBlockStartY).Min();
+        int columns = Math.Max(1, (int)Math.Floor(NewBlockRowWidth / Math.Max(1, width + NewBlockGapX)));
+
+        for (int row = 0; row < 200; row++)
+        {
+            double y = originY + row * (height + NewBlockGapY);
+            for (int col = 0; col < columns; col++)
+            {
+                double x = originX + col * (width + NewBlockGapX);
+                if (!Scene.Blocks.Any(b => BlocksOverlapWithGap(x, y, width, height, b)))
+                    return (x, y);
+            }
+        }
+
+        double fallbackY = Scene.Blocks.Select(b => b.Y + b.Height).DefaultIfEmpty(originY).Max() + NewBlockGapY;
+        return (originX, fallbackY);
+    }
+
+    private static bool BlocksOverlapWithGap(double x, double y, double width, double height, RenderBlock block)
+    {
+        return x < block.X + block.Width + NewBlockGapX
+            && x + width + NewBlockGapX > block.X
+            && y < block.Y + block.Height + NewBlockGapY
+            && y + height + NewBlockGapY > block.Y;
+    }
 
     private void UpdateSelectedObject(RenderScene scene)
     {

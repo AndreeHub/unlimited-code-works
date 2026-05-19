@@ -460,8 +460,7 @@ public partial class MainWindow : Window
             if (IsImageFile(file))
                 await _vm.AddImageFileToCanvasAsync(file, world.X, world.Y);
             else
-                await _vm.AddFileToCanvasAsync(file);
-            world.Offset(28, 28);
+                await _vm.AddFileToCanvasAsync(file, world.X, world.Y);
         }
     }
 

@@ -530,9 +530,6 @@ public sealed partial class CanvasViewport
         if (ShouldDrawConnectionAnchors(block))
             DrawConnectionAnchors(block, outer, accent);
 
-        // Extract/Focus-mode highlight overlay
-        if ((_isFocusMode || _isExtractMode) && _extractHoverBlock?.Block.Key == block.Key)
-            DrawExtractHighlight(code);
     }
 
     private bool ShouldDrawConnectionAnchors(RenderBlock block) =>
@@ -1220,24 +1217,6 @@ public sealed partial class CanvasViewport
         SemanticTokenKind.Operator => WpfColor.FromRgb(75, 85, 99),
         _ => WpfColor.FromRgb(17, 24, 39)
     };
-
-    private void DrawExtractHighlight(Rect codeRect)
-    {
-        if (_extractHoverStartLine <= 0) return;
-        int startLine = _extractHoverBlock!.Block.Focused?.StartLine ?? _extractHoverBlock.Block.StartLine ?? 1;
-        float relStart = (_extractHoverStartLine - startLine) * (float)CodeLineH;
-        float relEnd = (_extractHoverEndLine - startLine + 1) * (float)CodeLineH;
-        float y1 = (float)codeRect.Y + relStart;
-        float y2 = Math.Min((float)codeRect.Bottom, (float)codeRect.Y + relEnd);
-        if (y2 <= y1) return;
-        WpfColor c = _isFocusMode
-            ? WpfColor.FromRgb(46, 125, 215)
-            : WpfColor.FromRgb(235, 154, 40);
-        _rt!.FillRectangle(new RectangleF((float)codeRect.X, y1, (float)codeRect.Width, y2 - y1),
-            GetBrush(WpfColor.FromArgb(48, c.R, c.G, c.B)));
-        string hint = _isFocusMode ? "Ctrl+click - focus this function" : "Alt+click - extract to new block";
-        DrawText(hint, (float)codeRect.X + 8, y1 - 14, 240, 9, c);
-    }
 
     // -----------------------------------------------------------------------
     // Minimap
