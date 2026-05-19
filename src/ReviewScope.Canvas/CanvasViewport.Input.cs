@@ -276,7 +276,7 @@ public sealed partial class CanvasViewport
                 return;
             }
 
-            // Ctrl+click on a code block â†’ focus that function inside this block
+            // Ctrl+click on a code block -> focus that function inside this block
             if (isCtrl && hit.Block.Kind is BlockKind.File or BlockKind.Extract && hit.Block.Body is not null)
             {
                 int codeLine = WorldToCodeLine(hit, world);
@@ -736,7 +736,10 @@ public sealed partial class CanvasViewport
     {
         Point world = ToWorld(screen);
         var hit = HitBlock(world);
-        if (hit is null || hit.Block.Body is null || hit.Block.Kind is not (BlockKind.File or BlockKind.Extract))
+        if (hit is null
+            || !hit.Block.IsSelected
+            || hit.Block.Body is null
+            || hit.Block.Kind is not (BlockKind.File or BlockKind.Extract))
             return false;
 
         Rect bodyRect = GetBodyRect(hit.Bounds);

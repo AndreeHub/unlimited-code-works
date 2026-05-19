@@ -293,16 +293,16 @@ public sealed partial class CanvasViewport
 
     private void DrawControlPoint(Point p, ID2D1SolidColorBrush brush)
     {
-        float r = Math.Max(3f, InvStroke(4f));
+        float r = Math.Max(1.5f, InvStroke(2f));
         _rt!.FillEllipse(new Ellipse(new Vector2((float)p.X, (float)p.Y), r, r), brush);
     }
 
     private void DrawControlNode(Point p, ID2D1SolidColorBrush fill, ID2D1SolidColorBrush stroke)
     {
-        float r = Math.Max(4f, InvStroke(5.5f));
+        float r = Math.Max(2f, InvStroke(2.75f));
         var e = new Ellipse(new Vector2((float)p.X, (float)p.Y), r, r);
         _rt!.FillEllipse(e, fill);
-        _rt.DrawEllipse(e, stroke, InvStroke(1.6f));
+        _rt.DrawEllipse(e, stroke, InvStroke(0.8f));
     }
 
     private void DrawArrowhead(Point tip, Point from, ID2D1SolidColorBrush brush, float stroke)
@@ -484,7 +484,7 @@ public sealed partial class CanvasViewport
         _rt.FillRectangle(ToRF(footer), GetBrush(WpfColor.FromRgb(250, 252, 254)));
 
         // Header text
-        string icon = isFocused ? "â-‰ " : block.Kind == BlockKind.Extract ? "âš™ " : "";
+        string icon = isFocused ? "\u25C9 " : block.Kind == BlockKind.Extract ? "\u2699 " : "";
         string titleText = isFocused
             ? icon + block.Focused!.SymbolName
             : icon + block.Title;
@@ -543,7 +543,7 @@ public sealed partial class CanvasViewport
         var stroke = GetBrush(WpfColor.FromArgb(210, accent.R, accent.G, accent.B));
         var hoverStroke = GetBrush(WpfColor.FromArgb(235, 35, 162, 109));
         var sourceStroke = GetBrush(WpfColor.FromArgb(235, 32, 104, 192));
-        float r = Math.Max(3.5f, InvStroke(4.5f));
+        float r = Math.Max(1.75f, InvStroke(2.25f));
         for (int i = 0; i < 16; i++)
         {
             Point p = GetConnectionAnchorPoint(bounds, i);
@@ -559,7 +559,7 @@ public sealed partial class CanvasViewport
             _rt!.FillEllipse(ellipse, fill);
             _rt.DrawEllipse(new Ellipse(new Vector2((float)p.X, (float)p.Y), rr, rr),
                 isTarget || isHover ? hoverStroke : isSource ? sourceStroke : stroke,
-                InvStroke(isTarget || isSource || isHover ? 1.8f : 1.2f));
+                InvStroke(isTarget || isSource || isHover ? 0.9f : 0.6f));
         }
     }
 
@@ -1101,8 +1101,9 @@ public sealed partial class CanvasViewport
     private void DrawCodeScrollbar(Rect bodyRect, int scrollLines, int visibleLines, int totalLines)
     {
         if (_rt is null || totalLines <= 0) return;
+        const float trackRightInset = 22f;
         float trackW = 4f;
-        float trackX = (float)bodyRect.Right - trackW - 4;
+        float trackX = (float)bodyRect.Right - trackW - trackRightInset;
         float trackY = (float)bodyRect.Y + 8;
         float trackH = (float)bodyRect.Height - 16;
         if (trackH <= 12) return;

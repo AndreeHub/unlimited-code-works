@@ -15,8 +15,8 @@ internal sealed record ConnectionEndpointHit(SceneConnectionVisual Connection, C
 public sealed partial class CanvasViewport
 {
     private const double ConnectionArrowHitRadius = 14;
-    private const double ConnectionAnchorHitRadius = 12;
-    private const double ConnectionControlHitRadius = 12;
+    private const double ConnectionAnchorHitRadius = 6;
+    private const double ConnectionControlHitRadius = 6;
     private const double ConnectionLeadDistance = 8;
     private const double MinAutoTangent = 72;
     private const double MaxAutoTangent = 260;
