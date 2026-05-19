@@ -1133,6 +1133,9 @@ public sealed partial class CanvasViewport
         IDWriteTextFormat fmt = GetTextFormat(fontSize);
         using var layout = _dwrite.CreateTextLayout(lineText, fmt, maxWidth, fontSize * 2.2f);
 
+        if (_isExtractMode && block.IsSelected && block.SemanticTokens is not null)
+            DrawAltSymbolHighlights(block, srcLine, lineText, startX, lineY, maxWidth, layout);
+
         if (block.SemanticTokens is not null)
         {
             foreach (var token in block.SemanticTokens.Where(t => t.Line == srcLine).OrderBy(t => t.Column))
@@ -1148,6 +1151,39 @@ public sealed partial class CanvasViewport
         }
 
         _rt.DrawTextLayout(new Vector2(startX, lineY), layout, GetBrush(WpfColor.FromRgb(45, 55, 72)), DrawTextOptions.Clip);
+    }
+
+    private void DrawAltSymbolHighlights(RenderBlock block, int srcLine, string lineText, float startX, float lineY, float maxWidth, IDWriteTextLayout layout)
+    {
+        if (_rt is null || block.SemanticTokens is null) return;
+
+        var fill = GetBrush(WpfColor.FromArgb(72, 235, 154, 40));
+        var stroke = GetBrush(WpfColor.FromArgb(150, 235, 154, 40));
+
+        foreach (var token in block.SemanticTokens.Where(t => t.IsSymbolCandidate && t.Line == srcLine).OrderBy(t => t.Column))
+        {
+            int start = Math.Max(0, token.Column - 1);
+            if (start >= lineText.Length) continue;
+
+            int length = Math.Min(token.Length, lineText.Length - start);
+            if (length <= 0) continue;
+
+            var metrics = layout.HitTestTextRange((uint)start, (uint)length, 0f, 0f);
+            foreach (var metric in metrics)
+            {
+                float padX = 2f;
+                float padY = 1f;
+                float x = startX + metric.Left - padX;
+                float y = lineY + metric.Top + padY;
+                float width = Math.Min(maxWidth - metric.Left + padX, metric.Width + padX * 2);
+                float height = Math.Max(10f, metric.Height - padY * 2);
+                if (width <= 0) continue;
+
+                var rect = new RoundedRectangle(new RectangleF(x, y, width, height), 3f, 3f);
+                _rt.FillRoundedRectangle(rect, fill);
+                _rt.DrawRoundedRectangle(rect, stroke, InvStroke(0.7f));
+            }
+        }
     }
 
     private void DrawScopeGuides(string lineText, float codeX, float lineY, Rect bodyRect)

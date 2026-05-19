@@ -267,6 +267,17 @@ public sealed partial class CanvasViewport
                 return;
             }
 
+            if (isAlt
+                && hit.Block.IsSelected
+                && hit.Block.Kind is BlockKind.File or BlockKind.Extract
+                && hit.Block.Body is not null
+                && TryHitSymbolToken(hit, world, out var symbolToken))
+            {
+                if (ExtractRequestedCommand?.CanExecute(null) == true)
+                    ExtractRequestedCommand.Execute(new ExtractRequestedArgs(hit.Block, symbolToken.Line, symbolToken.Column));
+                return;
+            }
+
             // Ctrl+click on a code block â†’ focus that function inside this block
             if (isCtrl && hit.Block.Kind is BlockKind.File or BlockKind.Extract && hit.Block.Body is not null)
             {
@@ -1783,6 +1794,47 @@ public sealed partial class CanvasViewport
         int startLine = block.Block.Focused?.StartLine ?? block.Block.StartLine ?? 1;
         _codeScrollLines.TryGetValue(block.Block.Key, out int scrollLines);
         return startLine + scrollLines + lineIndex;
+    }
+
+    private bool TryHitSymbolToken(SceneBlockVisual block, Point world, out SemanticTokenSpan token)
+    {
+        token = default!;
+        if (block.Block.SemanticTokens is null || block.Block.SemanticTokens.Count == 0)
+            return false;
+
+        Rect bodyRect = GetBodyRect(block.Bounds);
+        if (!bodyRect.Contains(world))
+            return false;
+
+        double topPadding = block.Block.Focused is not null ? FocusedCodeTopPaddingLines * CodeLineH : 0;
+        double relY = world.Y - bodyRect.Y - topPadding;
+        if (relY < 0)
+            return false;
+
+        int lineIndex = (int)Math.Floor(relY / CodeLineH);
+        int visibleLines = Math.Max(0, (int)Math.Floor(bodyRect.Height / CodeLineH) - (block.Block.Focused is not null ? FocusedCodeTopPaddingLines : 0));
+        if (lineIndex < 0 || lineIndex >= visibleLines)
+            return false;
+
+        float codeX = (float)bodyRect.X + (float)CodeGutterW;
+        if (world.X < codeX)
+            return false;
+
+        int startLine = block.Block.Focused?.StartLine ?? block.Block.StartLine ?? 1;
+        _codeScrollLines.TryGetValue(block.Block.Key, out int scrollLines);
+        int sourceLine = startLine + scrollLines + lineIndex;
+        double sourceColumn = ((world.X - codeX) / CodeCharW) + 1;
+
+        var match = block.Block.SemanticTokens
+            .Where(t => t.IsSymbolCandidate && t.Line == sourceLine)
+            .OrderBy(t => Math.Abs(sourceColumn - (t.Column + t.Length / 2.0)))
+            .FirstOrDefault(t => sourceColumn >= t.Column - 0.35 && sourceColumn <= t.Column + t.Length + 0.35);
+
+        if (match is null)
+            return false;
+
+        token = match;
+        return true;
     }
 
     private static Rect GetBodyRect(Rect outer) =>
