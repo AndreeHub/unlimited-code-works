@@ -1,5 +1,6 @@
 ﻿using ReviewScope.Domain;
 using System.IO;
+using System.Globalization;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -19,6 +20,7 @@ using DWriteFontWeight = Vortice.DirectWrite.FontWeight;
 using DWriteFontStyle = Vortice.DirectWrite.FontStyle;
 using DWriteFontStretch = Vortice.DirectWrite.FontStretch;
 using DWriteTextAlignment = Vortice.DirectWrite.TextAlignment;
+using DWriteParagraphAlignment = Vortice.DirectWrite.ParagraphAlignment;
 using D2DBezierSegment = Vortice.Direct2D1.BezierSegment;
 using WpfColor = System.Windows.Media.Color;
 using RectangleF = System.Drawing.RectangleF;
@@ -74,9 +76,13 @@ public sealed partial class CanvasViewport
             foreach (var block in _visibleBlocks)
                 DrawBlock(block);
 
+            DrawShapeDraft();
+
             _rt.Transform = Matrix3x2.Identity;
             DrawMarquee();
         }
+
+        DrawShapeToolPalette(viewSize);
 
         try { _rt.EndDraw(); }
         catch { DisposeRenderTarget(); EnsureRT(); }
@@ -194,7 +200,10 @@ public sealed partial class CanvasViewport
 
         ID2D1PathGeometry geom = GetOrBuildConnectionGeometry(connVis);
         var brush = GetBrush(lineColor);
-        _rt!.DrawGeometry(geom, brush, stroke);
+        if (conn.Dashed)
+            _rt!.DrawGeometry(geom, brush, stroke, GetDashedStrokeStyle());
+        else
+            _rt!.DrawGeometry(geom, brush, stroke);
         if (conn.ArrowKind == ConnectorArrowKind.None)
         {
             // no arrowhead
@@ -289,6 +298,19 @@ public sealed partial class CanvasViewport
         _rt.DrawGeometry(path, brush, InvStroke(_connectionHoverTargetWorld is not null ? 2.1f : 1.5f));
         if (draftMid is Point p)
             DrawControlPoint(p, GetBrush(WpfColor.FromArgb(230, 35, 162, 109)));
+    }
+
+    private static IReadOnlyList<Vector2> SampleConnectionPoints(SceneConnectionVisual connVis)
+    {
+        const int samples = 64;
+        var points = new Vector2[samples];
+        for (int i = 0; i < samples; i++)
+        {
+            Point p = EvaluateConnectionPoint(connVis, i / (double)(samples - 1));
+            points[i] = new Vector2((float)p.X, (float)p.Y);
+        }
+
+        return points;
     }
 
     private void DrawControlPoint(Point p, ID2D1SolidColorBrush brush)
@@ -533,8 +555,9 @@ public sealed partial class CanvasViewport
     }
 
     private bool ShouldDrawConnectionAnchors(RenderBlock block) =>
-        _camera.Zoom > UltraCompactZoom
-        && block.Kind is not BlockKind.Note
+        ConnectorsEnabled
+        && _camera.Zoom > UltraCompactZoom
+        && block.Kind is not BlockKind.Note and not BlockKind.Shape
         && (block.IsSelected || _isDrawingConnection || block.Key == _hoverAnchorBlockKey);
 
     private void DrawConnectionAnchors(RenderBlock block, Rect bounds, WpfColor accent)
@@ -546,7 +569,7 @@ public sealed partial class CanvasViewport
         float r = Math.Max(1.75f, InvStroke(2.25f));
         for (int i = 0; i < 16; i++)
         {
-            Point p = GetConnectionAnchorPoint(bounds, i);
+            Point p = GetBlockOutlinePoint(block, bounds, GetConnectionAnchorPoint(bounds, i));
             bool isSource = _isDrawingConnection
                 && block.Key == _connectionSourceKey
                 && i == _connectionSourceAnchorIndex;
@@ -687,47 +710,443 @@ public sealed partial class CanvasViewport
         WpfColor stroke = ParseColor(block.Style?.Stroke ?? "#2E7DD7");
         float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
         string shape = block.ShapeType ?? "service";
+        float baseStroke = (float)Math.Clamp(block.Style?.StrokeWidth ?? 1.3, 0.5, 8.0);
+        float strokeWidth = block.IsSelected ? InvStroke(Math.Max(2, baseStroke + 0.6f)) : InvStroke(baseStroke);
+        bool dashed = block.Style?.Dashed == true;
 
-        if (shape is "database" or "cache" or "queue")
+        if (IsLinearShapeTool(shape))
+        {
+            DrawLinearShape(block, outer, stroke, strokeWidth, dashed);
+        }
+        else if (shape is "database" or "cache" or "queue")
         {
             var rr = new RoundedRectangle(ToRF(outer), 16, 16);
             _rt!.FillRoundedRectangle(rr, GetBrush(fill));
-            _rt.DrawRoundedRectangle(rr, GetBrush(stroke), block.IsSelected ? InvStroke(2) : InvStroke(1.3f));
+            _rt.DrawRoundedRectangle(rr, GetBrush(stroke), strokeWidth);
             _rt.DrawEllipse(new Ellipse(new Vector2(x + w / 2, y + 18), w / 2 - 8, 14), GetBrush(stroke), InvStroke(1.2f));
         }
-        else if (shape == "risk" || shape == "decision")
+        else if (shape is "circle" or "oval")
         {
-            using var path = _factory!.CreatePathGeometry();
-            using (var sink = path.Open())
-            {
-                sink.BeginFigure(new Vector2(x + w / 2, y), FigureBegin.Filled);
-                sink.AddLine(new Vector2(x + w, y + h / 2));
-                sink.AddLine(new Vector2(x + w / 2, y + h));
-                sink.AddLine(new Vector2(x, y + h / 2));
-                sink.EndFigure(FigureEnd.Closed);
-                sink.Close();
-            }
-            _rt!.FillGeometry(path, GetBrush(fill));
-            _rt.DrawGeometry(path, GetBrush(stroke), block.IsSelected ? InvStroke(2) : InvStroke(1.3f));
+            Rect ellipseBounds = shape == "circle" ? CenteredSquare(outer) : outer;
+            var ellipse = new Ellipse(
+                new Vector2((float)(ellipseBounds.X + ellipseBounds.Width / 2), (float)(ellipseBounds.Y + ellipseBounds.Height / 2)),
+                (float)ellipseBounds.Width / 2,
+                (float)ellipseBounds.Height / 2);
+            _rt!.FillEllipse(ellipse, GetBrush(fill));
+            if (dashed)
+                DrawDashedPolyline(BuildEllipsePoints(ellipseBounds), stroke, strokeWidth, close: true);
+            else
+                _rt.DrawEllipse(ellipse, GetBrush(stroke), strokeWidth);
+        }
+        else if (shape is "triangle")
+        {
+            DrawPolygonShape(
+                new[]
+                {
+                    new Vector2(x + w / 2, y),
+                    new Vector2(x + w, y + h),
+                    new Vector2(x, y + h)
+                },
+                fill,
+                stroke,
+                strokeWidth,
+                dashed);
+        }
+        else if (shape is "risk" or "decision" or "diamond")
+        {
+            DrawPolygonShape(
+                new[]
+                {
+                    new Vector2(x + w / 2, y),
+                    new Vector2(x + w, y + h / 2),
+                    new Vector2(x + w / 2, y + h),
+                    new Vector2(x, y + h / 2)
+                },
+                fill,
+                stroke,
+                strokeWidth,
+                dashed);
+        }
+        else if (shape is "star")
+        {
+            DrawPolygonShape(BuildStarPoints(outer), fill, stroke, strokeWidth, dashed);
+        }
+        else if (shape is "hexagon")
+        {
+            DrawPolygonShape(BuildRegularPolygonPoints(outer, 6, -MathF.PI / 6), fill, stroke, strokeWidth, dashed);
+        }
+        else if (shape is "square")
+        {
+            Rect square = CenteredSquare(outer);
+            _rt!.FillRectangle(ToRF(square), GetBrush(fill));
+            if (dashed)
+                DrawDashedPolyline(BuildRectPoints(square), stroke, strokeWidth, close: true);
+            else
+                _rt.DrawRectangle(ToRF(square), GetBrush(stroke), strokeWidth);
+        }
+        else if (shape is "rectangle")
+        {
+            _rt!.FillRectangle(ToRF(outer), GetBrush(fill));
+            if (dashed)
+                DrawDashedPolyline(BuildRectPoints(outer), stroke, strokeWidth, close: true);
+            else
+                _rt.DrawRectangle(ToRF(outer), GetBrush(stroke), strokeWidth);
         }
         else
         {
             var rr = new RoundedRectangle(ToRF(outer), 8, 8);
             _rt!.FillRoundedRectangle(rr, GetBrush(fill));
-            _rt.DrawRoundedRectangle(rr, GetBrush(stroke), block.IsSelected ? InvStroke(2) : InvStroke(1.3f));
+            _rt.DrawRoundedRectangle(rr, GetBrush(stroke), strokeWidth);
         }
 
-        DrawText(block.Title, x + 14, y + h / 2 - 8, w - 28, 13, ParseColor(block.Style?.Text ?? "#111827"));
+        bool isEditing = _editingNoteKey == block.Key;
+        if (!IsLinearShapeTool(shape))
+        {
+            string label = isEditing
+                ? _editBody
+                : string.IsNullOrWhiteSpace(block.Body) ? block.Title : block.Body!;
+            if (isEditing)
+            {
+                float textX = x + 14;
+                float textY = y + h / 2 - 8;
+                float textW = w - 28;
+                DrawEditSelection(label, 13f, textX, textY, textW, wrap: false);
+                DrawText(label, textX, textY, textW, 13, ParseColor(block.Style?.Text ?? "#111827"));
+                if (_editCursorVisible)
+                    DrawNoteCursor(label, 13f, textX, textY, textW, _editCursorPos, wrap: false);
+            }
+            else
+            {
+                DrawShapeText(label, outer, ParseColor(block.Style?.Text ?? "#111827"), block.Style?.TextAlign);
+            }
+        }
         if (ShouldDrawConnectionAnchors(block)) DrawConnectionAnchors(block, outer, stroke);
         DrawGenericResizeHandle(outer, stroke);
+    }
+
+    private void DrawLinearShape(RenderBlock block, Rect outer, WpfColor stroke, float strokeWidth, bool dashed)
+    {
+        var lookup = _snapshot.Blocks.ToDictionary(b => b.Block.Key, StringComparer.OrdinalIgnoreCase);
+        var points = ResolveLinearShapePoints(block, outer, lookup);
+        if (points.Count < 2 || _rt is null) return;
+
+        var vectors = points.Select(p => new Vector2((float)p.X, (float)p.Y)).ToList();
+        if (dashed)
+            DrawDashedPolyline(vectors, stroke, strokeWidth, close: false);
+        else
+            DrawScreenPolyline(vectors, GetBrush(stroke), strokeWidth, close: false);
+
+        if (block.ShapeType == "arrow")
+            DrawArrowhead(points[^1], points[^2], GetBrush(stroke), strokeWidth);
+    }
+
+    private void DrawShapeText(string text, Rect outer, WpfColor color, string? alignment)
+    {
+        if (string.IsNullOrWhiteSpace(text) || _rt is null || _dwrite is null) return;
+
+        const float pad = 12f;
+        float x = (float)outer.X + pad;
+        float y = (float)outer.Y + pad;
+        float w = Math.Max(4, (float)outer.Width - pad * 2);
+        float h = Math.Max(4, (float)outer.Height - pad * 2);
+        IDWriteTextFormat fmt = GetTextFormat(13f);
+        var oldTextAlign = fmt.TextAlignment;
+        var oldParagraphAlign = fmt.ParagraphAlignment;
+        fmt.TextAlignment = ToDWriteTextAlignment(alignment);
+        fmt.ParagraphAlignment = DWriteParagraphAlignment.Center;
+        using var layout = _dwrite.CreateTextLayout(text, fmt, w, h);
+        layout.WordWrapping = WordWrapping.Wrap;
+        _rt.DrawTextLayout(new Vector2(x, y), layout, GetBrush(color), DrawTextOptions.Clip);
+        fmt.TextAlignment = oldTextAlign;
+        fmt.ParagraphAlignment = oldParagraphAlign;
+    }
+
+    private static DWriteTextAlignment ToDWriteTextAlignment(string? alignment) =>
+        alignment?.Trim().ToLowerInvariant() switch
+        {
+            "left" => DWriteTextAlignment.Leading,
+            "right" => DWriteTextAlignment.Trailing,
+            _ => DWriteTextAlignment.Center
+        };
+
+    private void DrawShapeDraft()
+    {
+        if (_activeShapeTool is null || _shapeDraftStartWorld is null || _shapeDraftCurrentWorld is null)
+            return;
+
+        Rect draft = BuildShapeDraftRect(_activeShapeTool, _shapeDraftStartWorld.Value, _shapeDraftCurrentWorld.Value);
+        string body = ShapeToolTitle(_activeShapeTool);
+        if (IsLinearShapeTool(_activeShapeTool))
+        {
+            var endpoints = GetLinearShapeDraft(_shapeDraftStartWorld.Value, _shapeDraftCurrentWorld.Value);
+            draft = BuildLinearShapeBounds(endpoints.Start, endpoints.End);
+            body = BuildLinearShapeBody(_activeShapeTool, draft, endpoints);
+        }
+        if (draft.Width <= 1 || draft.Height <= 1)
+            return;
+
+        var block = new RenderBlock(
+            Guid.Empty,
+            "shape::draft",
+            BlockKind.Shape,
+            ShapeToolTitle(_activeShapeTool),
+            string.Empty,
+            draft.X,
+            draft.Y,
+            draft.Width,
+            draft.Height,
+            IsSelected: true,
+            Body: body,
+            ShapeType: _activeShapeTool,
+            Style: ShapeToolStyle(_activeShapeTool));
+
+        DrawShapeBlock(new SceneBlockVisual(block, draft));
+    }
+
+    private void DrawShapeToolPalette(Size viewSize)
+    {
+        if (_rt is null) return;
+
+        var tools = ShapeToolIds;
+        float columns = 4;
+        float rows = (float)Math.Ceiling(tools.Length / columns);
+        float w = ShapeToolPalettePadding * 2 + columns * ShapeToolButtonSize + (columns - 1) * ShapeToolButtonGap;
+        float h = ShapeToolPalettePadding * 2 + rows * ShapeToolButtonSize + (rows - 1) * ShapeToolButtonGap;
+        float x = ShapeToolPaletteMargin;
+        float y = (float)viewSize.Height - h - ShapeToolPaletteMargin;
+        var bounds = new RectangleF(x, y, w, h);
+
+        _rt.FillRoundedRectangle(new RoundedRectangle(bounds, 6, 6), GetBrush(WpfColor.FromArgb(242, 255, 255, 255)));
+        _rt.DrawRoundedRectangle(new RoundedRectangle(bounds, 6, 6), GetBrush(WpfColor.FromArgb(230, 211, 218, 228)), 1f);
+
+        for (int i = 0; i < tools.Length; i++)
+        {
+            string tool = tools[i];
+            int col = i % (int)columns;
+            int row = i / (int)columns;
+            var button = new RectangleF(
+                x + ShapeToolPalettePadding + col * (ShapeToolButtonSize + ShapeToolButtonGap),
+                y + ShapeToolPalettePadding + row * (ShapeToolButtonSize + ShapeToolButtonGap),
+                ShapeToolButtonSize,
+                ShapeToolButtonSize);
+
+            bool active = string.Equals(_activeShapeTool, tool, StringComparison.OrdinalIgnoreCase);
+            bool hover = string.Equals(_hoverShapeTool, tool, StringComparison.OrdinalIgnoreCase);
+            WpfColor fill = active
+                ? WpfColor.FromRgb(234, 243, 255)
+                : hover ? WpfColor.FromRgb(244, 247, 251) : WpfColor.FromRgb(255, 255, 255);
+            WpfColor stroke = active
+                ? WpfColor.FromRgb(46, 125, 215)
+                : WpfColor.FromRgb(211, 218, 228);
+
+            _rt.FillRoundedRectangle(new RoundedRectangle(button, 4, 4), GetBrush(fill));
+            _rt.DrawRoundedRectangle(new RoundedRectangle(button, 4, 4), GetBrush(stroke), active ? 1.4f : 1f);
+            DrawShapeToolIcon(tool, button, active ? WpfColor.FromRgb(46, 125, 215) : WpfColor.FromRgb(96, 111, 130));
+        }
+    }
+
+    private void DrawShapeToolIcon(string shape, RectangleF button, WpfColor color)
+    {
+        if (_rt is null) return;
+        float pad = 8f;
+        var r = new RectangleF(button.X + pad, button.Y + pad, button.Width - pad * 2, button.Height - pad * 2);
+        var brush = GetBrush(color);
+
+        if (shape is "line" or "arrow")
+        {
+            var a = new Vector2(r.X, r.Bottom);
+            var b = new Vector2(r.Right, r.Y);
+            _rt.DrawLine(a, b, brush, 1.5f);
+            if (shape == "arrow")
+                DrawArrowhead(new Point(b.X, b.Y), new Point(a.X, a.Y), brush, 1.5f);
+        }
+        else if (shape is "polyline")
+        {
+            var points = new[]
+            {
+                new Vector2(r.X, r.Bottom),
+                new Vector2(r.X + r.Width * 0.55f, r.Bottom),
+                new Vector2(r.X + r.Width * 0.55f, r.Y),
+                new Vector2(r.Right, r.Y)
+            };
+            DrawScreenPolyline(points, brush, 1.5f, close: false);
+        }
+        else if (shape is "rectangle")
+            _rt.DrawRectangle(new RectangleF(r.X, r.Y + r.Height * 0.18f, r.Width, r.Height * 0.64f), brush, 1.5f);
+        else if (shape is "square")
+            _rt.DrawRectangle(r, brush, 1.5f);
+        else if (shape is "circle" or "oval")
+        {
+            var eRect = shape == "circle"
+                ? r
+                : new RectangleF(r.X, r.Y + r.Height * 0.18f, r.Width, r.Height * 0.64f);
+            _rt.DrawEllipse(new Ellipse(new Vector2(eRect.X + eRect.Width / 2, eRect.Y + eRect.Height / 2), eRect.Width / 2, eRect.Height / 2), brush, 1.5f);
+        }
+        else
+        {
+            Rect iconBounds = new(r.X, r.Y, r.Width, r.Height);
+            IReadOnlyList<Vector2> points = shape switch
+            {
+                "triangle" => new[]
+                {
+                    new Vector2(r.X + r.Width / 2, r.Y),
+                    new Vector2(r.Right, r.Bottom),
+                    new Vector2(r.X, r.Bottom)
+                },
+                "diamond" => new[]
+                {
+                    new Vector2(r.X + r.Width / 2, r.Y),
+                    new Vector2(r.Right, r.Y + r.Height / 2),
+                    new Vector2(r.X + r.Width / 2, r.Bottom),
+                    new Vector2(r.X, r.Y + r.Height / 2)
+                },
+                "star" => BuildStarPoints(iconBounds),
+                "hexagon" => BuildRegularPolygonPoints(iconBounds, 6, -MathF.PI / 6),
+                _ => BuildRegularPolygonPoints(iconBounds, 4, MathF.PI / 4)
+            };
+            DrawScreenPolyline(points, brush, 1.5f, close: true);
+        }
+    }
+
+    private void DrawScreenPolyline(IReadOnlyList<Vector2> points, ID2D1SolidColorBrush brush, float stroke, bool close)
+    {
+        if (_rt is null || points.Count < 2) return;
+        for (int i = 1; i < points.Count; i++)
+            _rt.DrawLine(points[i - 1], points[i], brush, stroke);
+        if (close)
+            _rt.DrawLine(points[^1], points[0], brush, stroke);
+    }
+
+    private void DrawPolygonShape(IReadOnlyList<Vector2> points, WpfColor fill, WpfColor stroke, float strokeWidth, bool dashed = false)
+    {
+        if (_rt is null || _factory is null || points.Count < 3) return;
+
+        using var path = _factory.CreatePathGeometry();
+        using (var sink = path.Open())
+        {
+            sink.BeginFigure(points[0], FigureBegin.Filled);
+            for (int i = 1; i < points.Count; i++)
+                sink.AddLine(points[i]);
+            sink.EndFigure(FigureEnd.Closed);
+            sink.Close();
+        }
+
+        _rt.FillGeometry(path, GetBrush(fill));
+        if (dashed)
+            DrawDashedPolyline(points, stroke, strokeWidth, close: true);
+        else
+            _rt.DrawGeometry(path, GetBrush(stroke), strokeWidth);
+    }
+
+    private static Rect CenteredSquare(Rect bounds)
+    {
+        double side = Math.Min(bounds.Width, bounds.Height);
+        return new Rect(
+            bounds.X + (bounds.Width - side) / 2,
+            bounds.Y + (bounds.Height - side) / 2,
+            side,
+            side);
+    }
+
+    private static IReadOnlyList<Vector2> BuildRegularPolygonPoints(Rect bounds, int sides, float rotation)
+    {
+        var points = new Vector2[Math.Max(3, sides)];
+        float cx = (float)(bounds.X + bounds.Width / 2);
+        float cy = (float)(bounds.Y + bounds.Height / 2);
+        float rx = (float)bounds.Width / 2;
+        float ry = (float)bounds.Height / 2;
+
+        for (int i = 0; i < points.Length; i++)
+        {
+            float angle = rotation + MathF.Tau * i / points.Length;
+            points[i] = new Vector2(cx + MathF.Cos(angle) * rx, cy + MathF.Sin(angle) * ry);
+        }
+
+        return points;
+    }
+
+    private static IReadOnlyList<Vector2> BuildRectPoints(Rect bounds) =>
+        new[]
+        {
+            new Vector2((float)bounds.Left, (float)bounds.Top),
+            new Vector2((float)bounds.Right, (float)bounds.Top),
+            new Vector2((float)bounds.Right, (float)bounds.Bottom),
+            new Vector2((float)bounds.Left, (float)bounds.Bottom)
+        };
+
+    private static IReadOnlyList<Vector2> BuildEllipsePoints(Rect bounds)
+    {
+        const int segments = 56;
+        var points = new Vector2[segments];
+        float cx = (float)(bounds.X + bounds.Width / 2);
+        float cy = (float)(bounds.Y + bounds.Height / 2);
+        float rx = (float)bounds.Width / 2;
+        float ry = (float)bounds.Height / 2;
+
+        for (int i = 0; i < segments; i++)
+        {
+            float angle = MathF.Tau * i / segments;
+            points[i] = new Vector2(cx + MathF.Cos(angle) * rx, cy + MathF.Sin(angle) * ry);
+        }
+
+        return points;
+    }
+
+    private static IReadOnlyList<Vector2> BuildStarPoints(Rect bounds)
+    {
+        const int pointCount = 10;
+        var points = new Vector2[pointCount];
+        float cx = (float)(bounds.X + bounds.Width / 2);
+        float cy = (float)(bounds.Y + bounds.Height / 2);
+        float outerRx = (float)bounds.Width / 2;
+        float outerRy = (float)bounds.Height / 2;
+        float innerRx = outerRx * 0.46f;
+        float innerRy = outerRy * 0.46f;
+
+        for (int i = 0; i < pointCount; i++)
+        {
+            bool outer = i % 2 == 0;
+            float angle = -MathF.PI / 2 + MathF.Tau * i / pointCount;
+            float rx = outer ? outerRx : innerRx;
+            float ry = outer ? outerRy : innerRy;
+            points[i] = new Vector2(cx + MathF.Cos(angle) * rx, cy + MathF.Sin(angle) * ry);
+        }
+
+        return points;
+    }
+
+    private void DrawDashedPolyline(IReadOnlyList<Vector2> points, WpfColor color, float strokeWidth, bool close)
+    {
+        if (_rt is null || _factory is null || points.Count < 2) return;
+
+        using var path = _factory.CreatePathGeometry();
+        using (var sink = path.Open())
+        {
+            sink.BeginFigure(points[0], FigureBegin.Hollow);
+            for (int i = 1; i < points.Count; i++)
+                sink.AddLine(points[i]);
+            sink.EndFigure(close ? FigureEnd.Closed : FigureEnd.Open);
+            sink.Close();
+        }
+
+        _rt.DrawGeometry(path, GetBrush(color), strokeWidth, GetDashedStrokeStyle());
     }
 
     private void DrawTextBlock(SceneBlockVisual blockVis)
     {
         var block = blockVis.Block;
         Rect outer = blockVis.Bounds;
-        DrawCardShell(outer, block.IsSelected, ParseColor(block.Style?.Stroke ?? "#CBD5E1"), 6);
-        DrawWrappedText(block.Body ?? block.Title, (float)outer.X + 12, (float)outer.Y + 12, (float)outer.Width - 24, (float)outer.Height - 24, 14, ParseColor(block.Style?.Text ?? "#111827"), wrap: true);
+        bool isEditing = _editingNoteKey == block.Key;
+        DrawCardShell(outer, block.IsSelected || isEditing, ParseColor(block.Style?.Stroke ?? "#CBD5E1"), 6);
+        string text = isEditing ? _editBody : block.Body ?? block.Title;
+        float x = (float)outer.X + 12;
+        float y = (float)outer.Y + 12;
+        float w = (float)outer.Width - 24;
+        if (isEditing)
+            DrawEditSelection(text, 14f, x, y, w, wrap: true);
+        DrawWrappedText(text, x, y, w, (float)outer.Height - 24, 14, ParseColor(block.Style?.Text ?? "#111827"), wrap: true);
+        if (isEditing && _editCursorVisible)
+            DrawNoteCursor(text, 14f, x, y, w, _editCursorPos, wrap: true);
         DrawGenericResizeHandle(outer, ParseColor(block.Style?.Stroke ?? "#CBD5E1"));
     }
 
@@ -1309,6 +1728,24 @@ public sealed partial class CanvasViewport
         b = _rt!.CreateSolidColorBrush(ToColor4(color));
         _brushes[key] = b;
         return b;
+    }
+
+    private ID2D1StrokeStyle GetDashedStrokeStyle()
+    {
+        if (_dashedStrokeStyle is not null) return _dashedStrokeStyle;
+
+        var props = new StrokeStyleProperties
+        {
+            StartCap = CapStyle.Round,
+            EndCap = CapStyle.Round,
+            DashCap = CapStyle.Round,
+            LineJoin = LineJoin.Round,
+            MiterLimit = 10,
+            DashStyle = Vortice.Direct2D1.DashStyle.Dash,
+            DashOffset = 0
+        };
+        _dashedStrokeStyle = _factory!.CreateStrokeStyle(props);
+        return _dashedStrokeStyle;
     }
 
     private bool EnsureRT()

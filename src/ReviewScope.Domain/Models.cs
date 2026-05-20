@@ -69,7 +69,8 @@ public sealed record BoardItemStyle(
     double StrokeWidth = 1.2,
     bool Dashed = false,
     double Opacity = 1,
-    double CornerRadius = 8);
+    double CornerRadius = 8,
+    string TextAlign = "Center");
 
 public sealed record BoardSourceBinding(
     string? AssetPath = null,

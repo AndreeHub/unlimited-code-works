@@ -50,6 +50,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private Guid? _editingAnnotationId;
     [ObservableProperty] private CanvasBackgroundMode _backgroundMode = CanvasBackgroundMode.Dots;
     [ObservableProperty] private bool _snapToGrid = true;
+    [ObservableProperty] private bool _connectorsEnabled = true;
     [ObservableProperty] private RenderBlock? _selectedBlock;
     [ObservableProperty] private RenderConnection? _selectedConnection;
     [ObservableProperty] private RenderSwimLane? _selectedSwimLane;
@@ -69,6 +70,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _selectedFill = "#FFFFFF";
     [ObservableProperty] private string _selectedStroke = "#CBD5E1";
     [ObservableProperty] private string _selectedTextColor = "#111827";
+    [ObservableProperty] private string _selectedStrokeWidth = "1.2";
+    [ObservableProperty] private string _selectedTextAlignment = "Center";
     [ObservableProperty] private bool _selectedDashed;
     [ObservableProperty] private bool _selectedLocked;
     [ObservableProperty] private string _selectedConnectionLabel = string.Empty;
@@ -198,6 +201,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             SelectedFill = style.Fill;
             SelectedStroke = style.Stroke;
             SelectedTextColor = style.Text;
+            SelectedStrokeWidth = style.StrokeWidth.ToString("0.##");
+            SelectedTextAlignment = NormalizeTextAlignment(style.TextAlign);
             SelectedDashed = style.Dashed;
             SelectedLocked = SelectedBlock.IsLocked;
             SelectedConnectionLabel = string.Empty;
@@ -213,6 +218,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ClearSelectedObjectData();
             SelectedConnectionLabel = SelectedConnection.Label ?? string.Empty;
             SelectedStroke = SelectedConnection.Stroke;
+            SelectedStrokeWidth = "1.6";
+            SelectedTextAlignment = "Center";
             SelectedDashed = SelectedConnection.Dashed;
             SelectedRouteKind = SelectedConnection.RouteKind.ToString();
             SelectedArrowKind = SelectedConnection.ArrowKind.ToString();
@@ -239,6 +246,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SelectedTitleDraft = string.Empty;
         SelectedBodyDraft = string.Empty;
         SelectedConnectionLabel = string.Empty;
+        SelectedStrokeWidth = "1.2";
+        SelectedTextAlignment = "Center";
         SelectedLocked = false;
         ClearSelectedObjectData();
     }
@@ -314,4 +323,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SelectedObjectWidth = "--";
         SelectedObjectHeight = "--";
     }
+
+    private static string NormalizeTextAlignment(string? value) =>
+        value?.Trim().ToLowerInvariant() switch
+        {
+            "left" => "Left",
+            "right" => "Right",
+            _ => "Center"
+        };
 }

@@ -57,6 +57,55 @@ public sealed partial class CanvasViewport
         };
     }
 
+    private static Point GetConnectionAnchorPoint(SceneBlockVisual block, int anchorIndex) =>
+        GetBlockOutlinePoint(block.Block, block.Bounds, GetConnectionAnchorPoint(block.Bounds, anchorIndex));
+
+    private static Point GetBlockOutlinePoint(RenderBlock block, Rect bounds, Point toward)
+    {
+        string? shape = block.ShapeType;
+        Point center = CenterOf(bounds);
+        double dx = toward.X - center.X;
+        double dy = toward.Y - center.Y;
+        if (Math.Abs(dx) < 0.001 && Math.Abs(dy) < 0.001)
+            return toward;
+
+        if (shape is "circle" or "oval")
+        {
+            Rect ellipse = shape == "circle" ? CenteredSquare(bounds) : bounds;
+            Point ellipseCenter = CenterOf(ellipse);
+            dx = toward.X - ellipseCenter.X;
+            dy = toward.Y - ellipseCenter.Y;
+            double rx = Math.Max(1, ellipse.Width / 2);
+            double ry = Math.Max(1, ellipse.Height / 2);
+            double scale = 1 / Math.Sqrt((dx * dx) / (rx * rx) + (dy * dy) / (ry * ry));
+            return new Point(ellipseCenter.X + dx * scale, ellipseCenter.Y + dy * scale);
+        }
+
+        if (shape is "risk" or "decision" or "diamond")
+        {
+            double halfW = Math.Max(1, bounds.Width / 2);
+            double halfH = Math.Max(1, bounds.Height / 2);
+            double scale = 1 / ((Math.Abs(dx) / halfW) + (Math.Abs(dy) / halfH));
+            return new Point(center.X + dx * scale, center.Y + dy * scale);
+        }
+
+        return GetRectOutlinePoint(bounds, toward);
+    }
+
+    private static Point GetRectOutlinePoint(Rect bounds, Point toward)
+    {
+        Point center = CenterOf(bounds);
+        double dx = toward.X - center.X;
+        double dy = toward.Y - center.Y;
+        if (Math.Abs(dx) < 0.001 && Math.Abs(dy) < 0.001)
+            return center;
+
+        double sx = Math.Abs(dx) < 0.001 ? double.PositiveInfinity : (bounds.Width / 2) / Math.Abs(dx);
+        double sy = Math.Abs(dy) < 0.001 ? double.PositiveInfinity : (bounds.Height / 2) / Math.Abs(dy);
+        double scale = Math.Min(sx, sy);
+        return new Point(center.X + dx * scale, center.Y + dy * scale);
+    }
+
     private static Vector2 GetConnectionAnchorNormal(int anchorIndex) =>
         Math.Clamp(anchorIndex, 0, 15) switch
         {
@@ -83,18 +132,37 @@ public sealed partial class CanvasViewport
         return bestIndex;
     }
 
+    private static int FindNearestConnectionAnchor(SceneBlockVisual block, Point world)
+    {
+        int bestIndex = 0;
+        double bestDistance = double.MaxValue;
+        for (int i = 0; i < 16; i++)
+        {
+            Point anchor = GetConnectionAnchorPoint(block, i);
+            double dx = anchor.X - world.X;
+            double dy = anchor.Y - world.Y;
+            double distance = dx * dx + dy * dy;
+            if (distance >= bestDistance) continue;
+            bestIndex = i;
+            bestDistance = distance;
+        }
+        return bestIndex;
+    }
+
     private ConnectionAnchorHit? HitConnectionAnchor(Point world)
     {
+        if (!ConnectorsEnabled) return null;
+
         double radius = ConnectionAnchorHitRadius / Math.Max(0.12, _camera.Zoom);
         double best = radius * radius;
         ConnectionAnchorHit? bestHit = null;
 
         foreach (var block in _snapshot.Blocks.Reverse<SceneBlockVisual>())
         {
-            if (block.Block.Kind == BlockKind.Note) continue;
+            if (block.Block.Kind is BlockKind.Note or BlockKind.Shape) continue;
             for (int i = 0; i < 16; i++)
             {
-                Point anchor = GetConnectionAnchorPoint(block.Bounds, i);
+                Point anchor = GetConnectionAnchorPoint(block, i);
                 double dx = anchor.X - world.X;
                 double dy = anchor.Y - world.Y;
                 double distance = dx * dx + dy * dy;
@@ -422,11 +490,11 @@ public sealed partial class CanvasViewport
         {
             if (conn.Connection.Label == "__note") continue;
             if (conn.Connection.TargetKey.Equals(anchor.Block.Block.Key, StringComparison.OrdinalIgnoreCase)
-                && (conn.Connection.TargetAnchorIndex ?? FindNearestConnectionAnchor(anchor.Block.Bounds, conn.Start)) == anchor.AnchorIndex)
+                && (conn.Connection.TargetAnchorIndex ?? FindNearestConnectionAnchor(anchor.Block, conn.Start)) == anchor.AnchorIndex)
                 return new ConnectionEndpointHit(conn, ConnectionEndpointKind.Target);
 
             if (conn.Connection.SourceKey.Equals(anchor.Block.Block.Key, StringComparison.OrdinalIgnoreCase)
-                && (conn.Connection.SourceAnchorIndex ?? FindNearestConnectionAnchor(anchor.Block.Bounds, conn.End)) == anchor.AnchorIndex)
+                && (conn.Connection.SourceAnchorIndex ?? FindNearestConnectionAnchor(anchor.Block, conn.End)) == anchor.AnchorIndex)
                 return new ConnectionEndpointHit(conn, ConnectionEndpointKind.Source);
         }
 

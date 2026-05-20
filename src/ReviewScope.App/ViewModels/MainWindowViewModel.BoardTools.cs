@@ -71,19 +71,43 @@ public sealed partial class MainWindowViewModel
     [RelayCommand]
     public async Task AddShapeAsync(string? shapeType)
     {
-        shapeType = string.IsNullOrWhiteSpace(shapeType) ? "service" : shapeType;
+        shapeType = string.IsNullOrWhiteSpace(shapeType) ? "service" : shapeType.Trim().ToLowerInvariant();
         var id = Guid.NewGuid();
-        var style = ReviewStencilStyles[Math.Abs(shapeType.GetHashCode()) % ReviewStencilStyles.Length];
+        var size = MeasureShapeBlockSize(shapeType);
+        var placement = FindOpenCanvasPlacement(size.Width, size.Height);
+        var title = ToTitle(shapeType);
         var shape = new RenderBlock(
             id, $"shape::{id:N}", BlockKind.Shape,
-            ToTitle(shapeType), string.Empty,
-            180 + Scene.Blocks.Count * 26, 150 + Scene.Blocks.Count * 18, 220, 120,
-            Body: ToTitle(shapeType),
+            title, string.Empty,
+            placement.X, placement.Y, size.Width, size.Height,
+            Body: title,
+            ZIndex: NextBlockZIndex(),
             LayerKey: shapeType is "risk" or "todo" or "bug" or "test" ? "layer::risks" : "layer::architecture",
             ShapeType: shapeType,
-            Style: style);
+            Style: ResolveShapeStyle(shapeType));
         SetSceneFromUserAction(Scene with { Blocks = Scene.Blocks.Append(shape).ToList() }, $"Added {shape.Title}");
         await PersistSessionAsync();
+    }
+
+    private static Size MeasureShapeBlockSize(string shapeType) => shapeType switch
+    {
+        "square" or "circle" or "star" or "hexagon" => new Size(150, 150),
+        "triangle" or "diamond" or "decision" => new Size(170, 145),
+        "line" or "arrow" or "polyline" => new Size(220, 80),
+        "oval" => new Size(220, 130),
+        "rectangle" => new Size(220, 130),
+        _ => new Size(220, 120)
+    };
+
+    private static BoardItemStyle ResolveShapeStyle(string shapeType)
+    {
+        if (shapeType is "line" or "arrow" or "polyline")
+            return new BoardItemStyle("#00FFFFFF", "#2E7DD7", "#172033", 2.2, CornerRadius: 0);
+
+        if (shapeType is "square" or "rectangle" or "circle" or "oval" or "triangle" or "star" or "diamond" or "hexagon")
+            return new BoardItemStyle("#FFFFFF", "#2E7DD7", "#172033", 1.4, CornerRadius: 3);
+
+        return ReviewStencilStyles[Math.Abs(shapeType.GetHashCode()) % ReviewStencilStyles.Length];
     }
 
     [RelayCommand]
@@ -375,6 +399,8 @@ public sealed partial class MainWindowViewModel
                 Fill = NormalizeHex(SelectedFill, style.Fill),
                 Stroke = NormalizeHex(SelectedStroke, style.Stroke),
                 Text = NormalizeHex(SelectedTextColor, style.Text),
+                StrokeWidth = Math.Clamp(ParseDoubleOr(SelectedStrokeWidth, style.StrokeWidth), 0.5, 8),
+                TextAlign = NormalizeTextAlignment(SelectedTextAlignment),
                 Dashed = SelectedDashed
             };
             var blocks = Scene.Blocks.Select(b =>

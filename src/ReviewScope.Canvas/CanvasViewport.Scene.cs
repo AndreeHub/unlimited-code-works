@@ -48,6 +48,12 @@ public sealed partial class CanvasViewport
             .Select(b => new SceneBlockVisual(b, new Rect(b.X, b.Y, b.Width, b.Height)))
             .ToList();
         var blockLookup = blocks.ToDictionary(b => b.Block.Key, StringComparer.OrdinalIgnoreCase);
+        blocks = blocks
+            .Select(v => v.Block.Kind == BlockKind.Shape && IsLinearShapeTool(v.Block.ShapeType)
+                ? v with { Bounds = GetLinearShapeVisualBounds(v.Block, v.Bounds, blockLookup) }
+                : v)
+            .ToList();
+        blockLookup = blocks.ToDictionary(b => b.Block.Key, StringComparer.OrdinalIgnoreCase);
 
         var connections = new List<SceneConnectionVisual>();
         foreach (var conn in Scene.Connections)
@@ -78,10 +84,10 @@ public sealed partial class CanvasViewport
                 SourceAnchorIndex = sourceAnchorIndex,
                 TargetAnchorIndex = targetAnchorIndex
             };
-            int sourceAnchor = visualConn.SourceAnchorIndex ?? FindNearestConnectionAnchor(src.Bounds, dstCenter);
-            int targetAnchor = visualConn.TargetAnchorIndex ?? FindNearestConnectionAnchor(dst.Bounds, srcCenter);
-            Point start = GetConnectionAnchorPoint(src.Bounds, sourceAnchor);
-            Point end = GetConnectionAnchorPoint(dst.Bounds, targetAnchor);
+            int sourceAnchor = visualConn.SourceAnchorIndex ?? FindNearestConnectionAnchor(src, dstCenter);
+            int targetAnchor = visualConn.TargetAnchorIndex ?? FindNearestConnectionAnchor(dst, srcCenter);
+            Point start = GetConnectionAnchorPoint(src, sourceAnchor);
+            Point end = GetConnectionAnchorPoint(dst, targetAnchor);
             Rect bounds = new(start, end);
             var visual = new SceneConnectionVisual(visualConn, start, end, bounds);
             if (conn.RouteKind is ConnectorRouteKind.Straight or ConnectorRouteKind.Orthogonal)

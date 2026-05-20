@@ -78,6 +78,10 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private const double ConnectionDragThreshold = 10;
     private const double GroupPadX = 48, GroupPadTop = 64, GroupPadBottom = 48;
     private const double CollapsedGroupW = 280, CollapsedGroupH = 118;
+    private const float ShapeToolPaletteMargin = 14f;
+    private const float ShapeToolButtonSize = 30f;
+    private const float ShapeToolButtonGap = 6f;
+    private const float ShapeToolPalettePadding = 8f;
 
     // LOD zoom thresholds
     private const double UltraCompactZoom = 0.06, CompactZoom = 0.12, PreviewZoom = 0.26;
@@ -109,6 +113,12 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
         nameof(SnapToGrid), typeof(bool), typeof(CanvasViewport),
         new FrameworkPropertyMetadata(false));
 
+    public static readonly DependencyProperty ConnectorsEnabledProperty = DependencyProperty.Register(
+        nameof(ConnectorsEnabled), typeof(bool), typeof(CanvasViewport),
+        new FrameworkPropertyMetadata(true,
+            FrameworkPropertyMetadataOptions.AffectsRender,
+            (d, _) => (d as CanvasViewport)?.RenderNative()));
+
     public static readonly DependencyProperty GridSizeProperty = DependencyProperty.Register(
         nameof(GridSize), typeof(double), typeof(CanvasViewport),
         new FrameworkPropertyMetadata(24d));
@@ -128,6 +138,7 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private readonly Dictionary<string, IDWriteTextFormat> _textFormats = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, ID2D1PathGeometry> _connectionGeoms = new();
     private readonly Dictionary<string, ImageBitmapResource> _imageBitmaps = new(StringComparer.OrdinalIgnoreCase);
+    private ID2D1StrokeStyle? _dashedStrokeStyle;
     private IntPtr _hwnd;
     private ID2D1Factory? _factory;
     private ID2D1HwndRenderTarget? _rt;
@@ -156,6 +167,9 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private Point? _resizeSwimLaneWorldPoint;
     private Point? _marqueeStart, _marqueeEnd;
     private bool _isMarquee, _appendMarquee, _didMove, _isMinimapDrag;
+    private string? _activeShapeTool;
+    private Point? _shapeDraftStartWorld;
+    private Point? _shapeDraftCurrentWorld;
 
     // Draw-connection state
     private bool _isDrawingConnection;
@@ -189,6 +203,7 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
     private Point _lastClickScreen = new(double.NaN, double.NaN);
     private readonly Dictionary<string, int> _codeScrollLines = new(StringComparer.OrdinalIgnoreCase);
     private Point _lastMouseScreenPoint;
+    private string? _hoverShapeTool;
     private string? _noteResizeKey;
     private NoteResizeCorner _noteResizeCorner = NoteResizeCorner.None;
     private Point? _noteResizeWorldPoint;
@@ -242,6 +257,12 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
         set => SetValue(SnapToGridProperty, value);
     }
 
+    public bool ConnectorsEnabled
+    {
+        get => (bool)GetValue(ConnectorsEnabledProperty);
+        set => SetValue(ConnectorsEnabledProperty, value);
+    }
+
     public double GridSize
     {
         get => (double)GetValue(GridSizeProperty);
@@ -260,6 +281,8 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
         var note = Scene.Blocks.LastOrDefault(b => b.Kind == BlockKind.Note);
         if (note is not null) BeginNoteEdit(note);
     }
+
+    public void DeleteSelection() => DeleteSelected();
 
     public void FrameAll()
     {
@@ -385,6 +408,7 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
         _disposed = true;
         DisposeRenderTarget();
         _dwrite?.Dispose(); _dwrite = null;
+        _dashedStrokeStyle?.Dispose(); _dashedStrokeStyle = null;
         _factory?.Dispose(); _factory = null;
         GC.SuppressFinalize(this);
     }

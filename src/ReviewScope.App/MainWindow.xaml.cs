@@ -6,6 +6,9 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using DrawingColor = System.Drawing.Color;
+using DrawingColorTranslator = System.Drawing.ColorTranslator;
+using Forms = System.Windows.Forms;
 
 namespace ReviewScope.App;
 
@@ -43,6 +46,18 @@ public partial class MainWindow : Window
         if (e.AddedItems.Count == 0) return;
         string branch = e.AddedItems[0] as string ?? string.Empty;
         await _vm.LoadFromSelectedBranchAsync(branch);
+    }
+
+    private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Delete)
+            return;
+
+        if (IsTextInputSource(e.OriginalSource as DependencyObject))
+            return;
+
+        CanvasViewport.DeleteSelection();
+        e.Handled = true;
     }
 
     private async void OnSymbolsDoubleClick(object sender, MouseButtonEventArgs e)
@@ -440,6 +455,59 @@ public partial class MainWindow : Window
     }
 
     private void OnFrameAll(object sender, RoutedEventArgs e) => CanvasViewport.FrameAll();
+
+    private async void OnPickFillColor(object sender, RoutedEventArgs e)
+    {
+        if (TryPickColor(_vm.SelectedFill, out string hex))
+        {
+            _vm.SelectedFill = hex;
+            await _vm.ApplySelectionPropertiesAsync();
+        }
+    }
+
+    private async void OnPickStrokeColor(object sender, RoutedEventArgs e)
+    {
+        if (TryPickColor(_vm.SelectedStroke, out string hex))
+        {
+            _vm.SelectedStroke = hex;
+            await _vm.ApplySelectionPropertiesAsync();
+        }
+    }
+
+    private async void OnPickTextColor(object sender, RoutedEventArgs e)
+    {
+        if (TryPickColor(_vm.SelectedTextColor, out string hex))
+        {
+            _vm.SelectedTextColor = hex;
+            await _vm.ApplySelectionPropertiesAsync();
+        }
+    }
+
+    private static bool TryPickColor(string currentHex, out string hex)
+    {
+        hex = currentHex;
+        using var dialog = new Forms.ColorDialog
+        {
+            FullOpen = true,
+            AnyColor = true
+        };
+
+        try
+        {
+            dialog.Color = DrawingColorTranslator.FromHtml(currentHex);
+        }
+        catch
+        {
+            dialog.Color = DrawingColor.White;
+        }
+
+        if (dialog.ShowDialog() != Forms.DialogResult.OK)
+            return false;
+
+        DrawingColor color = dialog.Color;
+        hex = $"#{color.R:X2}{color.G:X2}{color.B:X2}";
+        return true;
+    }
 
     // Canvas drag-drop from explorer
     private void OnCanvasDragOver(object sender, DragEventArgs e)

@@ -7,7 +7,8 @@
         MinHeight="720" MinWidth="1180"
         WindowStyle="SingleBorderWindow"
         Background="{StaticResource ShellBg}"
-        FontFamily="{StaticResource AppFont}">
+        FontFamily="{StaticResource AppFont}"
+        PreviewKeyDown="OnWindowPreviewKeyDown">
 
     <Window.InputBindings>
         <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoCommand}"/>
@@ -545,6 +546,7 @@
                                        Scene="{Binding Scene, Mode=TwoWay}"
                                        BackgroundMode="{Binding BackgroundMode, Mode=TwoWay}"
                                        SnapToGrid="{Binding SnapToGrid}"
+                                       ConnectorsEnabled="{Binding ConnectorsEnabled}"
                                        AllowDrop="True"
                                        Drop="OnCanvasDrop"
                                        DragOver="OnCanvasDragOver"/>
@@ -661,6 +663,16 @@
                                 </UniformGrid>
                             </Expander>
 
+                            <Expander Header="Content" IsExpanded="True" Margin="0,0,0,8" Visibility="{Binding SelectionIsBlock, Converter={StaticResource BoolVis}}">
+                                <StackPanel Margin="0,8,0,0">
+                                    <TextBlock Text="Title" Foreground="{StaticResource SubtleForeground}" FontSize="11"/>
+                                    <TextBox Text="{Binding SelectedTitleDraft, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Margin="0,2,0,8"/>
+                                    <TextBlock Text="Text" Foreground="{StaticResource SubtleForeground}" FontSize="11"/>
+                                    <TextBox Text="{Binding SelectedBodyDraft, UpdateSourceTrigger=PropertyChanged}" FontSize="11" MinHeight="58"
+                                             TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"/>
+                                </StackPanel>
+                            </Expander>
+
                             <Expander Header="Appearance" IsExpanded="True" Margin="0,0,0,8" Visibility="{Binding HasBoardSelection, Converter={StaticResource BoolVis}}">
                                 <Grid Margin="0,8,0,0">
                                     <Grid.ColumnDefinitions>
@@ -672,17 +684,46 @@
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
                                     <TextBlock Text="Fill" Foreground="{StaticResource SubtleForeground}" FontSize="11" Margin="0,6,0,0"/>
-                                    <TextBox Grid.Column="1" Text="{Binding SelectedFill, UpdateSourceTrigger=PropertyChanged}" FontSize="11"/>
+                                    <Button Grid.Column="1" Style="{StaticResource ToolButton}" Click="OnPickFillColor" HorizontalAlignment="Stretch">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Rectangle Width="18" Height="12" Fill="{Binding SelectedFill}" Stroke="{StaticResource PanelBorder}" Margin="0,0,8,0"/>
+                                            <TextBlock Text="Pick fill"/>
+                                        </StackPanel>
+                                    </Button>
                                     <TextBlock Grid.Row="1" Text="Stroke" Foreground="{StaticResource SubtleForeground}" FontSize="11" Margin="0,6,0,0"/>
-                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SelectedStroke, UpdateSourceTrigger=PropertyChanged}" FontSize="11"/>
+                                    <Button Grid.Row="1" Grid.Column="1" Style="{StaticResource ToolButton}" Click="OnPickStrokeColor" HorizontalAlignment="Stretch">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Rectangle Width="18" Height="12" Fill="{Binding SelectedStroke}" Stroke="{StaticResource PanelBorder}" Margin="0,0,8,0"/>
+                                            <TextBlock Text="Pick stroke"/>
+                                        </StackPanel>
+                                    </Button>
                                     <TextBlock Grid.Row="2" Text="Text" Foreground="{StaticResource SubtleForeground}" FontSize="11" Margin="0,6,0,0"/>
-                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SelectedTextColor, UpdateSourceTrigger=PropertyChanged}" FontSize="11"/>
-                                    <StackPanel Grid.Row="3" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0">
+                                    <Button Grid.Row="2" Grid.Column="1" Style="{StaticResource ToolButton}" Click="OnPickTextColor" HorizontalAlignment="Stretch">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Rectangle Width="18" Height="12" Fill="{Binding SelectedTextColor}" Stroke="{StaticResource PanelBorder}" Margin="0,0,8,0"/>
+                                            <TextBlock Text="Pick text"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <TextBlock Grid.Row="3" Text="Line" Foreground="{StaticResource SubtleForeground}" FontSize="11" Margin="0,6,0,0"/>
+                                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding SelectedStrokeWidth, UpdateSourceTrigger=PropertyChanged}" FontSize="11"/>
+                                    <TextBlock Grid.Row="4" Text="Align" Foreground="{StaticResource SubtleForeground}" FontSize="11" Margin="0,6,0,0"/>
+                                    <ComboBox Grid.Row="4" Grid.Column="1"
+                                              SelectedValue="{Binding SelectedTextAlignment, UpdateSourceTrigger=PropertyChanged}"
+                                              SelectedValuePath="Content"
+                                              FontSize="11" MinHeight="24">
+                                        <ComboBoxItem Content="Left"/>
+                                        <ComboBoxItem Content="Center"/>
+                                        <ComboBoxItem Content="Right"/>
+                                    </ComboBox>
+                                    <StackPanel Grid.Row="5" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0">
                                         <CheckBox Content="Dashed" IsChecked="{Binding SelectedDashed}" Margin="0,0,12,0"/>
                                         <CheckBox Content="Locked" IsChecked="{Binding SelectedLocked}" Margin="0,0,12,0"/>
-                                        <CheckBox Content="Snap" IsChecked="{Binding SnapToGrid}"/>
+                                        <CheckBox Content="Snap" IsChecked="{Binding SnapToGrid}" Margin="0,0,12,0"/>
+                                        <CheckBox Content="Connectors" IsChecked="{Binding ConnectorsEnabled}"/>
                                     </StackPanel>
                                 </Grid>
                             </Expander>
