@@ -1,4 +1,4 @@
-﻿using ReviewScope.Domain;
+using ReviewScope.Domain;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -24,18 +24,29 @@ using Color4 = Vortice.Mathematics.Color4;
 
 namespace ReviewScope.Canvas;
 
+/*
+ * File: CanvasViewport.Scene.cs
+ * Purpose: Partial class for CanvasViewport handling scene state management, snapshot rebuilding, and visibility culling.
+ * Functions:
+ * - ApplySceneChangeInternal: Updates the scene and triggers external commands.
+ * - RebuildSnapshotInternal: Orchestrates the transformation of the domain RenderScene into a flattened SceneSnapshot for rendering.
+ * - EnsureVisible: Performs visibility culling to determine which blocks and connections should be drawn.
+ * - ToWorld: Translates screen coordinates to world coordinates.
+ * Please read the first 15 lines of this file for a summary before reading the entire file to save tokens.
+ */
+
 public sealed partial class CanvasViewport
 {
     private sealed record CollapsedGroupMember(string GroupKey, RenderBlock Member);
 
-    private void ApplySceneChange(RenderScene scene)
+    private void ApplySceneChangeInternal(RenderScene scene)
     {
         if (BlockMovedCommand?.CanExecute(scene) == true)
             BlockMovedCommand.Execute(scene);
         SetCurrentValue(SceneProperty, scene);
     }
 
-    private void RebuildSnapshot()
+    private void RebuildSnapshotInternal()
     {
         _connectionGeoms.Clear();
 
@@ -68,8 +79,8 @@ public sealed partial class CanvasViewport
             if (!blockLookup.TryGetValue(sourceKey, out var src) || !blockLookup.TryGetValue(targetKey, out var dst))
                 continue;
 
-            Point srcCenter = CenterOf(src.Bounds);
-            Point dstCenter = CenterOf(dst.Bounds);
+            Point srcCenter = CanvasDrawingUtils.CenterOf(src.Bounds);
+            Point dstCenter = CanvasDrawingUtils.CenterOf(dst.Bounds);
             int? sourceAnchorIndex = conn.SourceAnchorIndex;
             int? targetAnchorIndex = conn.TargetAnchorIndex;
             if (sourceIsCollapsedMember)
@@ -86,8 +97,8 @@ public sealed partial class CanvasViewport
             };
             int sourceAnchor = visualConn.SourceAnchorIndex ?? FindNearestConnectionAnchor(src, dstCenter);
             int targetAnchor = visualConn.TargetAnchorIndex ?? FindNearestConnectionAnchor(dst, srcCenter);
-            Point start = GetConnectionAnchorPoint(src, sourceAnchor);
-            Point end = GetConnectionAnchorPoint(dst, targetAnchor);
+            Point start = CanvasDrawingUtils.GetConnectionAnchorPoint(src, sourceAnchor);
+            Point end = CanvasDrawingUtils.GetConnectionAnchorPoint(dst, targetAnchor);
             Rect bounds = new(start, end);
             var visual = new SceneConnectionVisual(visualConn, start, end, bounds);
             if (conn.RouteKind is ConnectorRouteKind.Straight or ConnectorRouteKind.Orthogonal)
@@ -138,7 +149,7 @@ public sealed partial class CanvasViewport
         return new Rect(tl, br);
     }
 
-    private Point ToWorld(Point screen) =>
+    internal Point ToWorld(Point screen) =>
         new((screen.X - _camera.OffsetX) / _camera.Zoom,
             (screen.Y - _camera.OffsetY) / _camera.Zoom);
 
@@ -181,7 +192,7 @@ public sealed partial class CanvasViewport
         int originalAnchor = memberAnchorIndex ?? FindNearestConnectionAnchor(memberBounds, otherPoint);
         int side = GetAnchorSide(originalAnchor);
         Rect expandedGroup = GetGroupExpandedBounds(group);
-        Point memberCenter = CenterOf(memberBounds);
+        Point memberCenter = CanvasDrawingUtils.CenterOf(memberBounds);
 
         double ratio = side is 0 or 2
             ? (memberCenter.X - expandedGroup.Left) / Math.Max(1, expandedGroup.Width)
@@ -211,12 +222,8 @@ public sealed partial class CanvasViewport
         };
     }
 
-    private static bool IsColorGroup(RenderBlock block) =>
-        block.Kind == BlockKind.Container && string.Equals(block.ShapeType, "color-group", StringComparison.OrdinalIgnoreCase);
-
     private static Rect GetGroupExpandedBounds(RenderBlock group) =>
         group.GroupState is { } state
             ? new Rect(state.ExpandedX, state.ExpandedY, state.ExpandedWidth, state.ExpandedHeight)
             : new Rect(group.X, group.Y, group.Width, group.Height);
 }
-

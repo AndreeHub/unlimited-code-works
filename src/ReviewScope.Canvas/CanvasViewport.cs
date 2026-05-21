@@ -1,4 +1,4 @@
-﻿using ReviewScope.Domain;
+using ReviewScope.Domain;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -6,283 +6,266 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
-using Vortice;
-using Vortice.DCommon;
 using Vortice.Direct2D1;
 using Vortice.DirectWrite;
-using Vortice.DXGI;
-using IOPath = System.IO.Path;
-using FactoryType = Vortice.DirectWrite.FactoryType;
-using DWriteFontWeight = Vortice.DirectWrite.FontWeight;
-using DWriteFontStyle = Vortice.DirectWrite.FontStyle;
-using DWriteFontStretch = Vortice.DirectWrite.FontStretch;
-using DWriteTextAlignment = Vortice.DirectWrite.TextAlignment;
-using D2DBezierSegment = Vortice.Direct2D1.BezierSegment;
 using WpfColor = System.Windows.Media.Color;
-using RectangleF = System.Drawing.RectangleF;
 using Color4 = Vortice.Mathematics.Color4;
+using WpfPoint = System.Windows.Point;
 
 namespace ReviewScope.Canvas;
 
-// -----------------------------------------------------------------------
-// Events raised by the viewport back to the ViewModel
-// -----------------------------------------------------------------------
-public sealed record BlockActivatedArgs(RenderBlock Block);
-internal enum NoteResizeCorner { None, TopLeft, TopRight, BottomLeft, BottomRight }
-internal enum ConnectionControlNodeKind { None, Middle }
-internal enum ConnectionEndpointKind { None, Source, Target }
+/*
+ * File: CanvasViewport.cs
+ * Purpose: The main WPF host control for the high-performance Direct2D canvas.
+ * Functions:
+ * - Direct2D/DirectWrite resource lifecycle management.
+ * - Integration of modular renderers (Block, Connection, etc.) and tools.
+ * - Viewport coordination (Zoom, Pan, Frame All).
+ * - Win32 window hosting for low-latency rendering.
+ * Please read the first 15 lines of this file for a summary before reading the entire file to save tokens.
+ */
+
+public sealed record RestoreRequestedArgs(RenderBlock Block);
 public sealed record ExtractRequestedArgs(RenderBlock SourceBlock, int Line, int Column);
 public sealed record FocusRequestedArgs(RenderBlock SourceBlock, int Line, int Column);
-public sealed record RestoreRequestedArgs(RenderBlock Block);
-public sealed record ConnectionDrawnArgs(
-    string SourceKey,
-    string TargetKey,
-    int? SourceAnchorIndex = null,
-    int? TargetAnchorIndex = null,
-    double? MidControlX = null,
-    double? MidControlY = null,
-    bool MidControlBends = false);
-public sealed record AnnotationRequestedArgs(string? AttachedBlockKey, double WorldX, double WorldY);
-public sealed record SwimLaneResizedArgs(string Key, double X, double Y, double Width, double Height);
+public sealed record BlockActivatedArgs(RenderBlock Block);
 public sealed record PasteRequestedArgs(double WorldX, double WorldY);
+public sealed record ConnectionDrawnArgs(string SourceKey, string TargetKey, int? SourceAnchorIndex, int? TargetAnchorIndex, double? MidControlX, double? MidControlY, bool MidControlBends);
+public sealed record AnnotationRequestedArgs(double WorldX, double WorldY, string? AttachedBlockKey = null);
 
-public enum CanvasBackgroundMode { Dots, Grid }
-
-// -----------------------------------------------------------------------
-// Main viewport control
-// -----------------------------------------------------------------------
-public sealed partial class CanvasViewport : HwndHost, IDisposable
+public sealed partial class CanvasViewport : HwndHost
 {
-    // Win32 constants
-    private const int WsChild = 0x40000000, WsVisible = 0x10000000;
-    private const int WsClipSiblings = 0x04000000, WsClipChildren = 0x02000000;
-    private const int WsTabStop = 0x00010000, SsNotify = 0x00000100;
-    private const int WmPaint = 0x000F, WmSize = 0x0005, WmEraseBkgnd = 0x0014;
-    private const int WmKeyDown = 0x0100, WmKeyUp = 0x0101, WmChar = 0x0102, WmKillFocus = 0x0008;
-    private const int WmSysKeyDown = 0x0104, WmSysKeyUp = 0x0105, WmSysChar = 0x0106;
-    private const int WmMouseMove = 0x0200, WmLButtonDown = 0x0201, WmLButtonUp = 0x0202;
-    private const int WmRButtonDown = 0x0204, WmRButtonUp = 0x0205;
-    private const int WmMButtonDown = 0x0207, WmMButtonUp = 0x0208;
-    private const int WmMouseWheel = 0x020A;
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left, Top, Right, Bottom; }
 
-    // Layout
-    private const double CullPadding = 240;
-    private const double MinimapW = 100, MinimapH = 70, MinimapMargin = 12;
-    private const double MinBlockW = 560, MinBlockH = 180;
-    private const double ResizeHandleSize = 16;
-    private const double HeaderH = 68, FooterH = 30;
-    private const double CodeLineH = 18, CodeGutterW = 52, CodeCharW = 6.75;
-    private const int FocusedCodeTopPaddingLines = 2;
-    private const double AnnotationW = 280, AnnotationH = 120;
-    private const double NoteCornerHandleSize = 7;
-    private const double ConnectionDragThreshold = 10;
-    private const double GroupPadX = 48, GroupPadTop = 64, GroupPadBottom = 48;
-    private const double CollapsedGroupW = 280, CollapsedGroupH = 118;
-    private const float ShapeToolPaletteMargin = 14f;
-    private const float ShapeToolButtonSize = 30f;
-    private const float ShapeToolButtonGap = 6f;
-    private const float ShapeToolPalettePadding = 8f;
+    internal const double HeaderH = 56;
+    internal const double FooterH = 28;
+    internal const double CodeGutterW = 48;
+    internal const double CodeLineH = 18;
+    internal const double CodeCharW = 7.2;
+    internal const int FocusedCodeTopPaddingLines = 2;
+    
+    internal const double MinimapW = 180;
+    internal const double MinimapH = 135;
+    internal const double MinimapMargin = 16;
+    
+    internal const float ShapeToolPaletteMargin = 16;
+    internal const float ShapeToolPalettePadding = 12;
+    internal const float ShapeToolButtonSize = 32;
+    internal const float ShapeToolButtonGap = 6;
 
-    // LOD zoom thresholds
-    private const double UltraCompactZoom = 0.06, CompactZoom = 0.12, PreviewZoom = 0.26;
+    private const double MinBlockW = 120;
+    private const double MinBlockH = 40;
+    private const double GroupPadX = 32;
+    private const double GroupPadTop = 52;
+    private const double GroupPadBottom = 24;
+    private const double CollapsedGroupW = 220;
+    private const double CollapsedGroupH = 80;
+    private const double CullPadding = 200;
+    private const double ConnectionDragThreshold = 5.0;
+    private const double ResizeHandleSize = 22;
 
-    // Dependency properties
-    public static readonly DependencyProperty SceneProperty = DependencyProperty.Register(
-        nameof(Scene), typeof(RenderScene), typeof(CanvasViewport),
-        new FrameworkPropertyMetadata(RenderScene.Empty,
-            FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.BindsTwoWayByDefault,
-            OnSceneChanged));
+    public static readonly DependencyProperty SceneProperty =
+        DependencyProperty.Register(nameof(Scene), typeof(RenderScene), typeof(CanvasViewport),
+            new FrameworkPropertyMetadata(new RenderScene(new List<RenderBlock>(), new List<RenderConnection>(), new List<RenderSwimLane>(), new List<RenderAnnotation>()), OnSceneChanged));
 
-    public static readonly DependencyProperty CameraProperty = DependencyProperty.Register(
-        nameof(Camera), typeof(CameraState), typeof(CanvasViewport),
-        new FrameworkPropertyMetadata(CameraState.Default,
-            FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.BindsTwoWayByDefault,
-            OnCameraChanged));
+    public static readonly DependencyProperty CameraProperty =
+        DependencyProperty.Register(nameof(Camera), typeof(CameraState), typeof(CanvasViewport),
+            new FrameworkPropertyMetadata(CameraState.Default,
+                FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.BindsTwoWayByDefault,
+                OnCameraChanged));
 
-    public static readonly DependencyProperty IsReadyProperty = DependencyProperty.Register(
-        nameof(IsReady), typeof(bool), typeof(CanvasViewport),
-        new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
+    public static readonly DependencyProperty ConnectorsEnabledProperty =
+        DependencyProperty.Register(nameof(ConnectorsEnabled), typeof(bool), typeof(CanvasViewport),
+            new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.AffectsRender));
 
-    public static readonly DependencyProperty BackgroundModeProperty = DependencyProperty.Register(
-        nameof(BackgroundMode), typeof(CanvasBackgroundMode), typeof(CanvasViewport),
-        new FrameworkPropertyMetadata(CanvasBackgroundMode.Dots,
-            FrameworkPropertyMetadataOptions.AffectsRender,
-            (d, _) => (d as CanvasViewport)?.RenderNative()));
+    public static readonly DependencyProperty BackgroundModeProperty =
+        DependencyProperty.Register(nameof(BackgroundMode), typeof(CanvasBackgroundMode), typeof(CanvasViewport),
+            new FrameworkPropertyMetadata(CanvasBackgroundMode.Dots, FrameworkPropertyMetadataOptions.AffectsRender));
 
-    public static readonly DependencyProperty SnapToGridProperty = DependencyProperty.Register(
-        nameof(SnapToGrid), typeof(bool), typeof(CanvasViewport),
-        new FrameworkPropertyMetadata(false));
+    public static readonly DependencyProperty SnapToGridProperty =
+        DependencyProperty.Register(nameof(SnapToGrid), typeof(bool), typeof(CanvasViewport),
+            new FrameworkPropertyMetadata(true));
 
-    public static readonly DependencyProperty ConnectorsEnabledProperty = DependencyProperty.Register(
-        nameof(ConnectorsEnabled), typeof(bool), typeof(CanvasViewport),
-        new FrameworkPropertyMetadata(true,
-            FrameworkPropertyMetadataOptions.AffectsRender,
-            (d, _) => (d as CanvasViewport)?.RenderNative()));
+    public static readonly DependencyProperty GridSizeProperty =
+        DependencyProperty.Register(nameof(GridSize), typeof(double), typeof(CanvasViewport),
+            new FrameworkPropertyMetadata(24.0));
 
-    public static readonly DependencyProperty GridSizeProperty = DependencyProperty.Register(
-        nameof(GridSize), typeof(double), typeof(CanvasViewport),
-        new FrameworkPropertyMetadata(24d));
+    public RenderScene Scene { get => (RenderScene)GetValue(SceneProperty); set => SetValue(SceneProperty, value); }
+    public CameraState Camera { get => (CameraState)GetValue(CameraProperty); set => SetValue(CameraProperty, value); }
+    public bool ConnectorsEnabled { get => (bool)GetValue(ConnectorsEnabledProperty); set => SetValue(ConnectorsEnabledProperty, value); }
+    public CanvasBackgroundMode BackgroundMode { get => (CanvasBackgroundMode)GetValue(BackgroundModeProperty); set => SetValue(BackgroundModeProperty, value); }
+    public bool SnapToGrid { get => (bool)GetValue(SnapToGridProperty); set => SetValue(SnapToGridProperty, value); }
+    public double GridSize { get => (double)GetValue(GridSizeProperty); set => SetValue(GridSizeProperty, value); }
 
-    // Routed commands / callbacks
-    public ICommand? BlockActivatedCommand { get; set; }
+    public bool IsReady { get; internal set; }
+
+    public ICommand? RestoreRequestedCommand { get; set; }
     public ICommand? ExtractRequestedCommand { get; set; }
     public ICommand? FocusRequestedCommand { get; set; }
-    public ICommand? RestoreRequestedCommand { get; set; }
+    public ICommand? BlockMovedCommand { get; set; }
+    public ICommand? BlockActivatedCommand { get; set; }
+    public ICommand? PasteRequestedCommand { get; set; }
     public ICommand? ConnectionDrawnCommand { get; set; }
     public ICommand? AnnotationRequestedCommand { get; set; }
-    public ICommand? BlockMovedCommand { get; set; }
-    public ICommand? PasteRequestedCommand { get; set; }
 
-    // D2D resources
-    private readonly Dictionary<uint, ID2D1SolidColorBrush> _brushes = new();
-    private readonly Dictionary<string, IDWriteTextFormat> _textFormats = new(StringComparer.Ordinal);
-    private readonly Dictionary<Guid, ID2D1PathGeometry> _connectionGeoms = new();
-    private readonly Dictionary<string, ImageBitmapResource> _imageBitmaps = new(StringComparer.OrdinalIgnoreCase);
-    private ID2D1StrokeStyle? _dashedStrokeStyle;
-    private IntPtr _hwnd;
-    private ID2D1Factory? _factory;
-    private ID2D1HwndRenderTarget? _rt;
-    private IDWriteFactory? _dwrite;
-    private bool _disposed;
+    internal static readonly string[] ShapeToolIds = { "rectangle", "square", "oval", "circle", "triangle", "diamond", "hexagon", "star", "line", "arrow", "polyline" };
 
-    // Scene
-    private SceneSnapshot _snapshot = SceneSnapshot.Empty;
-    private IReadOnlyList<SceneBlockVisual> _visibleBlocks = Array.Empty<SceneBlockVisual>();
-    private IReadOnlyList<SceneConnectionVisual> _visibleConnections = Array.Empty<SceneConnectionVisual>();
-    private CameraState _camera = CameraState.Default;
-    private CameraState _lastVisCamera = CameraState.Default;
-    private Size _lastVisSize = Size.Empty;
-    private bool _visDirty = true;
+    // Logic-only snapshot of the scene, rebuilt on changes
+    internal SceneSnapshot _snapshot = SceneSnapshot.Empty;
+    internal bool _visDirty = true;
+    internal CameraState _lastVisCamera = CameraState.Default;
+    internal Size _lastVisSize = Size.Empty;
+
+    // View-ready lists for the current frame
+    internal IReadOnlyList<SceneBlockVisual> _visibleBlocks = Array.Empty<SceneBlockVisual>();
+    internal IReadOnlyList<SceneConnectionVisual> _visibleConnections = Array.Empty<SceneConnectionVisual>();
+
+    // D2D Resources
+    internal IntPtr _hwnd;
+    internal ID2D1Factory? _factory;
+    internal ID2D1HwndRenderTarget? _rt;
+    internal IDWriteFactory? _dwrite;
+    internal bool _disposed;
+
+    // Decomposed renderers
+    internal DrawingContext? _drawingContext;
+    internal BlockRenderer? _blockRenderer;
+    internal ConnectionRenderer? _connectionRenderer;
+    internal SwimLaneRenderer? _swimLaneRenderer;
+    internal BackgroundRenderer? _backgroundRenderer;
+    internal UIComponentRenderer? _uiComponentRenderer;
+
+    // Resource Caches
+    internal readonly Dictionary<uint, ID2D1SolidColorBrush> _brushes = new();
+    internal readonly Dictionary<string, IDWriteTextFormat> _textFormats = new();
+    internal readonly Dictionary<Guid, ID2D1PathGeometry> _connectionGeoms = new();
+    internal readonly Dictionary<string, ImageBitmapResource> _imageBitmaps = new();
+    internal ID2D1StrokeStyle? _dashedStrokeStyle;
 
     // Interaction state
-    private Point? _panPoint;
-    private Point? _dragWorldPoint;
-    private Point? _dragStartScreen;
-    private string? _primaryDrag;
-    private List<string> _draggedKeys = new();
-    private string? _resizeKey;
-    private Point? _resizeWorldPoint;
-    private bool _resizeWidthOnly;
-    private string? _resizeSwimLaneKey;
-    private Point? _resizeSwimLaneWorldPoint;
-    private Point? _marqueeStart, _marqueeEnd;
-    private bool _isMarquee, _appendMarquee, _didMove, _isMinimapDrag;
-    private string? _activeShapeTool;
-    private Point? _shapeDraftStartWorld;
-    private Point? _shapeDraftCurrentWorld;
+    internal WpfPoint? _panPoint;
+    internal WpfPoint? _dragWorldPoint;
+    internal WpfPoint? _dragAnchorOffset; // cursor-world minus primary-drag block top-left at drag start
+    internal WpfPoint? _dragStartScreen;
+    internal string? _primaryDrag;
+    internal List<string> _draggedKeys = new();
+    internal string? _resizeKey;
+    internal WpfPoint? _resizeWorldPoint;
+    internal bool _resizeWidthOnly;
+    internal string? _linearShapeVertexDragKey;
+    internal int _linearShapeVertexDragIndex = -1;
+    internal string? _resizeSwimLaneKey;
+    internal WpfPoint? _resizeSwimLaneWorldPoint;
+    internal WpfPoint? _marqueeStart, _marqueeEnd;
+    internal bool _isMarquee, _appendMarquee, _didMove, _isMinimapDrag;
+    internal string? _activeShapeTool;
+    internal WpfPoint? _shapeDraftStartWorld;
+    internal WpfPoint? _shapeDraftCurrentWorld;
+    internal List<WpfPoint>? _shapeDraftPolyline; // confirmed vertices in click-mode (≥1 = in polyline mode)
+    internal string? _shapeDraftAttachStartKey;
+    internal string? _shapeDraftAttachEndKey; // updated live as cursor hovers blocks during draft
+    internal WpfPoint? _shapeDraftStartOffset;
+    internal WpfPoint? _shapeDraftEndOffset;
+    internal List<bool>? _shapeDraftCurvedFlags;
+
 
     // Draw-connection state
-    private bool _isDrawingConnection;
-    private string? _connectionSourceKey;
-    private int? _connectionSourceAnchorIndex;
-    private Point _connectionSourceWorld;
-    private Point _connectionCurrentWorld;
-    private string? _connectionHoverTargetKey;
-    private int? _connectionHoverTargetAnchorIndex;
-    private Point? _connectionHoverTargetWorld;
-    private Point? _connectionDraftMidPoint;
-    private bool _connectionDraftMidPointBends;
-    private Guid? _dragArrowConnectionId;
-    private Guid? _dragConnectionControlId;
-    private ConnectionControlNodeKind _dragConnectionControlKind = ConnectionControlNodeKind.None;
-    private Guid? _rewireConnectionId;
-    private ConnectionEndpointKind _rewireEndpointKind = ConnectionEndpointKind.None;
-    private Point _rewireFixedWorld;
-    private int? _rewireFixedAnchorIndex;
-    private Guid? _selectedConnectionId;
-    private ConnectionControlNodeKind _selectedConnectionControlKind = ConnectionControlNodeKind.None;
-    private string? _hoverAnchorBlockKey;
-    private int? _hoverAnchorIndex;
+    internal bool _isDrawingConnection;
+    internal string? _connectionSourceKey;
+    internal int? _connectionSourceAnchorIndex;
+    internal WpfPoint _connectionSourceWorld;
+    internal WpfPoint _connectionCurrentWorld;
+    internal string? _connectionHoverTargetKey;
+    internal int? _connectionHoverTargetAnchorIndex;
+    internal WpfPoint? _connectionHoverTargetWorld;
+    internal WpfPoint? _connectionDraftMidPoint;
+    internal bool _connectionDraftMidPointBends;
+    internal Guid? _dragArrowConnectionId;
+    internal Guid? _dragConnectionControlId;
+    internal ConnectionControlNodeKind _dragConnectionControlKind = ConnectionControlNodeKind.None;
+    internal Guid? _rewireConnectionId;
+    internal ConnectionEndpointKind _rewireEndpointKind = ConnectionEndpointKind.None;
+    internal WpfPoint _rewireFixedWorld;
+    internal int? _rewireFixedAnchorIndex;
+    internal Guid? _selectedConnectionId;
+    internal ConnectionControlNodeKind _selectedConnectionControlKind = ConnectionControlNodeKind.None;
+    internal string? _hoverAnchorBlockKey;
+    internal int? _hoverAnchorIndex;
 
     // Modifier highlight state (Alt=extract function to new block)
-    private bool _isExtractMode;
+    internal bool _isExtractMode;
 
     // Click tracking
-    private long _lastClickTick = -1;
-    private string? _lastClickKey;
-    private Point _lastClickScreen = new(double.NaN, double.NaN);
-    private readonly Dictionary<string, int> _codeScrollLines = new(StringComparer.OrdinalIgnoreCase);
-    private Point _lastMouseScreenPoint;
-    private string? _hoverShapeTool;
-    private string? _noteResizeKey;
-    private NoteResizeCorner _noteResizeCorner = NoteResizeCorner.None;
-    private Point? _noteResizeWorldPoint;
+    internal long _lastClickTick = -1;
+    internal string? _lastClickKey;
+    internal WpfPoint _lastClickScreen = new(double.NaN, double.NaN);
+    internal readonly Dictionary<string, int> _codeScrollLines = new(StringComparer.OrdinalIgnoreCase);
+    internal WpfPoint _lastMouseScreenPoint;
+    internal string? _hoverShapeTool;
+    internal string? _noteResizeKey;
+    internal NoteResizeCorner _noteResizeCorner = NoteResizeCorner.None;
+    internal WpfPoint? _noteResizeWorldPoint;
 
     // In-canvas note editing
-    private string? _editingNoteKey;
-    private string? _editingGroupKey;
-    private string _editTitle = string.Empty;
-    private string _editBody = string.Empty;
-    private bool _editingTitle = true;
-    private int _editCursorPos;
-    private int _editSelectionAnchor = -1; // -1 = no selection, else anchor position in current field
-    private bool _editMouseSelecting;
-    private bool _editCursorVisible = true;
-    private System.Threading.Timer? _cursorBlinkTimer;
+    internal string? _editingNoteKey;
+    internal string? _editingGroupKey;
+    internal string _editTitle = string.Empty;
+    internal string _editBody = string.Empty;
+    internal bool _editingTitle = true;
+    internal int _editCursorPos;
+    internal int _editSelectionAnchor = -1;
+    internal bool _editMouseSelecting;
+    internal bool _editCursorVisible = true;
+    internal System.Threading.Timer? _cursorBlinkTimer;
+
+    // Tool architecture
+    private readonly Dictionary<string, ICanvasTool> _tools = new();
+    private ICanvasTool? _currentTool;
 
     public CanvasViewport()
     {
         Focusable = true;
         Cursor = Cursors.Arrow;
         SetCurrentValue(CameraProperty, _camera);
-    }
 
-    public RenderScene Scene
+        // Initialize tools
+        _tools["Selection"] = new SelectionTool(this);
+        _tools["Connection"] = new ConnectionTool(this);
+        _tools["Shape"] = new ShapeTool(this);
+        _tools["Pan"] = new PanTool(this);
+        _tools["Marquee"] = new MarqueeTool(this);
+        _currentTool = _tools["Selection"];
+        
+        _hwndMap[IntPtr.Zero] = new WeakReference<CanvasViewport>(this);
+    }
+    
+    internal void SetTool(string name)
     {
-        get => (RenderScene)GetValue(SceneProperty);
-        set => SetValue(SceneProperty, value);
+        if (_tools.TryGetValue(name, out var tool))
+        {
+            _currentTool?.Deactivate();
+            _currentTool = tool;
+        }
     }
 
-    public CameraState Camera
+    internal void ResetInteraction()
     {
-        get => (CameraState)GetValue(CameraProperty);
-        set => SetValue(CameraProperty, value);
+        _panPoint = null;
+        _dragWorldPoint = null;
+        _dragAnchorOffset = null;
+        _primaryDrag = null;
+        _isMarquee = false;
+        _isMinimapDrag = false;
+        _noteResizeKey = null;
+        _resizeKey = null;
+        _linearShapeVertexDragKey = null;
+        _linearShapeVertexDragIndex = -1;
+        _resizeSwimLaneKey = null;
+        _dragArrowConnectionId = null;
+        _dragConnectionControlId = null;
+        _dragConnectionControlKind = ConnectionControlNodeKind.None;
     }
-
-    public bool IsReady
-    {
-        get => (bool)GetValue(IsReadyProperty);
-        set => SetValue(IsReadyProperty, value);
-    }
-
-    public CanvasBackgroundMode BackgroundMode
-    {
-        get => (CanvasBackgroundMode)GetValue(BackgroundModeProperty);
-        set => SetValue(BackgroundModeProperty, value);
-    }
-
-    public bool SnapToGrid
-    {
-        get => (bool)GetValue(SnapToGridProperty);
-        set => SetValue(SnapToGridProperty, value);
-    }
-
-    public bool ConnectorsEnabled
-    {
-        get => (bool)GetValue(ConnectorsEnabledProperty);
-        set => SetValue(ConnectorsEnabledProperty, value);
-    }
-
-    public double GridSize
-    {
-        get => (double)GetValue(GridSizeProperty);
-        set => SetValue(GridSizeProperty, value);
-    }
-
-    public void ToggleBackground()
-    {
-        BackgroundMode = BackgroundMode == CanvasBackgroundMode.Dots
-            ? CanvasBackgroundMode.Grid
-            : CanvasBackgroundMode.Dots;
-    }
-
-    public void BeginEditNewNote()
-    {
-        var note = Scene.Blocks.LastOrDefault(b => b.Kind == BlockKind.Note);
-        if (note is not null) BeginNoteEdit(note);
-    }
-
-    public void DeleteSelection() => DeleteSelected();
 
     public void FrameAll()
     {
@@ -290,142 +273,202 @@ public sealed partial class CanvasViewport : HwndHost, IDisposable
         if (nodes.Count == 0 || ActualWidth <= 0) return;
         var bounds = nodes[0].Bounds;
         foreach (var n in nodes.Skip(1)) bounds.Union(n.Bounds);
-        const double pad = 72;
-        double zx = (ActualWidth - pad * 2) / Math.Max(1, bounds.Width);
-        double zy = (ActualHeight - pad * 2) / Math.Max(1, bounds.Height);
+        bounds.Inflate(40, 40);
+
+        double zx = ActualWidth / bounds.Width;
+        double zy = ActualHeight / bounds.Height;
         double z = Math.Clamp(Math.Min(zx, zy), 0.02, 4.0);
         _camera = new CameraState(z,
             ActualWidth / 2 - (bounds.X + bounds.Width / 2) * z,
             ActualHeight / 2 - (bounds.Y + bounds.Height / 2) * z);
         SetCurrentValue(CameraProperty, _camera);
-        _visDirty = true;
-        RenderNative();
     }
 
     public void FrameSelection()
     {
-        var selected = _snapshot.Blocks.Where(b => b.Block.IsSelected).ToList();
-        if (selected.Count == 0)
-        {
-            if (_snapshot.Connections.FirstOrDefault(c => c.Connection.IsSelected) is { } connection)
-                FrameWorldBounds(connection.Bounds);
-            return;
-        }
+        var selected = Scene.Blocks.Where(b => b.IsSelected).ToList();
+        if (selected.Count == 0) return;
+        var bounds = new Rect(selected[0].X, selected[0].Y, selected[0].Width, selected[0].Height);
+        foreach (var b in selected.Skip(1)) bounds.Union(new Rect(b.X, b.Y, b.Width, b.Height));
+        bounds.Inflate(60, 60);
 
-        Rect bounds = selected[0].Bounds;
-        foreach (var block in selected.Skip(1))
-            bounds.Union(block.Bounds);
-        FrameWorldBounds(bounds);
-    }
-
-    private void FrameWorldBounds(Rect bounds)
-    {
-        if (bounds.IsEmpty || ActualWidth <= 0 || ActualHeight <= 0) return;
-        const double pad = 160;
-        double zx = (ActualWidth - pad * 2) / Math.Max(1, bounds.Width);
-        double zy = (ActualHeight - pad * 2) / Math.Max(1, bounds.Height);
-        double z = Math.Clamp(Math.Min(zx, zy), 0.08, 3.0);
+        double zx = ActualWidth / bounds.Width;
+        double zy = ActualHeight / bounds.Height;
+        double z = Math.Clamp(Math.Min(zx, zy), 0.02, 4.0);
         _camera = new CameraState(z,
             ActualWidth / 2 - (bounds.X + bounds.Width / 2) * z,
             ActualHeight / 2 - (bounds.Y + bounds.Height / 2) * z);
         SetCurrentValue(CameraProperty, _camera);
-        _visDirty = true;
-        RenderNative();
     }
 
-    public Point GetLastMouseWorldPoint()
+    internal void ToggleBackground()
     {
-        if (_lastMouseScreenPoint.X == 0 && _lastMouseScreenPoint.Y == 0 && ActualWidth > 0 && ActualHeight > 0)
-            return ToWorld(new Point(ActualWidth / 2, ActualHeight / 2));
-        return ToWorld(_lastMouseScreenPoint);
+        BackgroundMode = BackgroundMode == CanvasBackgroundMode.Dots
+            ? CanvasBackgroundMode.Grid
+            : CanvasBackgroundMode.Dots;
     }
 
+    internal bool IsDoubleClick(string key, WpfPoint screen)
+    {
+        long now = DateTime.UtcNow.Ticks / 10000;
+        bool match = _lastClickKey == key && (now - _lastClickTick) < 500 && Math.Abs(screen.X - _lastClickScreen.X) < 5 && Math.Abs(screen.Y - _lastClickScreen.Y) < 5;
+        _lastClickKey = key; _lastClickTick = now; _lastClickScreen = screen;
+        return match;
+    }
+
+    internal void TrackClick(string key, WpfPoint screen)
+    {
+        _lastClickKey = key;
+        _lastClickTick = DateTime.UtcNow.Ticks / 10000;
+        _lastClickScreen = screen;
+    }
+
+    internal int GetMaxCodeScrollLines(RenderBlock block, Rect bodyRect)
+    {
+        if (block.Body is null) return 0;
+        string[] allLines = block.Body.Replace("\r", "").Split('\n');
+        int total = allLines.Length;
+        int topPadding = block.Focused is not null ? FocusedCodeTopPaddingLines : 0;
+        int visible = Math.Max(0, (int)Math.Floor(bodyRect.Height / CodeLineH) - topPadding);
+        return Math.Max(0, total - visible);
+    }
+
+    public WpfPoint GetLastMouseWorldPoint() => ToWorld(_lastMouseScreenPoint);
     public Point ScreenPointToWorld(Point screen) => ToWorld(screen);
 
+    internal bool TryCompleteConnectionToAnchor(ConnectionAnchorHit anchor)
+    {
+        if (anchor.Block.Block.Key.Equals(_connectionSourceKey, StringComparison.OrdinalIgnoreCase)) return false;
+        if (_rewireConnectionId is Guid id) { CompleteConnectionRewire(anchor); return true; }
+        if (_connectionSourceKey is null || ConnectionDrawnCommand?.CanExecute(null) != true) return false;
+        ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(_connectionSourceKey, anchor.Block.Block.Key, _connectionSourceAnchorIndex, anchor.AnchorIndex, _connectionDraftMidPoint?.X, _connectionDraftMidPoint?.Y, _connectionDraftMidPointBends));
+        return true;
+    }
+
+    internal float InvStroke(float strokeWidth) => (float)(strokeWidth / _camera.Zoom);
+
+    internal void RenderNative() => RenderNativeInternal();
+    internal void RebuildSnapshot() => RebuildSnapshotInternal();
+    internal void ApplySceneChange(RenderScene scene) => ApplySceneChangeInternal(scene);
+
+    internal int WorldToCodeLine(SceneBlockVisual block, Point world)
+    {
+        Rect bodyRect = CanvasDrawingUtils.GetBodyRect(block.Bounds);
+        double topPadding = block.Block.Focused is not null ? FocusedCodeTopPaddingLines * CodeLineH : 0;
+        double relY = world.Y - bodyRect.Y - topPadding - 12;
+        int lineIndex = Math.Max(0, (int)(relY / CodeLineH));
+        int startLine = block.Block.Focused?.StartLine ?? block.Block.StartLine ?? 1;
+        _codeScrollLines.TryGetValue(block.Block.Key, out int scrollLines);
+        return startLine + scrollLines + lineIndex;
+    }
+
+    internal static RenderScene ClearSelection(RenderScene scene) =>
+        scene with { Blocks = scene.Blocks.Select(b => b with { IsSelected = false }).ToList(), SwimLanes = scene.SwimLanes.Select(l => l with { IsSelected = false }).ToList() };
+
+    internal static RenderScene ToggleSelection(RenderScene scene, string key) =>
+        scene with { Blocks = scene.Blocks.Select(b => b.Key.Equals(key, StringComparison.OrdinalIgnoreCase) ? b with { IsSelected = !b.IsSelected } : b).ToList() };
+
+    internal static RenderScene SetSelection(RenderScene scene, IEnumerable<string> keys)
+    {
+        var set = keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return scene with { Blocks = scene.Blocks.Select(b => b with { IsSelected = set.Contains(b.Key) }).ToList() };
+    }
+
+    internal static RenderScene SelectSwimLane(RenderScene scene, string key) =>
+        scene with { Blocks = scene.Blocks.Select(b => b with { IsSelected = false }).ToList(), SwimLanes = scene.SwimLanes.Select(l => l with { IsSelected = l.Key.Equals(key, StringComparison.OrdinalIgnoreCase) }).ToList() };
+
+    internal void CompleteMarqueeSelection(WpfPoint start, WpfPoint end, bool append)
+    {
+        Rect screenRect = new(start, end);
+        if (screenRect.Width < 4 && screenRect.Height < 4) return;
+        Point topLeft = ToWorld(new Point(screenRect.Left, screenRect.Top));
+        Point bottomRight = ToWorld(new Point(screenRect.Right, screenRect.Bottom));
+        Rect worldRect = new(topLeft, bottomRight);
+        var hit = _snapshot.QueryBlocks(worldRect).Select(v => v.Block.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var blocks = Scene.Blocks.Select(b => b with { IsSelected = append ? b.IsSelected || hit.Contains(b.Key) : hit.Contains(b.Key) }).ToList();
+        ApplySceneChange(ClearConnectionSelection(Scene with { Blocks = blocks }));
+        RebuildSnapshot();
+    }
+
+    internal void CompleteMarquee()
+    {
+        if (_marqueeStart is WpfPoint s && _marqueeEnd is WpfPoint e)
+            CompleteMarqueeSelection(s, e, _appendMarquee);
+    }
+
+    public void DeleteSelection() => DeleteSelected();
+
+    public void BeginEditNewNote()
+    {
+        var note = Scene.Blocks.LastOrDefault(b => b.Kind == BlockKind.Note);
+        if (note is not null) BeginNoteEdit(note);
+    }
+
+    private CameraState _camera = CameraState.Default;
+
     // -----------------------------------------------------------------------
-    // HwndHost overrides
+    // Core HWND / HwndHost
     // -----------------------------------------------------------------------
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
-        _hwnd = CreateWindowEx(0, "static", string.Empty,
-            WsChild | WsVisible | WsClipChildren | WsClipSiblings | WsTabStop | SsNotify,
-            0, 0, Math.Max(1, (int)ActualWidth), Math.Max(1, (int)ActualHeight),
-            hwndParent.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-        RebuildSnapshot();
-        EnsureRT();
-        RenderNative();
+        string cls = "ReviewScopeCanvas";
+        NativeMethods.WNDCLASSEX wc = new() { cbSize = Marshal.SizeOf<NativeMethods.WNDCLASSEX>(), lpfnWndProc = Marshal.GetFunctionPointerForDelegate(WndProcDelegate), hInstance = NativeMethods.GetModuleHandle(null), lpszClassName = cls, hCursor = NativeMethods.LoadCursor(IntPtr.Zero, 32512) };
+        NativeMethods.RegisterClassEx(ref wc);
+
+        _hwnd = NativeMethods.CreateWindowEx(0, cls, "Canvas", 0x40000000 | 0x10000000, 0, 0, 0, 0, hwndParent.Handle, IntPtr.Zero, wc.hInstance, IntPtr.Zero);
+        _hwndMap[_hwnd] = new WeakReference<CanvasViewport>(this);
         return new HandleRef(this, _hwnd);
     }
 
+    private static readonly NativeMethods.WndProc WndProcDelegate = WndProc;
+
     protected override void DestroyWindowCore(HandleRef hwnd)
     {
-        DisposeRenderTarget();
-        if (hwnd.Handle != IntPtr.Zero) DestroyWindow(hwnd.Handle);
-        _hwnd = IntPtr.Zero;
+        _hwndMap.Remove(hwnd.Handle);
+        NativeMethods.DestroyWindow(hwnd.Handle);
     }
 
-    protected override IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    private static IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
+        var viewport = FromHwnd(hwnd);
+        if (viewport == null) return NativeMethods.DefWindowProc(hwnd, msg, wParam, lParam);
+
         switch (msg)
         {
-            case WmEraseBkgnd: handled = true; return new IntPtr(1);
-            case WmSize: ResizeRT(); RenderNative(); break;
-            case WmPaint: RenderNative(); break;
-            case WmLButtonDown: HandleLDown(GetClientPt(lParam)); handled = true; break;
-            case WmLButtonUp: HandleLUp(GetClientPt(lParam)); handled = true; break;
-            case WmRButtonDown: HandleRDown(GetClientPt(lParam)); handled = true; break;
-            case WmRButtonUp: HandleRUp(GetClientPt(lParam)); handled = true; break;
-            case WmMButtonDown: _panPoint = GetClientPt(lParam); Cursor = Cursors.Hand; SetCapture(_hwnd); break;
-            case WmMButtonUp: ResetInteraction(); UpdateHoverCursor(GetClientPt(lParam)); ReleaseCapture(); break;
-            case WmMouseMove: HandleMove(GetClientPt(lParam)); handled = true; break;
-            case WmMouseWheel: HandleWheel(GetClientPtScreen(lParam), GetWheelDelta(wParam)); handled = true; break;
-            case WmChar: if (_editingNoteKey is not null || _editingGroupKey is not null) { HandleChar((char)wParam.ToInt32()); handled = true; } break;
-            case WmKeyDown: HandleKeyDown(wParam); if (_editingNoteKey is not null || _editingGroupKey is not null) handled = true; break;
-            case WmKeyUp: HandleKeyUp(wParam); break;
-            case WmSysKeyDown: HandleKeyDown(wParam); handled = true; break;
-            case WmSysKeyUp: HandleKeyUp(wParam); handled = true; break;
-            case WmSysChar: handled = true; break;
-            case WmKillFocus:
-                _isExtractMode = false;
-                if (_editingNoteKey is not null) CommitNoteEdit(save: true);
-                else if (_editingGroupKey is not null) CommitGroupTitleEdit(save: true);
-                else RenderNative();
-                break;
+            case 0x000F: viewport.RenderNative(); return IntPtr.Zero;
+            case 0x0005: viewport.ResizeRT(); viewport.RenderNative(); return IntPtr.Zero;
+            case 0x0201: viewport.HandleLDown(GetMousePoint(lParam)); return IntPtr.Zero;
+            case 0x0202: viewport.HandleLUp(GetMousePoint(lParam)); return IntPtr.Zero;
+            case 0x0204: viewport.HandleRDown(GetMousePoint(lParam)); return IntPtr.Zero;
+            case 0x0205: viewport.HandleRUp(GetMousePoint(lParam)); return IntPtr.Zero;
+            case 0x0207: viewport.HandleMDown(GetMousePoint(lParam)); return IntPtr.Zero;
+            case 0x0208: viewport.HandleMUp(GetMousePoint(lParam)); return IntPtr.Zero;
+            case 0x0200: viewport.HandleMove(GetMousePoint(lParam)); return IntPtr.Zero;
+            case 0x020A: viewport.HandleWheel(GetMousePoint(lParam), (short)((wParam.ToInt64() >> 16) & 0xFFFF)); return IntPtr.Zero;
+            case 0x0100: viewport.HandleKeyDown(wParam); return IntPtr.Zero;
+            case 0x0101: viewport.HandleKeyUp(wParam); return IntPtr.Zero;
+            case 0x0102: viewport.HandleChar((char)wParam.ToInt64()); return IntPtr.Zero;
         }
-        return IntPtr.Zero;
+        return NativeMethods.DefWindowProc(hwnd, msg, wParam, lParam);
     }
 
-    protected override void OnRenderSizeChanged(SizeChangedInfo info)
-    {
-        base.OnRenderSizeChanged(info);
-        ResizeRT();
-        RenderNative();
-    }
+    private static readonly Dictionary<IntPtr, WeakReference<CanvasViewport>> _hwndMap = new();
+    private static CanvasViewport? FromHwnd(IntPtr hwnd) => _hwndMap.TryGetValue(hwnd, out var wr) && wr.TryGetTarget(out var v) ? v : null;
 
-    public new void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-        DisposeRenderTarget();
-        _dwrite?.Dispose(); _dwrite = null;
-        _dashedStrokeStyle?.Dispose(); _dashedStrokeStyle = null;
-        _factory?.Dispose(); _factory = null;
-        GC.SuppressFinalize(this);
-    }
+    private static WpfPoint GetMousePoint(IntPtr lParam) => new(lParam.ToInt64() & 0xFFFF, (lParam.ToInt64() >> 16) & 0xFFFF);
 
-    // -----------------------------------------------------------------------
-    // Input handlers
-
-    // -----------------------------------------------------------------------
-    // Dependency property callbacks
-    // -----------------------------------------------------------------------
     private static void OnSceneChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        if (d is CanvasViewport v) { v.RebuildSnapshot(); v._visDirty = true; v.RenderNative(); }
+        if (d is CanvasViewport v) { v.RebuildSnapshot(); v.RenderNative(); }
     }
 
     private static void OnCameraChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         if (d is CanvasViewport v && e.NewValue is CameraState cam) { v._camera = cam; v._visDirty = true; v.RenderNative(); }
     }
+
+    internal static void SetCapture(IntPtr hwnd) => NativeMethods.SetCapture(hwnd);
+    internal static void ReleaseCapture() => NativeMethods.ReleaseCapture();
+    internal static void SetFocus(IntPtr hwnd) => NativeMethods.SetFocus(hwnd);
+    internal static bool GetClientRect(IntPtr hwnd, out RECT rect) => NativeMethods.GetClientRect(hwnd, out rect);
 }

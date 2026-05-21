@@ -7,6 +7,10 @@ public enum SemanticTokenKind { Plain, Keyword, Type, Function, Property, Field,
 public enum ConnectorRouteKind { Curved, Straight, Orthogonal }
 public enum ConnectorArrowKind { None, Forward, Backward, Both }
 public enum BoardLayerKind { Background, Architecture, CodeEvidence, Notes, Risks, Screenshots }
+public enum ConnectionControlNodeKind { None, Middle, Source, Target }
+public enum ConnectionEndpointKind { None, Source, Target }
+public enum NoteResizeCorner { None, TopLeft, TopRight, BottomLeft, BottomRight }
+public enum CanvasBackgroundMode { Dots, Grid }
 
 // --- Workspace / file discovery ---
 
@@ -70,7 +74,8 @@ public sealed record BoardItemStyle(
     bool Dashed = false,
     double Opacity = 1,
     double CornerRadius = 8,
-    string TextAlign = "Center");
+    string TextAlign = "Center",
+    string FillStyle = "hatch");
 
 public sealed record BoardSourceBinding(
     string? AssetPath = null,

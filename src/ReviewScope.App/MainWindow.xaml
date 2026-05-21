@@ -161,6 +161,26 @@
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="MinHeight" Value="20"/>
         </Style>
+
+        <Style x:Key="ColorCircleButton" TargetType="Button">
+            <Setter Property="Width" Value="24"/>
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Border CornerRadius="12" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"/>
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -301,7 +321,7 @@
                 <ColumnDefinition Width="5"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="5"/>
-                <ColumnDefinition Width="300" MinWidth="180"/>
+                <ColumnDefinition Width="320" MinWidth="220" MaxWidth="400"/>
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,0,1,0">
@@ -550,69 +570,6 @@
                                        AllowDrop="True"
                                        Drop="OnCanvasDrop"
                                        DragOver="OnCanvasDragOver"/>
-
-                <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12,14,0,0"
-                        Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}"
-                        BorderThickness="1" CornerRadius="6" Padding="5">
-                    <StackPanel>
-                        <Button Style="{StaticResource RailButton}" ToolTip="Pointer">
-                            <Viewbox Width="16" Height="16">
-                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M5,3 L11.5,8.4 L8.8,8.9 L10.4,12.5 L8.8,13.1 L7.2,9.5 L5,11.3 Z"/>
-                            </Viewbox>
-                        </Button>
-                        <Button Style="{StaticResource RailButton}" ToolTip="Pan">
-                            <Viewbox Width="16" Height="16">
-                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M5,8 V5.5 C5,4.9 5.4,4.5 6,4.5 C6.6,4.5 7,4.9 7,5.5 V8 M7,7 V4.5 C7,3.9 7.4,3.5 8,3.5 C8.6,3.5 9,3.9 9,4.5 V8 M9,7 V5.5 C9,4.9 9.4,4.5 10,4.5 C10.6,4.5 11,4.9 11,5.5 V8.5 C11,11.1 9.4,13 7.2,13 H6.7 C5.2,13 4,11.8 4,10.3 V8.5 C4,7.9 4.4,7.5 5,7.5 C5.6,7.5 6,7.9 6,8.5 V9.5"/>
-                            </Viewbox>
-                        </Button>
-                        <Button Style="{StaticResource RailButton}" ToolTip="Add layer" Command="{Binding AddSwimLaneCommand}">
-                            <Viewbox Width="16" Height="16">
-                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M4,5 L8,3 L12,5 L8,7 Z M4,8 L8,10 L12,8 M4,11 L8,13 L12,11"/>
-                            </Viewbox>
-                        </Button>
-                        <Button Style="{StaticResource RailButton}" ToolTip="Note" Command="{Binding AddNoteCardCommand}">
-                            <Viewbox Width="16" Height="16">
-                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M4,3.5 H12 V10 L9.5,12.5 H4 Z M9.5,12.5 V10 H12"/>
-                            </Viewbox>
-                        </Button>
-                        <Button Style="{StaticResource RailButton}" ToolTip="Text" Command="{Binding AddTextCardCommand}">
-                            <Viewbox Width="16" Height="16">
-                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M4,4.5 H12 M8,4.5 V12 M5.5,12 H10.5"/>
-                            </Viewbox>
-                        </Button>
-                        <Button Style="{StaticResource RailButton}" ToolTip="Service symbol" Command="{Binding AddShapeCommand}" CommandParameter="service">
-                            <Viewbox Width="16" Height="16">
-                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M8,3 L13,8 L8,13 L3,8 Z"/>
-                            </Viewbox>
-                        </Button>
-                        <Button Style="{StaticResource RailButton}" ToolTip="Database symbol" Command="{Binding AddShapeCommand}" CommandParameter="database">
-                            <Viewbox Width="16" Height="16">
-                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M4,5 C4,3.9 5.8,3 8,3 C10.2,3 12,3.9 12,5 C12,6.1 10.2,7 8,7 C5.8,7 4,6.1 4,5 Z M4,5 V11 C4,12.1 5.8,13 8,13 C10.2,13 12,12.1 12,11 V5 M4,8 C4,9.1 5.8,10 8,10 C10.2,10 12,9.1 12,8"/>
-                            </Viewbox>
-                        </Button>
-                        <Button Style="{StaticResource RailButton}" ToolTip="Risk symbol" Command="{Binding AddShapeCommand}" CommandParameter="risk">
-                            <Viewbox Width="16" Height="16">
-                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M8,3 L13,12.5 H3 Z M8,6.5 V9 M8,11 H8.1"/>
-                            </Viewbox>
-                        </Button>
-                        <Button Style="{StaticResource RailButton}" ToolTip="Container" Command="{Binding AddContainerCardCommand}">
-                            <Viewbox Width="16" Height="16">
-                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M3,4 H13 V12 H3 Z M5,6 H11"/>
-                            </Viewbox>
-                        </Button>
-                        <Button Style="{StaticResource RailButton}" ToolTip="Frame all" Click="OnFrameAll">
-                            <Viewbox Width="16" Height="16">
-                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M4,6 V4 H6 M10,4 H12 V6 M12,10 V12 H10 M6,12 H4 V10 M6,8 H10"/>
-                            </Viewbox>
-                        </Button>
-                        <Button Style="{StaticResource RailButton}" ToolTip="Background" Command="{Binding ToggleBackgroundCommand}">
-                            <Viewbox Width="16" Height="16">
-                                <Path Style="{StaticResource BrowserIconPathStyle}" Data="M4,4 H6 V6 H4 Z M10,4 H12 V6 H10 Z M4,10 H6 V12 H4 Z M10,10 H12 V12 H10 Z"/>
-                            </Viewbox>
-                        </Button>
-                    </StackPanel>
-                </Border>
-
             </Grid>
 
             <GridSplitter Grid.Column="3" HorizontalAlignment="Stretch" Cursor="SizeWE"
@@ -631,12 +588,29 @@
             <Border Grid.Column="4" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1,0,0,0">
                 <Grid>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
-                        <RowDefinition Height="220"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
-                        <StackPanel Margin="14,14">
+                    <!-- Row 0: Canvas Creation Tools -->
+                    <Border Grid.Row="0" Margin="12,14,12,6" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="10">
+                        <StackPanel>
+                            <TextBlock Text="Canvas Elements" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource SubtleForeground}" Margin="0,0,0,8"/>
+                            <UniformGrid Columns="5">
+                                <Button Style="{StaticResource ToolButton}" Content="📝 Note" Command="{Binding AddNoteCardCommand}" ToolTip="Add Sketch Note" Height="32" Margin="0,0,3,0"/>
+                                <Button Style="{StaticResource ToolButton}" Content="🔤 Text" Command="{Binding AddTextCardCommand}" ToolTip="Add Text Block" Height="32" Margin="0,0,3,0"/>
+                                <Button Style="{StaticResource ToolButton}" Content="📦 Box" Command="{Binding AddContainerCardCommand}" ToolTip="Add Container Box" Height="32" Margin="0,0,3,0"/>
+                                <Button Style="{StaticResource ToolButton}" Content="🛢️ DB" Command="{Binding AddShapeCommand}" CommandParameter="database" ToolTip="Add Database Shape" Height="32" Margin="0,0,3,0"/>
+                                <Button Style="{StaticResource ToolButton}" Content="🌊 Layer" Command="{Binding AddSwimLaneCommand}" ToolTip="Add Swimlane Layer" Height="32"/>
+                            </UniformGrid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ScrollViewer for Inspector (Row 1) - Visible when Selected -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,6,0,6"
+                                  Visibility="{Binding HasBoardSelection, Converter={StaticResource BoolVis}}">
+                        <StackPanel Margin="14,0,14,14">
                             <TextBlock Text="Inspector" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SubtleForeground}" Margin="0,0,0,8"/>
                             <TextBlock Text="{Binding SelectedObjectTitle}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" TextWrapping="Wrap"/>
                             <TextBlock Text="{Binding SelectedObjectKind}" FontSize="12" Foreground="{StaticResource SubtleForeground}" Margin="0,4,0,2"/>
@@ -674,58 +648,78 @@
                             </Expander>
 
                             <Expander Header="Appearance" IsExpanded="True" Margin="0,0,0,8" Visibility="{Binding HasBoardSelection, Converter={StaticResource BoolVis}}">
-                                <Grid Margin="0,8,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="58"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                    </Grid.RowDefinitions>
-                                    <TextBlock Text="Fill" Foreground="{StaticResource SubtleForeground}" FontSize="11" Margin="0,6,0,0"/>
-                                    <Button Grid.Column="1" Style="{StaticResource ToolButton}" Click="OnPickFillColor" HorizontalAlignment="Stretch">
-                                        <StackPanel Orientation="Horizontal">
-                                            <Rectangle Width="18" Height="12" Fill="{Binding SelectedFill}" Stroke="{StaticResource PanelBorder}" Margin="0,0,8,0"/>
-                                            <TextBlock Text="Pick fill"/>
-                                        </StackPanel>
-                                    </Button>
-                                    <TextBlock Grid.Row="1" Text="Stroke" Foreground="{StaticResource SubtleForeground}" FontSize="11" Margin="0,6,0,0"/>
-                                    <Button Grid.Row="1" Grid.Column="1" Style="{StaticResource ToolButton}" Click="OnPickStrokeColor" HorizontalAlignment="Stretch">
-                                        <StackPanel Orientation="Horizontal">
-                                            <Rectangle Width="18" Height="12" Fill="{Binding SelectedStroke}" Stroke="{StaticResource PanelBorder}" Margin="0,0,8,0"/>
-                                            <TextBlock Text="Pick stroke"/>
-                                        </StackPanel>
-                                    </Button>
-                                    <TextBlock Grid.Row="2" Text="Text" Foreground="{StaticResource SubtleForeground}" FontSize="11" Margin="0,6,0,0"/>
-                                    <Button Grid.Row="2" Grid.Column="1" Style="{StaticResource ToolButton}" Click="OnPickTextColor" HorizontalAlignment="Stretch">
-                                        <StackPanel Orientation="Horizontal">
-                                            <Rectangle Width="18" Height="12" Fill="{Binding SelectedTextColor}" Stroke="{StaticResource PanelBorder}" Margin="0,0,8,0"/>
-                                            <TextBlock Text="Pick text"/>
-                                        </StackPanel>
-                                    </Button>
-                                    <TextBlock Grid.Row="3" Text="Line" Foreground="{StaticResource SubtleForeground}" FontSize="11" Margin="0,6,0,0"/>
-                                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding SelectedStrokeWidth, UpdateSourceTrigger=PropertyChanged}" FontSize="11"/>
-                                    <TextBlock Grid.Row="4" Text="Align" Foreground="{StaticResource SubtleForeground}" FontSize="11" Margin="0,6,0,0"/>
-                                    <ComboBox Grid.Row="4" Grid.Column="1"
-                                              SelectedValue="{Binding SelectedTextAlignment, UpdateSourceTrigger=PropertyChanged}"
-                                              SelectedValuePath="Content"
-                                              FontSize="11" MinHeight="24">
-                                        <ComboBoxItem Content="Left"/>
-                                        <ComboBoxItem Content="Center"/>
-                                        <ComboBoxItem Content="Right"/>
-                                    </ComboBox>
-                                    <StackPanel Grid.Row="5" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,8,0,0">
-                                        <CheckBox Content="Dashed" IsChecked="{Binding SelectedDashed}" Margin="0,0,12,0"/>
+                                <StackPanel Margin="0,8,0,0">
+                                    <TextBlock Text="Fill Color" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,2,0,2"/>
+                                    <WrapPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Fill" CommandParameter="#00000000" Click="OnSelectColorPreset" ToolTip="Transparent">
+                                            <Grid Width="24" Height="24">
+                                                <Line X1="3" Y1="21" X2="21" Y2="3" Stroke="#EF4444" StrokeThickness="1.5"/>
+                                            </Grid>
+                                        </Button>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Fill" CommandParameter="#FFFFFF" Background="#FFFFFF" Click="OnSelectColorPreset" ToolTip="White"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Fill" CommandParameter="#F1F5F9" Background="#F1F5F9" Click="OnSelectColorPreset" ToolTip="Light Gray"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Fill" CommandParameter="#FFFBEB" Background="#FFFBEB" Click="OnSelectColorPreset" ToolTip="Peach"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Fill" CommandParameter="#FEE2E2" Background="#FEE2E2" Click="OnSelectColorPreset" ToolTip="Red"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Fill" CommandParameter="#DCFCE7" Background="#DCFCE7" Click="OnSelectColorPreset" ToolTip="Green"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Fill" CommandParameter="#DBEAFE" Background="#DBEAFE" Click="OnSelectColorPreset" ToolTip="Blue"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Fill" CommandParameter="#F3E8FF" Background="#F3E8FF" Click="OnSelectColorPreset" ToolTip="Purple"/>
+                                        <Button Style="{StaticResource ToolButton}" Width="Auto" Height="24" Padding="6,0" Margin="4,2,2,2" Content="Custom..." Click="OnPickFillColor" ToolTip="Pick custom color"/>
+                                    </WrapPanel>
+
+                                    <TextBlock Text="Fill Style" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,2"/>
+                                    <UniformGrid Columns="2" Margin="0,0,0,6">
+                                        <Button Style="{StaticResource ToolButton}" Content="Hatched" Click="OnSelectFillStyle" CommandParameter="hatch" Margin="0,0,4,0" ToolTip="Diagonal hatch lines fill"/>
+                                        <Button Style="{StaticResource ToolButton}" Content="Solid" Click="OnSelectFillStyle" CommandParameter="solid" ToolTip="Solid color fill"/>
+                                    </UniformGrid>
+
+                                    <TextBlock Text="Stroke Color" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,2"/>
+                                    <WrapPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Stroke" CommandParameter="#1E293B" Background="#1E293B" Click="OnSelectColorPreset" ToolTip="Dark Slate"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Stroke" CommandParameter="#64748B" Background="#64748B" Click="OnSelectColorPreset" ToolTip="Slate"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Stroke" CommandParameter="#EF4444" Background="#EF4444" Click="OnSelectColorPreset" ToolTip="Red"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Stroke" CommandParameter="#22C55E" Background="#22C55E" Click="OnSelectColorPreset" ToolTip="Green"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Stroke" CommandParameter="#3B82F6" Background="#3B82F6" Click="OnSelectColorPreset" ToolTip="Blue"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Stroke" CommandParameter="#A855F7" Background="#A855F7" Click="OnSelectColorPreset" ToolTip="Purple"/>
+                                        <Button Style="{StaticResource ToolButton}" Width="Auto" Height="24" Padding="6,0" Margin="4,2,2,2" Content="Custom..." Click="OnPickStrokeColor" ToolTip="Pick custom color"/>
+                                    </WrapPanel>
+
+                                    <TextBlock Text="Text Color" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,2"/>
+                                    <WrapPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Text" CommandParameter="#1E293B" Background="#1E293B" Click="OnSelectColorPreset" ToolTip="Dark Slate"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Text" CommandParameter="#64748B" Background="#64748B" Click="OnSelectColorPreset" ToolTip="Slate"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Text" CommandParameter="#EF4444" Background="#EF4444" Click="OnSelectColorPreset" ToolTip="Red"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Text" CommandParameter="#22C55E" Background="#22C55E" Click="OnSelectColorPreset" ToolTip="Green"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Text" CommandParameter="#3B82F6" Background="#3B82F6" Click="OnSelectColorPreset" ToolTip="Blue"/>
+                                        <Button Style="{StaticResource ColorCircleButton}" Tag="Text" CommandParameter="#A855F7" Background="#A855F7" Click="OnSelectColorPreset" ToolTip="Purple"/>
+                                        <Button Style="{StaticResource ToolButton}" Width="Auto" Height="24" Padding="6,0" Margin="4,2,2,2" Content="Custom..." Click="OnPickTextColor" ToolTip="Pick custom color"/>
+                                    </WrapPanel>
+
+                                    <TextBlock Text="Stroke Width" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,2"/>
+                                    <UniformGrid Columns="3" Margin="0,0,0,6">
+                                        <Button Style="{StaticResource ToolButton}" Content="Thin" Click="OnSelectStrokeWidth" CommandParameter="1.2" Margin="0,0,4,0" ToolTip="Thin line (1.2px)"/>
+                                        <Button Style="{StaticResource ToolButton}" Content="Medium" Click="OnSelectStrokeWidth" CommandParameter="2.5" Margin="0,0,4,0" ToolTip="Medium line (2.5px)"/>
+                                        <Button Style="{StaticResource ToolButton}" Content="Thick" Click="OnSelectStrokeWidth" CommandParameter="4.0" ToolTip="Thick line (4.0px)"/>
+                                    </UniformGrid>
+
+                                    <TextBlock Text="Stroke Style" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,2"/>
+                                    <UniformGrid Columns="2" Margin="0,0,0,6">
+                                        <Button Style="{StaticResource ToolButton}" Content="Solid" Click="OnSelectStrokeStyle" CommandParameter="solid" Margin="0,0,4,0" ToolTip="Solid stroke"/>
+                                        <Button Style="{StaticResource ToolButton}" Content="Dashed" Click="OnSelectStrokeStyle" CommandParameter="dashed" ToolTip="Dashed stroke"/>
+                                    </UniformGrid>
+
+                                    <TextBlock Text="Text Alignment" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,2"/>
+                                    <UniformGrid Columns="3" Margin="0,0,0,8">
+                                        <Button Style="{StaticResource ToolButton}" Content="Left" Click="OnSelectTextAlignment" CommandParameter="Left" Margin="0,0,4,0" ToolTip="Align left"/>
+                                        <Button Style="{StaticResource ToolButton}" Content="Center" Click="OnSelectTextAlignment" CommandParameter="Center" Margin="0,0,4,0" ToolTip="Align center"/>
+                                        <Button Style="{StaticResource ToolButton}" Content="Right" Click="OnSelectTextAlignment" CommandParameter="Right" ToolTip="Align right"/>
+                                    </UniformGrid>
+
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                                         <CheckBox Content="Locked" IsChecked="{Binding SelectedLocked}" Margin="0,0,12,0"/>
                                         <CheckBox Content="Snap" IsChecked="{Binding SnapToGrid}" Margin="0,0,12,0"/>
                                         <CheckBox Content="Connectors" IsChecked="{Binding ConnectorsEnabled}"/>
                                     </StackPanel>
-                                </Grid>
+                                </StackPanel>
                             </Expander>
 
                             <Expander Header="Connector" IsExpanded="True" Margin="0,0,0,8" Visibility="{Binding SelectionIsConnection, Converter={StaticResource BoolVis}}">
@@ -754,10 +748,8 @@
                                 </UniformGrid>
                             </Expander>
 
-                            <Button Style="{StaticResource AccentButton}" Content="Apply" Command="{Binding ApplySelectionPropertiesCommand}" HorizontalAlignment="Stretch" Margin="0,0,0,14" Visibility="{Binding HasBoardSelection, Converter={StaticResource BoolVis}}"/>
-
-                            <TextBlock Text="Board files" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" Margin="0,0,0,8"/>
-                            <ItemsControl ItemsSource="{Binding BoardFileUsages}" Margin="0,0,0,12">
+                            <TextBlock Text="Board files" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" Margin="12,12,0,8"/>
+                            <ItemsControl ItemsSource="{Binding BoardFileUsages}" Margin="12,0,0,12">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <StackPanel Margin="0,0,0,8">
@@ -770,19 +762,39 @@
                         </StackPanel>
                     </ScrollViewer>
 
-                    <Border Grid.Row="1" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,1,0,0" Padding="14,10">
+                    <!-- Placeholder Grid (Row 1) - Visible when No Selection -->
+                    <Grid Grid.Row="1" Margin="20">
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasBoardSelection}" Value="False">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Style>
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <TextBlock Text="✏️ Sketch Area" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                            <TextBlock Text="Select a diagram element to edit its sketching properties (fill, stroke, line thickness, sloppiness)." TextWrapping="Wrap" TextAlignment="Center" FontSize="11" Foreground="{StaticResource MutedForeground}"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Mini Map Card (Row 2) -->
+                    <Border Grid.Row="2" Margin="12,6,12,14" Height="190" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="10">
+                        <Border.Effect>
+                            <DropShadowEffect Color="#23313F" BlurRadius="16" ShadowDepth="3" Opacity="0.08" Direction="270"/>
+                        </Border.Effect>
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="Mini Map" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
-                                <TextBlock Text="{Binding Scene.Blocks.Count, StringFormat={}{0} blocks}" FontSize="11" Foreground="{StaticResource SubtleForeground}" Margin="0,3,0,0"/>
-                            </StackPanel>
-                            <Border Grid.Row="1" Margin="0,8,0,0" Height="154"
-                                    BorderBrush="{StaticResource PanelBorder}" BorderThickness="1"
-                                    Background="#FFFFFF" CornerRadius="6" ClipToBounds="True">
+                            <DockPanel Grid.Row="0" Margin="0,0,0,6">
+                                <TextBlock Text="Mini Map" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                <TextBlock Text="{Binding Scene.Blocks.Count, StringFormat={}{0} blks}" FontSize="10" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </DockPanel>
+                            <Border Grid.Row="1" BorderBrush="#E2E8F0" BorderThickness="1" Background="#FFFFFF" CornerRadius="4" ClipToBounds="True">
                                 <controls:SceneMiniMap
                                     Scene="{Binding Scene}"
                                     Camera="{Binding Camera, ElementName=CanvasViewport, Mode=TwoWay}"

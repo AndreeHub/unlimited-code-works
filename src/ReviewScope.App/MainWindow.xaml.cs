@@ -595,6 +595,43 @@ public partial class MainWindow : Window
     {
         if (newScene is not null) await _vm.OnSceneChangedByCanvas(newScene);
     }
+
+    private async void OnSelectColorPreset(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string type || btn.CommandParameter is not string hex) return;
+        if (type == "Fill") _vm.SelectedFill = hex;
+        else if (type == "Stroke") _vm.SelectedStroke = hex;
+        else if (type == "Text") _vm.SelectedTextColor = hex;
+        await _vm.ApplySelectionPropertiesAsync();
+    }
+
+    private async void OnSelectStrokeWidth(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.CommandParameter is not string width) return;
+        _vm.SelectedStrokeWidth = width;
+        await _vm.ApplySelectionPropertiesAsync();
+    }
+
+    private async void OnSelectTextAlignment(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.CommandParameter is not string alignment) return;
+        _vm.SelectedTextAlignment = alignment;
+        await _vm.ApplySelectionPropertiesAsync();
+    }
+
+    private async void OnSelectStrokeStyle(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.CommandParameter is not string style) return;
+        _vm.SelectedDashed = style == "dashed";
+        await _vm.ApplySelectionPropertiesAsync();
+    }
+
+    private async void OnSelectFillStyle(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.CommandParameter is not string style) return;
+        _vm.SelectedFillStyle = style;
+        await _vm.ApplySelectionPropertiesAsync();
+    }
 }
 
 // Simple relay command for canvas wiring

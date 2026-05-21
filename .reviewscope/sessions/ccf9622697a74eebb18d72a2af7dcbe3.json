@@ -1,0 +1,60 @@
+{
+  "id": "ccf96226-97a7-4eeb-b18d-72a2af7dcbe3",
+  "name": "New Session",
+  "workspaceKey": "c:\\users\\lic\\desktop\\3 swd\\reviewscope",
+  "blocks": [],
+  "connections": [],
+  "annotations": [],
+  "swimLanes": [],
+  "updatedAt": "2026-05-20T10:58:50.2793741+00:00",
+  "layers": [
+    {
+      "id": "44180d65-4b48-4062-8a82-455bf86efeeb",
+      "key": "layer::background",
+      "name": "Background",
+      "kind": 0,
+      "isVisible": true,
+      "isLocked": false
+    },
+    {
+      "id": "734968d0-8627-427e-97f7-6841b5fe6fe6",
+      "key": "layer::architecture",
+      "name": "Architecture",
+      "kind": 1,
+      "isVisible": true,
+      "isLocked": false
+    },
+    {
+      "id": "89725fe3-7948-436d-bc8f-8069656ba041",
+      "key": "layer::code",
+      "name": "Code evidence",
+      "kind": 2,
+      "isVisible": true,
+      "isLocked": false
+    },
+    {
+      "id": "1cadab31-4ddb-41e2-b6a5-5077e671a4ac",
+      "key": "layer::notes",
+      "name": "Notes",
+      "kind": 3,
+      "isVisible": true,
+      "isLocked": false
+    },
+    {
+      "id": "9e6ae5c5-43bc-4610-8b9f-ce10dbfd6228",
+      "key": "layer::risks",
+      "name": "Risks",
+      "kind": 4,
+      "isVisible": true,
+      "isLocked": false
+    },
+    {
+      "id": "506ecc22-c9bf-44ad-94a8-cc1cdc54335d",
+      "key": "layer::screenshots",
+      "name": "Screenshots",
+      "kind": 5,
+      "isVisible": true,
+      "isLocked": false
+    }
+  ]
+}

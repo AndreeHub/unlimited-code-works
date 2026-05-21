@@ -8,6 +8,16 @@ using WpfColor = System.Windows.Media.Color;
 
 namespace ReviewScope.Canvas;
 
+/*
+ * File: CanvasViewport.Connections.cs
+ * Purpose: Partial class for CanvasViewport handling connection-specific hit testing, state management, and updates.
+ * Functions:
+ * - Hit testing for connection anchors, arrows, curves, and control nodes.
+ * - Connection rewire and move logic.
+ * - Selection and deletion of connections.
+ * Please read the first 15 lines of this file for a summary before reading the entire file to save tokens.
+ */
+
 internal sealed record ConnectionAnchorHit(SceneBlockVisual Block, int AnchorIndex, Point Point);
 internal sealed record ConnectionControlHit(SceneConnectionVisual Connection, ConnectionControlNodeKind Kind, Point Point);
 internal sealed record ConnectionEndpointHit(SceneConnectionVisual Connection, ConnectionEndpointKind Kind);
@@ -17,114 +27,16 @@ public sealed partial class CanvasViewport
     private const double ConnectionArrowHitRadius = 14;
     private const double ConnectionAnchorHitRadius = 6;
     private const double ConnectionControlHitRadius = 6;
-    private const double ConnectionLeadDistance = 8;
-    private const double MinAutoTangent = 72;
-    private const double MaxAutoTangent = 260;
     private const int ConnectionHitSamples = 48;
 
-    private static Point CenterOf(Rect bounds) =>
-        new(bounds.X + bounds.Width / 2, bounds.Y + bounds.Height / 2);
-
-    private static Point GetConnectionAnchorPoint(Rect bounds, int anchorIndex)
-    {
-        double p1x = bounds.X + bounds.Width * 0.20;
-        double p2x = bounds.X + bounds.Width * 0.40;
-        double p3x = bounds.X + bounds.Width * 0.60;
-        double p4x = bounds.X + bounds.Width * 0.80;
-        double p1y = bounds.Y + bounds.Height * 0.20;
-        double p2y = bounds.Y + bounds.Height * 0.40;
-        double p3y = bounds.Y + bounds.Height * 0.60;
-        double p4y = bounds.Y + bounds.Height * 0.80;
-
-        return Math.Clamp(anchorIndex, 0, 15) switch
-        {
-            0 => new Point(p1x, bounds.Top),
-            1 => new Point(p2x, bounds.Top),
-            2 => new Point(p3x, bounds.Top),
-            3 => new Point(p4x, bounds.Top),
-            4 => new Point(bounds.Right, p1y),
-            5 => new Point(bounds.Right, p2y),
-            6 => new Point(bounds.Right, p3y),
-            7 => new Point(bounds.Right, p4y),
-            8 => new Point(p4x, bounds.Bottom),
-            9 => new Point(p3x, bounds.Bottom),
-            10 => new Point(p2x, bounds.Bottom),
-            11 => new Point(p1x, bounds.Bottom),
-            12 => new Point(bounds.Left, p4y),
-            13 => new Point(bounds.Left, p3y),
-            14 => new Point(bounds.Left, p2y),
-            _ => new Point(bounds.Left, p1y)
-        };
-    }
-
-    private static Point GetConnectionAnchorPoint(SceneBlockVisual block, int anchorIndex) =>
-        GetBlockOutlinePoint(block.Block, block.Bounds, GetConnectionAnchorPoint(block.Bounds, anchorIndex));
-
-    private static Point GetBlockOutlinePoint(RenderBlock block, Rect bounds, Point toward)
-    {
-        string? shape = block.ShapeType;
-        Point center = CenterOf(bounds);
-        double dx = toward.X - center.X;
-        double dy = toward.Y - center.Y;
-        if (Math.Abs(dx) < 0.001 && Math.Abs(dy) < 0.001)
-            return toward;
-
-        if (shape is "circle" or "oval")
-        {
-            Rect ellipse = shape == "circle" ? CenteredSquare(bounds) : bounds;
-            Point ellipseCenter = CenterOf(ellipse);
-            dx = toward.X - ellipseCenter.X;
-            dy = toward.Y - ellipseCenter.Y;
-            double rx = Math.Max(1, ellipse.Width / 2);
-            double ry = Math.Max(1, ellipse.Height / 2);
-            double scale = 1 / Math.Sqrt((dx * dx) / (rx * rx) + (dy * dy) / (ry * ry));
-            return new Point(ellipseCenter.X + dx * scale, ellipseCenter.Y + dy * scale);
-        }
-
-        if (shape is "risk" or "decision" or "diamond")
-        {
-            double halfW = Math.Max(1, bounds.Width / 2);
-            double halfH = Math.Max(1, bounds.Height / 2);
-            double scale = 1 / ((Math.Abs(dx) / halfW) + (Math.Abs(dy) / halfH));
-            return new Point(center.X + dx * scale, center.Y + dy * scale);
-        }
-
-        return GetRectOutlinePoint(bounds, toward);
-    }
-
-    private static Point GetRectOutlinePoint(Rect bounds, Point toward)
-    {
-        Point center = CenterOf(bounds);
-        double dx = toward.X - center.X;
-        double dy = toward.Y - center.Y;
-        if (Math.Abs(dx) < 0.001 && Math.Abs(dy) < 0.001)
-            return center;
-
-        double sx = Math.Abs(dx) < 0.001 ? double.PositiveInfinity : (bounds.Width / 2) / Math.Abs(dx);
-        double sy = Math.Abs(dy) < 0.001 ? double.PositiveInfinity : (bounds.Height / 2) / Math.Abs(dy);
-        double scale = Math.Min(sx, sy);
-        return new Point(center.X + dx * scale, center.Y + dy * scale);
-    }
-
-    private static Vector2 GetConnectionAnchorNormal(int anchorIndex) =>
-        Math.Clamp(anchorIndex, 0, 15) switch
-        {
-            <= 3 => new Vector2(0, -1),
-            <= 7 => new Vector2(1, 0),
-            <= 11 => new Vector2(0, 1),
-            _ => new Vector2(-1, 0)
-        };
-
-    private static int FindNearestConnectionAnchor(Rect bounds, Point world)
+    internal static int FindNearestConnectionAnchor(Rect bounds, Point world)
     {
         int bestIndex = 0;
         double bestDistance = double.MaxValue;
         for (int i = 0; i < 16; i++)
         {
-            Point anchor = GetConnectionAnchorPoint(bounds, i);
-            double dx = anchor.X - world.X;
-            double dy = anchor.Y - world.Y;
-            double distance = dx * dx + dy * dy;
+            Point anchor = CanvasDrawingUtils.GetConnectionAnchorPoint(bounds, i);
+            double distance = CanvasDrawingUtils.DistanceSquared(anchor, world);
             if (distance >= bestDistance) continue;
             bestIndex = i;
             bestDistance = distance;
@@ -132,16 +44,14 @@ public sealed partial class CanvasViewport
         return bestIndex;
     }
 
-    private static int FindNearestConnectionAnchor(SceneBlockVisual block, Point world)
+    internal static int FindNearestConnectionAnchor(SceneBlockVisual block, Point world)
     {
         int bestIndex = 0;
         double bestDistance = double.MaxValue;
         for (int i = 0; i < 16; i++)
         {
-            Point anchor = GetConnectionAnchorPoint(block, i);
-            double dx = anchor.X - world.X;
-            double dy = anchor.Y - world.Y;
-            double distance = dx * dx + dy * dy;
+            Point anchor = CanvasDrawingUtils.GetConnectionAnchorPoint(block, i);
+            double distance = CanvasDrawingUtils.DistanceSquared(anchor, world);
             if (distance >= bestDistance) continue;
             bestIndex = i;
             bestDistance = distance;
@@ -149,7 +59,7 @@ public sealed partial class CanvasViewport
         return bestIndex;
     }
 
-    private ConnectionAnchorHit? HitConnectionAnchor(Point world)
+    internal ConnectionAnchorHit? HitConnectionAnchor(Point world)
     {
         if (!ConnectorsEnabled) return null;
 
@@ -159,13 +69,12 @@ public sealed partial class CanvasViewport
 
         foreach (var block in _snapshot.Blocks.Reverse<SceneBlockVisual>())
         {
-            if (block.Block.Kind is BlockKind.Note or BlockKind.Shape) continue;
+            if (block.Block.Kind is BlockKind.Note) continue;
+            if (block.Block.Kind == BlockKind.Shape && IsLinearShapeTool(block.Block.ShapeType)) continue;
             for (int i = 0; i < 16; i++)
             {
-                Point anchor = GetConnectionAnchorPoint(block, i);
-                double dx = anchor.X - world.X;
-                double dy = anchor.Y - world.Y;
-                double distance = dx * dx + dy * dy;
+                Point anchor = CanvasDrawingUtils.GetConnectionAnchorPoint(block, i);
+                double distance = CanvasDrawingUtils.DistanceSquared(anchor, world);
                 if (distance >= best) continue;
                 best = distance;
                 bestHit = new ConnectionAnchorHit(block, i, anchor);
@@ -175,245 +84,25 @@ public sealed partial class CanvasViewport
         return bestHit;
     }
 
-    private static void GetConnectionPathPoints(SceneConnectionVisual connVis, out Point startLead, out Point middlePoint, out Point endLead)
-    {
-        int sourceAnchor = connVis.Connection.SourceAnchorIndex ?? 4;
-        int targetAnchor = connVis.Connection.TargetAnchorIndex ?? 10;
-        Vector2 sourceNormal = GetConnectionAnchorNormal(sourceAnchor);
-        Vector2 targetNormal = GetConnectionAnchorNormal(targetAnchor);
+    internal static void GetConnectionPathPoints(SceneConnectionVisual connVis, out Point startLead, out Point middlePoint, out Point endLead) =>
+        CanvasDrawingUtils.GetConnectionPathPoints(connVis, out startLead, out middlePoint, out endLead);
 
-        startLead = new Point(
-            connVis.Start.X + sourceNormal.X * ConnectionLeadDistance,
-            connVis.Start.Y + sourceNormal.Y * ConnectionLeadDistance);
-        endLead = new Point(
-            connVis.End.X + targetNormal.X * ConnectionLeadDistance,
-            connVis.End.Y + targetNormal.Y * ConnectionLeadDistance);
+    internal static Point EvaluateConnectionPoint(SceneConnectionVisual connVis, double t) =>
+        CanvasDrawingUtils.EvaluateConnectionPoint(connVis, t);
 
-        if (connVis.Connection.MidControlX is double mx && connVis.Connection.MidControlY is double my)
-        {
-            middlePoint = new Point(mx, my);
-            return;
-        }
+    internal static Vector2 EvaluateConnectionTangent(SceneConnectionVisual connVis, double t) =>
+        CanvasDrawingUtils.EvaluateConnectionTangent(connVis, t);
 
-        if (connVis.Connection.SourceControlX is double sx && connVis.Connection.SourceControlY is double sy)
-        {
-            middlePoint = new Point(sx, sy);
-            return;
-        }
+    internal static Point Lerp(Point a, Point b, double t) => CanvasDrawingUtils.Lerp(a, b, t);
 
-        if (connVis.Connection.TargetControlX is double tx && connVis.Connection.TargetControlY is double ty)
-        {
-            middlePoint = new Point(tx, ty);
-            return;
-        }
+    internal static IReadOnlyList<Point> BuildConnectionPolyline(SceneConnectionVisual connVis) => CanvasDrawingUtils.BuildConnectionPolyline(connVis);
 
-        middlePoint = new Point((startLead.X + endLead.X) / 2, (startLead.Y + endLead.Y) / 2);
-    }
+    internal static Point GetQuadraticControlThroughMid(Point start, Point middle, Point end) => CanvasDrawingUtils.GetQuadraticControlThroughMid(start, middle, end);
 
-    private static Point EvaluateConnectionPoint(SceneConnectionVisual connVis, double t)
-    {
-        if (connVis.Connection.RouteKind is ConnectorRouteKind.Straight or ConnectorRouteKind.Orthogonal)
-            return EvaluatePolylinePoint(BuildConnectionPolyline(connVis), t);
+    internal static void GetAutoCubicControls(SceneConnectionVisual connVis, Point startLead, Point endLead, out Point c1, out Point c2) =>
+        CanvasDrawingUtils.GetAutoCubicControls(connVis, startLead, endLead, out c1, out c2);
 
-        GetConnectionPathPoints(connVis, out Point startLead, out Point mid, out Point endLead);
-        t = Math.Clamp(t, 0, 1);
-
-        if (t <= 0.12)
-        {
-            double lt = t / 0.12;
-            return Lerp(connVis.Start, startLead, lt);
-        }
-
-        if (t >= 0.88)
-        {
-            double lt = (t - 0.88) / 0.12;
-            return Lerp(endLead, connVis.End, lt);
-        }
-
-        double bt = (t - 0.12) / 0.76;
-        double u = 1 - bt;
-        if (HasCustomConnectionMidPoint(connVis.Connection) && connVis.Connection.MidControlBends)
-        {
-            Point control = GetQuadraticControlThroughMid(startLead, mid, endLead);
-            double qx = u * u * startLead.X + 2 * u * bt * control.X + bt * bt * endLead.X;
-            double qy = u * u * startLead.Y + 2 * u * bt * control.Y + bt * bt * endLead.Y;
-            return new Point(qx, qy);
-        }
-
-        GetAutoCubicControls(connVis, startLead, endLead, out Point c1, out Point c2);
-        double x = u * u * u * startLead.X
-                 + 3 * u * u * bt * c1.X
-                 + 3 * u * bt * bt * c2.X
-                 + bt * bt * bt * endLead.X;
-        double y = u * u * u * startLead.Y
-                 + 3 * u * u * bt * c1.Y
-                 + 3 * u * bt * bt * c2.Y
-                 + bt * bt * bt * endLead.Y;
-        return new Point(x, y);
-    }
-
-    private static Vector2 EvaluateConnectionTangent(SceneConnectionVisual connVis, double t)
-    {
-        if (connVis.Connection.RouteKind is ConnectorRouteKind.Straight or ConnectorRouteKind.Orthogonal)
-            return EvaluatePolylineTangent(BuildConnectionPolyline(connVis), t);
-
-        GetConnectionPathPoints(connVis, out Point startLead, out Point mid, out Point endLead);
-        t = Math.Clamp(t, 0, 1);
-
-        if (t <= 0.12)
-            return Normalize(connVis.Start, startLead);
-        if (t >= 0.88)
-            return Normalize(endLead, connVis.End);
-
-        double bt = (t - 0.12) / 0.76;
-        double x;
-        double y;
-        if (HasCustomConnectionMidPoint(connVis.Connection) && connVis.Connection.MidControlBends)
-        {
-            Point control = GetQuadraticControlThroughMid(startLead, mid, endLead);
-            x = 2 * (1 - bt) * (control.X - startLead.X) + 2 * bt * (endLead.X - control.X);
-            y = 2 * (1 - bt) * (control.Y - startLead.Y) + 2 * bt * (endLead.Y - control.Y);
-        }
-        else
-        {
-            GetAutoCubicControls(connVis, startLead, endLead, out Point c1, out Point c2);
-            x = 3 * (1 - bt) * (1 - bt) * (c1.X - startLead.X)
-              + 6 * (1 - bt) * bt * (c2.X - c1.X)
-              + 3 * bt * bt * (endLead.X - c2.X);
-            y = 3 * (1 - bt) * (1 - bt) * (c1.Y - startLead.Y)
-              + 6 * (1 - bt) * bt * (c2.Y - c1.Y)
-              + 3 * bt * bt * (endLead.Y - c2.Y);
-        }
-        var tangent = new Vector2((float)x, (float)y);
-        float len = tangent.Length();
-        return len > 0.001f ? tangent / len : Vector2.UnitX;
-    }
-
-    private static Point Lerp(Point a, Point b, double t) =>
-        new(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t);
-
-    private static IReadOnlyList<Point> BuildConnectionPolyline(SceneConnectionVisual connVis)
-    {
-        if (connVis.Connection.RouteKind == ConnectorRouteKind.Straight)
-            return new[] { connVis.Start, connVis.End };
-
-        GetConnectionPathPoints(connVis, out Point startLead, out Point middle, out Point endLead);
-        var points = new List<Point> { connVis.Start, startLead };
-
-        if (HasCustomConnectionMidPoint(connVis.Connection))
-        {
-            points.Add(new Point(middle.X, startLead.Y));
-            points.Add(middle);
-            points.Add(new Point(middle.X, endLead.Y));
-        }
-        else
-        {
-            bool horizontalFirst = Math.Abs(endLead.X - startLead.X) >= Math.Abs(endLead.Y - startLead.Y);
-            if (horizontalFirst)
-            {
-                double midX = (startLead.X + endLead.X) / 2;
-                points.Add(new Point(midX, startLead.Y));
-                points.Add(new Point(midX, endLead.Y));
-            }
-            else
-            {
-                double midY = (startLead.Y + endLead.Y) / 2;
-                points.Add(new Point(startLead.X, midY));
-                points.Add(new Point(endLead.X, midY));
-            }
-        }
-
-        points.Add(endLead);
-        points.Add(connVis.End);
-        return RemoveDuplicatePoints(points);
-    }
-
-    private static IReadOnlyList<Point> RemoveDuplicatePoints(IReadOnlyList<Point> points)
-    {
-        var compact = new List<Point>(points.Count);
-        foreach (var point in points)
-        {
-            if (compact.Count == 0 || DistanceSquared(compact[^1], point) > 0.01)
-                compact.Add(point);
-        }
-        return compact;
-    }
-
-    private static Point EvaluatePolylinePoint(IReadOnlyList<Point> points, double t)
-    {
-        if (points.Count == 0) return new Point();
-        if (points.Count == 1) return points[0];
-        double total = PolylineLength(points);
-        if (total <= 0.001) return points[^1];
-        double target = Math.Clamp(t, 0, 1) * total;
-        double walked = 0;
-        for (int i = 1; i < points.Count; i++)
-        {
-            double segment = Distance(points[i - 1], points[i]);
-            if (walked + segment >= target)
-                return Lerp(points[i - 1], points[i], segment <= 0.001 ? 1 : (target - walked) / segment);
-            walked += segment;
-        }
-        return points[^1];
-    }
-
-    private static Vector2 EvaluatePolylineTangent(IReadOnlyList<Point> points, double t)
-    {
-        if (points.Count < 2) return Vector2.UnitX;
-        double total = PolylineLength(points);
-        double target = Math.Clamp(t, 0, 1) * Math.Max(0.001, total);
-        double walked = 0;
-        for (int i = 1; i < points.Count; i++)
-        {
-            double segment = Distance(points[i - 1], points[i]);
-            if (walked + segment >= target)
-                return Normalize(points[i - 1], points[i]);
-            walked += segment;
-        }
-        return Normalize(points[^2], points[^1]);
-    }
-
-    private static double PolylineLength(IReadOnlyList<Point> points)
-    {
-        double total = 0;
-        for (int i = 1; i < points.Count; i++)
-            total += Distance(points[i - 1], points[i]);
-        return total;
-    }
-
-    private static double Distance(Point a, Point b) => Math.Sqrt(DistanceSquared(a, b));
-
-    private static double DistanceSquared(Point a, Point b)
-    {
-        double dx = a.X - b.X;
-        double dy = a.Y - b.Y;
-        return dx * dx + dy * dy;
-    }
-
-    private static Point GetQuadraticControlThroughMid(Point start, Point middle, Point end) =>
-        new(2 * middle.X - (start.X + end.X) / 2, 2 * middle.Y - (start.Y + end.Y) / 2);
-
-    private static void GetAutoCubicControls(SceneConnectionVisual connVis, Point startLead, Point endLead, out Point c1, out Point c2)
-    {
-        int sourceAnchor = connVis.Connection.SourceAnchorIndex ?? 4;
-        int targetAnchor = connVis.Connection.TargetAnchorIndex ?? 10;
-        Vector2 sourceNormal = GetConnectionAnchorNormal(sourceAnchor);
-        Vector2 targetNormal = GetConnectionAnchorNormal(targetAnchor);
-        double dx = endLead.X - startLead.X;
-        double dy = endLead.Y - startLead.Y;
-        double tangent = Math.Clamp(Math.Sqrt(dx * dx + dy * dy) * 0.42, MinAutoTangent, MaxAutoTangent);
-        c1 = new Point(startLead.X + sourceNormal.X * tangent, startLead.Y + sourceNormal.Y * tangent);
-        c2 = new Point(endLead.X + targetNormal.X * tangent, endLead.Y + targetNormal.Y * tangent);
-    }
-
-    private static Vector2 Normalize(Point from, Point to)
-    {
-        var v = new Vector2((float)(to.X - from.X), (float)(to.Y - from.Y));
-        float len = v.Length();
-        return len > 0.001f ? v / len : Vector2.UnitX;
-    }
-
-    private void DrawInlineArrow(Point center, Vector2 tangent, ID2D1SolidColorBrush brush, float stroke)
+    internal void DrawInlineArrow(Point center, Vector2 tangent, ID2D1SolidColorBrush brush, float stroke)
     {
         if (_rt is null || _factory is null) return;
         float len = Math.Max(10f, stroke * 6f);
@@ -439,7 +128,7 @@ public sealed partial class CanvasViewport
             GetBrush(WpfColor.FromArgb(45, 69, 132, 203)), InvStroke(1.0f));
     }
 
-    private SceneConnectionVisual? HitConnectionArrow(Point world)
+    internal SceneConnectionVisual? HitConnectionArrow(Point world)
     {
         double radius = ConnectionArrowHitRadius / Math.Max(0.08, _camera.Zoom);
         double best = radius * radius;
@@ -458,7 +147,7 @@ public sealed partial class CanvasViewport
         return bestHit;
     }
 
-    private ConnectionControlHit? HitConnectionControlNode(Point world)
+    internal ConnectionControlHit? HitConnectionControlNode(Point world)
     {
         double radius = ConnectionControlHitRadius / Math.Max(0.08, _camera.Zoom);
         double best = radius * radius;
@@ -484,7 +173,7 @@ public sealed partial class CanvasViewport
         return bestHit;
     }
 
-    private ConnectionEndpointHit? HitConnectionEndpoint(ConnectionAnchorHit anchor)
+    internal ConnectionEndpointHit? HitConnectionEndpoint(ConnectionAnchorHit anchor)
     {
         foreach (var conn in _snapshot.Connections.Reverse<SceneConnectionVisual>())
         {
@@ -501,7 +190,7 @@ public sealed partial class CanvasViewport
         return null;
     }
 
-    private SceneConnectionVisual? HitConnectionCurve(Point world, out double t)
+    internal SceneConnectionVisual? HitConnectionCurve(Point world, out double t)
     {
         t = 0.5;
         double radius = 14 / Math.Max(0.08, _camera.Zoom);
@@ -562,7 +251,7 @@ public sealed partial class CanvasViewport
         UpdateConnection(id, c => c with { ArrowPosition = t });
     }
 
-    private void MoveConnectionControl(Guid id, ConnectionControlNodeKind kind, Point world)
+    internal void MoveConnectionControl(Guid id, ConnectionControlNodeKind kind, Point world)
     {
         UpdateConnection(id, c => kind switch
         {
@@ -580,7 +269,7 @@ public sealed partial class CanvasViewport
         });
     }
 
-    private void BeginConnectionRewire(ConnectionEndpointHit endpoint)
+    internal void BeginConnectionRewire(ConnectionEndpointHit endpoint)
     {
         _rewireConnectionId = endpoint.Connection.Connection.Id;
         _rewireEndpointKind = endpoint.Kind;
@@ -605,7 +294,7 @@ public sealed partial class CanvasViewport
             _rewireFixedAnchorIndex = endpoint.Connection.Connection.TargetAnchorIndex;
         }
 
-        _connectionDraftMidPoint = HasCustomConnectionMidPoint(endpoint.Connection.Connection)
+        _connectionDraftMidPoint = CanvasDrawingUtils.HasCustomConnectionMidPoint(endpoint.Connection.Connection)
             ? GetConnectionMidPoint(endpoint.Connection)
             : null;
         _connectionDraftMidPointBends = endpoint.Connection.Connection.MidControlBends;
@@ -625,7 +314,7 @@ public sealed partial class CanvasViewport
         return new Point((startLead.X + endLead.X) / 2, (startLead.Y + endLead.Y) / 2);
     }
 
-    private void CompleteConnectionRewire(ConnectionAnchorHit anchor)
+    internal void CompleteConnectionRewire(ConnectionAnchorHit anchor)
     {
         if (_rewireConnectionId is not Guid id || _rewireEndpointKind == ConnectionEndpointKind.None)
             return;
@@ -652,11 +341,6 @@ public sealed partial class CanvasViewport
         });
     }
 
-    private static bool HasCustomConnectionMidPoint(RenderConnection connection) =>
-        connection.MidControlX is not null
-        || connection.SourceControlX is not null
-        || connection.TargetControlX is not null;
-
     private void ResetSelectedConnectionControl()
     {
         if (_selectedConnectionId is not Guid id || _selectedConnectionControlKind == ConnectionControlNodeKind.None)
@@ -678,7 +362,7 @@ public sealed partial class CanvasViewport
         _selectedConnectionControlKind = ConnectionControlNodeKind.None;
     }
 
-    private void SelectConnection(Guid id, ConnectionControlNodeKind controlKind = ConnectionControlNodeKind.None)
+    internal void SelectConnection(Guid id, ConnectionControlNodeKind controlKind = ConnectionControlNodeKind.None)
     {
         _selectedConnectionId = id;
         _selectedConnectionControlKind = controlKind;
@@ -693,7 +377,7 @@ public sealed partial class CanvasViewport
         RenderNative();
     }
 
-    private RenderScene ClearConnectionSelection(RenderScene scene)
+    internal RenderScene ClearConnectionSelection(RenderScene scene)
     {
         _selectedConnectionId = null;
         _selectedConnectionControlKind = ConnectionControlNodeKind.None;
@@ -726,7 +410,7 @@ public sealed partial class CanvasViewport
         RenderNative();
     }
 
-    private void ClearConnectionDrawingState()
+    internal void ClearConnectionDrawingState()
     {
         _isDrawingConnection = false;
         _connectionSourceKey = null;
@@ -741,7 +425,7 @@ public sealed partial class CanvasViewport
         _rewireFixedAnchorIndex = null;
     }
 
-    private void UpdateConnectionHoverTarget(Point world)
+    internal void UpdateConnectionHoverTarget(Point world)
     {
         var anchor = HitConnectionAnchor(world);
         if (anchor is not null && anchor.Block.Block.Key != _connectionSourceKey)

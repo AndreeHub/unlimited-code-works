@@ -1,31 +1,27 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
-using Microsoft.Win32;
 using ReviewScope.Analysis;
 using ReviewScope.App.Persistence;
-using ReviewScope.Canvas;
 using ReviewScope.Domain;
 using System.Collections.ObjectModel;
-using System.IO;
+using System.Windows;
+using System.Windows.Input;
 
 namespace ReviewScope.App.ViewModels;
 
-public sealed partial class MainWindowViewModel : ObservableObject
-{
-    private const double DefaultFileBlockWidth = 880;
-    private const double MaxUnfocusedFileBlockWidth = 880;
-    private const double MaxUnfocusedFileBlockHeight = 1280;
-    private const double MinFileBlockHeight = 280;
-    private const double MinScopedBlockHeight = 180;
-    private const double CodeLineHeight = 18;
-    private const double CodeBlockVerticalChrome = 108 + 30 + 24;
-    private const double NewBlockStartX = 96;
-    private const double NewBlockStartY = 72;
-    private const double NewBlockGapX = 56;
-    private const double NewBlockGapY = 72;
-    private const double NewBlockRowWidth = 5200;
+/*
+ * File: MainWindowViewModel.cs
+ * Purpose: Main application ViewModel coordinating workspace loading, navigation, and global canvas state.
+ * Functions:
+ * - LoadWorkspaceAsync: Entry point for opening solutions or folders.
+ * - ToggleBackground: Command to switch between grid and dot canvas modes.
+ * - Observable Properties: Scene, StatusMessage, WorkspacePath, and more.
+ * Please read the first 15 lines of this file for a summary before reading the entire file to save tokens.
+ */
 
+public partial class MainWindowViewModel : ObservableObject
+{
     private readonly WorkspaceManager _workspace;
     private readonly FileStructureService _fileStructure;
     private readonly SemanticSpanService _semanticSpan;
@@ -33,10 +29,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly SessionRepository _sessions;
     private readonly ILogger<MainWindowViewModel> _logger;
 
-    private WorkspaceSnapshot? _currentSnapshot;
-    private string? _lastWorkspaceLoadPath;
-    private ReviewSession? _activeSession;
-    private CancellationTokenSource? _saveCts;
+    private const double CodeLineHeight = 18.0;
+    private const double CodeBlockVerticalChrome = 100.0;
+    private const double MinFileBlockHeight = 140.0;
+    private const double MaxUnfocusedFileBlockHeight = 480.0;
+    private const double DefaultFileBlockWidth = 480.0;
+    private const double MinScopedBlockHeight = 120.0;
 
     // ---- Observable state ----
     [ObservableProperty] private RenderScene _scene = RenderScene.Empty;
@@ -68,6 +66,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _selectedTitleDraft = string.Empty;
     [ObservableProperty] private string _selectedBodyDraft = string.Empty;
     [ObservableProperty] private string _selectedFill = "#FFFFFF";
+    [ObservableProperty] private string _selectedFillStyle = "hatch";
     [ObservableProperty] private string _selectedStroke = "#CBD5E1";
     [ObservableProperty] private string _selectedTextColor = "#111827";
     [ObservableProperty] private string _selectedStrokeWidth = "1.2";
@@ -85,6 +84,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _canUndo;
     [ObservableProperty] private bool _canRedo;
     [ObservableProperty] private string _selectedBranch = string.Empty;
+
+    // Fields used by partial classes
+    private string? _lastWorkspaceLoadPath;
+    private WorkspaceSnapshot? _currentSnapshot;
+    private ReviewSession? _activeSession;
+    private CancellationTokenSource? _saveCts;
 
     [RelayCommand]
     public void ToggleBackground()
@@ -125,49 +130,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _logger = logger;
     }
 
-    private static double MeasureCodeBlockHeight(int lineCount, double minHeight) =>
-        Math.Max(minHeight, lineCount * CodeLineHeight + CodeBlockVerticalChrome);
-
-    [RelayCommand]
-    public void CloseSymbolsPanel() => IsSymbolsPanelVisible = false;
-
-    private static double MeasureUnfocusedFileBlockHeight(int lineCount) =>
-        Math.Min(MaxUnfocusedFileBlockHeight, MeasureCodeBlockHeight(lineCount, MinFileBlockHeight));
-
-    private int NextBlockZIndex() =>
-        Scene.Blocks.Count == 0 ? 0 : Scene.Blocks.Max(b => b.ZIndex) + 1;
-
-    private (double X, double Y) FindOpenCanvasPlacement(double width, double height, double? preferredX = null, double? preferredY = null)
+    private void SetSceneFromUserAction(RenderScene newScene, string? description = null)
     {
-        double originX = preferredX ?? Scene.Blocks.Select(b => b.X).DefaultIfEmpty(NewBlockStartX).Min();
-        double originY = preferredY ?? Scene.Blocks.Select(b => b.Y).DefaultIfEmpty(NewBlockStartY).Min();
-        int columns = Math.Max(1, (int)Math.Floor(NewBlockRowWidth / Math.Max(1, width + NewBlockGapX)));
-
-        for (int row = 0; row < 200; row++)
-        {
-            double y = originY + row * (height + NewBlockGapY);
-            for (int col = 0; col < columns; col++)
-            {
-                double x = originX + col * (width + NewBlockGapX);
-                if (!Scene.Blocks.Any(b => BlocksOverlapWithGap(x, y, width, height, b)))
-                    return (x, y);
-            }
-        }
-
-        double fallbackY = Scene.Blocks.Select(b => b.Y + b.Height).DefaultIfEmpty(originY).Max() + NewBlockGapY;
-        return (originX, fallbackY);
+        _undoStack.Push(Scene);
+        _redoStack.Clear();
+        Scene = newScene;
+        CanUndo = true;
+        CanRedo = false;
+        if (!string.IsNullOrWhiteSpace(description))
+            StatusMessage = description;
     }
 
-    private static bool BlocksOverlapWithGap(double x, double y, double width, double height, RenderBlock block)
+    private void UpdateSelectedObject(RenderScene? scene = null)
     {
-        return x < block.X + block.Width + NewBlockGapX
-            && x + width + NewBlockGapX > block.X
-            && y < block.Y + block.Height + NewBlockGapY
-            && y + height + NewBlockGapY > block.Y;
-    }
-
-    private void UpdateSelectedObject(RenderScene scene)
-    {
+        scene ??= Scene;
         SelectedBlock = scene.Blocks.FirstOrDefault(b => b.IsSelected);
         SelectedConnection = scene.Connections.FirstOrDefault(c => c.IsSelected);
         SelectedSwimLane = scene.SwimLanes.FirstOrDefault(l => l.IsSelected);
@@ -199,6 +175,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             SelectedTitleDraft = SelectedBlock.Title;
             SelectedBodyDraft = SelectedBlock.Body ?? string.Empty;
             SelectedFill = style.Fill;
+            SelectedFillStyle = style.FillStyle ?? "hatch";
             SelectedStroke = style.Stroke;
             SelectedTextColor = style.Text;
             SelectedStrokeWidth = style.StrokeWidth.ToString("0.##");
@@ -252,62 +229,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ClearSelectedObjectData();
     }
 
-    partial void OnSceneChanged(RenderScene value)
-    {
-        UpdateSelectedObject(value);
-        RefreshBoardDetails();
-    }
-
-    private void SetSceneFromUserAction(RenderScene next, string? status = null)
-    {
-        _undoStack.Push(Scene);
-        _redoStack.Clear();
-        Scene = next;
-        UpdateSelectedObject(Scene);
-        RefreshBoardDetails();
-        UpdateHistoryState();
-        if (!string.IsNullOrWhiteSpace(status)) StatusMessage = status;
-    }
-
-    private void ResetHistory()
-    {
-        _undoStack.Clear();
-        _redoStack.Clear();
-        UpdateHistoryState();
-    }
-
-    private void UpdateHistoryState()
-    {
-        CanUndo = _undoStack.Count > 0;
-        CanRedo = _redoStack.Count > 0;
-    }
-
-    [RelayCommand]
-    public async Task UndoAsync()
-    {
-        if (_undoStack.Count == 0) return;
-        _redoStack.Push(Scene);
-        Scene = _undoStack.Pop();
-        UpdateSelectedObject(Scene);
-        RefreshBoardDetails();
-        UpdateHistoryState();
-        StatusMessage = "Undo";
-        await PersistSessionAsync();
-    }
-
-    [RelayCommand]
-    public async Task RedoAsync()
-    {
-        if (_redoStack.Count == 0) return;
-        _undoStack.Push(Scene);
-        Scene = _redoStack.Pop();
-        UpdateSelectedObject(Scene);
-        RefreshBoardDetails();
-        UpdateHistoryState();
-        StatusMessage = "Redo";
-        await PersistSessionAsync();
-    }
-
     private void SetSelectedObjectData(double x, double y, double width, double height)
     {
         SelectedObjectX = x.ToString("0");
@@ -324,11 +245,33 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SelectedObjectHeight = "--";
     }
 
-    private static string NormalizeTextAlignment(string? value) =>
-        value?.Trim().ToLowerInvariant() switch
-        {
-            "left" => "Left",
-            "right" => "Right",
-            _ => "Center"
-        };
+    partial void OnSceneChanged(RenderScene value)
+    {
+        UpdateSelectedObject(value);
+        RefreshBoardDetails();
+    }
+
+    private void ResetHistory() { _undoStack.Clear(); _redoStack.Clear(); CanUndo = false; CanRedo = false; }
+    private static string NormalizeTextAlignment(string? align) => align?.Trim().ToLowerInvariant() switch { "left" => "left", "right" => "right", _ => "center" };
+
+    private static double MeasureCodeBlockHeight(int lineCount, double minHeight) =>
+        Math.Max(minHeight, lineCount * CodeLineHeight + CodeBlockVerticalChrome);
+
+    [RelayCommand]
+    public void CloseSymbolsPanel() => IsSymbolsPanelVisible = false;
+
+    private static double MeasureUnfocusedFileBlockHeight(int lineCount) =>
+        Math.Min(MaxUnfocusedFileBlockHeight, MeasureCodeBlockHeight(lineCount, MinFileBlockHeight));
+
+    private int NextBlockZIndex() =>
+        Scene.Blocks.Count == 0 ? 0 : Scene.Blocks.Max(b => b.ZIndex) + 1;
+
+    private (double X, double Y) FindOpenCanvasPlacement(double width, double height, double? preferredX = null, double? preferredY = null)
+    {
+        if (preferredX.HasValue && preferredY.HasValue) return (preferredX.Value, preferredY.Value);
+        if (Scene.Blocks.Count == 0) return (100, 100);
+        double maxX = Scene.Blocks.Max(b => b.X + b.Width);
+        double minY = Scene.Blocks.Min(b => b.Y);
+        return (maxX + 60, minY);
+    }
 }

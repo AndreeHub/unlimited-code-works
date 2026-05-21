@@ -73,7 +73,7 @@ public sealed partial class MainWindowViewModel
         await LoadWorkspaceAsync(_lastWorkspaceLoadPath, b);
     }
 
-    private async Task LoadWorkspaceAsync(string path, string? branchName = null)
+    internal async Task LoadWorkspaceAsync(string path, string? branchName = null)
     {
         string? normalizedBranch = string.IsNullOrWhiteSpace(branchName) ? null : branchName.Trim();
         StatusMessage = normalizedBranch is null

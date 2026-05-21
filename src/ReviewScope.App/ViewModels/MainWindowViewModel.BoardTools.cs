@@ -397,6 +397,7 @@ public sealed partial class MainWindowViewModel
             var nextStyle = style with
             {
                 Fill = NormalizeHex(SelectedFill, style.Fill),
+                FillStyle = SelectedFillStyle,
                 Stroke = NormalizeHex(SelectedStroke, style.Stroke),
                 Text = NormalizeHex(SelectedTextColor, style.Text),
                 StrokeWidth = Math.Clamp(ParseDoubleOr(SelectedStrokeWidth, style.StrokeWidth), 0.5, 8),
