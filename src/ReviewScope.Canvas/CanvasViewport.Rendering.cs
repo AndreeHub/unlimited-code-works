@@ -293,6 +293,12 @@ public sealed partial class CanvasViewport
         foreach (var image in _imageBitmaps.Values) image.Dispose();
         _imageBitmaps.Clear();
         _rt?.Dispose(); _rt = null;
+        _drawingContext = null;
+        _blockRenderer = null;
+        _connectionRenderer = null;
+        _swimLaneRenderer = null;
+        _backgroundRenderer = null;
+        _uiComponentRenderer = null;
     }
 
     private IDWriteTextFormat GetTextFormat(float size)

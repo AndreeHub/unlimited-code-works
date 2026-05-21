@@ -85,25 +85,34 @@ public sealed partial class MainWindowViewModel
 
     internal async Task LoadWorkspaceAsync(string path, string? branchName = null)
     {
+        _loadCts?.Cancel();
+        _loadCts = new CancellationTokenSource();
+        int loadVersion = ++_loadVersion;
+        var ct = _loadCts.Token;
         string? normalizedBranch = string.IsNullOrWhiteSpace(branchName) ? null : branchName.Trim();
         StatusMessage = normalizedBranch is null
             ? "Loading workspace..."
             : $"Loading workspace from {normalizedBranch}...";
         try
         {
-            var ct = CancellationToken.None;
             _lastWorkspaceLoadPath = path;
             _currentSnapshot = await _workspace.LoadAsync(path, ct, normalizedBranch);
+            if (loadVersion != _loadVersion || ct.IsCancellationRequested) return;
             WorkspacePath = _currentSnapshot.DisplayName;
             StatusMessage = $"Loaded: {_currentSnapshot.DisplayName} - {_currentSnapshot.Files.Count} files";
 
             await RefreshAvailableBranchesAsync(path, normalizedBranch, ct);
+            if (loadVersion != _loadVersion || ct.IsCancellationRequested) return;
             BuildExplorer(_currentSnapshot);
             BuildFileExplorer(_currentSnapshot);
             await LoadSessionsAsync(_currentSnapshot.WorkspaceKey, ct);
         }
+        catch (OperationCanceledException)
+        {
+        }
         catch (Exception ex)
         {
+            if (loadVersion != _loadVersion) return;
             StatusMessage = $"Error: {ex.Message}";
             _logger.LogError(ex, "Failed to load workspace.");
         }

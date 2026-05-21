@@ -29,9 +29,21 @@ public sealed class SessionRepository : ISessionRepository
         var sessions = new List<ReviewSession>();
         foreach (string file in Directory.EnumerateFiles(dir, "*.json", SearchOption.TopDirectoryOnly))
         {
-            await using var stream = File.OpenRead(file);
-            var session = await JsonSerializer.DeserializeAsync<ReviewSession>(stream, _jsonOptions, ct);
-            if (session is not null) sessions.Add(session);
+            try
+            {
+                await using var stream = File.OpenRead(file);
+                var session = await JsonSerializer.DeserializeAsync<ReviewSession>(stream, _jsonOptions, ct);
+                if (session is not null) sessions.Add(session);
+            }
+            catch (JsonException)
+            {
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
         }
 
         if (project.SessionOrder is { Count: > 0 } order)
@@ -52,16 +64,14 @@ public sealed class SessionRepository : ISessionRepository
         await EnsureProjectAsync(session.WorkspaceKey, ct);
         Directory.CreateDirectory(dir);
         string path = Path.Combine(dir, $"{session.Id:N}.json");
-        await using var stream = File.Create(path);
-        await JsonSerializer.SerializeAsync(stream, session, _jsonOptions, ct);
+        await WriteJsonAtomicAsync(path, session, ct);
     }
 
     public async Task SaveSessionOrderAsync(string workspaceKey, IReadOnlyList<Guid> sessionOrder, CancellationToken ct)
     {
         var project = await EnsureProjectAsync(workspaceKey, ct);
         string projectPath = GetProjectPath(workspaceKey);
-        await using var stream = File.Create(projectPath);
-        await JsonSerializer.SerializeAsync(stream, project with { SessionOrder = sessionOrder }, _jsonOptions, ct);
+        await WriteJsonAtomicAsync(projectPath, project with { SessionOrder = sessionOrder }, ct);
     }
 
     public async Task DeleteSessionAsync(Guid sessionId, string workspaceKey, CancellationToken ct)
@@ -113,10 +123,25 @@ public sealed class SessionRepository : ISessionRepository
         string projectPath = GetProjectPath(workspaceKey);
         if (File.Exists(projectPath))
         {
-            await using var read = File.OpenRead(projectPath);
-            var existing = await JsonSerializer.DeserializeAsync<ReviewScopeProject>(read, _jsonOptions, ct);
-            if (existing is not null)
-                return existing;
+            try
+            {
+                await using var read = File.OpenRead(projectPath);
+                var existing = await JsonSerializer.DeserializeAsync<ReviewScopeProject>(read, _jsonOptions, ct);
+                if (existing is not null)
+                    return existing;
+            }
+            catch (JsonException)
+            {
+                QuarantineProjectFile(projectPath);
+            }
+            catch (IOException ex)
+            {
+                throw new InvalidOperationException($"Could not read ReviewScope project metadata: {projectPath}", ex);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                throw new InvalidOperationException($"Could not access ReviewScope project metadata: {projectPath}", ex);
+            }
         }
 
         var project = new ReviewScopeProject(
@@ -124,8 +149,7 @@ public sealed class SessionRepository : ISessionRepository
             Path.GetFileName(ResolveWorkspaceRoot(workspaceKey)),
             DateTimeOffset.UtcNow,
             null);
-        await using var stream = File.Create(projectPath);
-        await JsonSerializer.SerializeAsync(stream, project, _jsonOptions, ct);
+        await WriteJsonAtomicAsync(projectPath, project, ct);
         return project;
     }
 
@@ -138,13 +162,66 @@ public sealed class SessionRepository : ISessionRepository
         {
             string targetFile = Path.Combine(targetDir, Path.GetFileName(legacyFile));
             if (File.Exists(targetFile)) continue;
-            await using var read = File.OpenRead(legacyFile);
-            var session = await JsonSerializer.DeserializeAsync<ReviewSession>(read, _jsonOptions, ct);
-            if (session is null) continue;
-            session = session with { WorkspaceKey = workspaceKey };
-            await using var write = File.Create(targetFile);
-            await JsonSerializer.SerializeAsync(write, session, _jsonOptions, ct);
+            try
+            {
+                await using var read = File.OpenRead(legacyFile);
+                var session = await JsonSerializer.DeserializeAsync<ReviewSession>(read, _jsonOptions, ct);
+                if (session is null) continue;
+                session = session with { WorkspaceKey = workspaceKey };
+                await WriteJsonAtomicAsync(targetFile, session, ct);
+            }
+            catch (JsonException)
+            {
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
         }
+    }
+
+    private async Task WriteJsonAtomicAsync<T>(string path, T value, CancellationToken ct)
+    {
+        string dir = Path.GetDirectoryName(path) ?? Environment.CurrentDirectory;
+        Directory.CreateDirectory(dir);
+        string tempPath = Path.Combine(dir, $"{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await using (var stream = File.Create(tempPath))
+            {
+                await JsonSerializer.SerializeAsync(stream, value, _jsonOptions, ct);
+            }
+
+            File.Move(tempPath, path, overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    private static void QuarantineProjectFile(string projectPath)
+    {
+        if (!File.Exists(projectPath))
+            return;
+
+        string dir = Path.GetDirectoryName(projectPath) ?? Environment.CurrentDirectory;
+        string name = Path.GetFileName(projectPath);
+        string stamp = DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmss");
+        string backupPath = Path.Combine(dir, $"{name}.corrupt-{stamp}-{Guid.NewGuid():N}");
+        File.Move(projectPath, backupPath);
     }
 
     private string GetLegacyDir(string workspaceKey)

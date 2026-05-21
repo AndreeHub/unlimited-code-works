@@ -1,6 +1,8 @@
 bin/
 obj/
 .vs/
+.reviewscope/
+*_wpftmp.csproj
 
 *.user
 *.suo

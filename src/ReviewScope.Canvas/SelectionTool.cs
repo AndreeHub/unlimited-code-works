@@ -116,6 +116,18 @@ internal sealed class SelectionTool : CanvasToolBase
                     CanvasViewport.SetCapture(Viewport._hwnd);
                     return;
                 }
+
+                if (Viewport.IsInResize(hit.Bounds, world))
+                {
+                    Viewport._resizeKey = hit.Block.Key;
+                    Viewport._resizeWorldPoint = world;
+                    Viewport._resizeWidthOnly = Viewport.IsInRightEdgeResize(hit.Bounds, world);
+                    Viewport._dragStartScreen = screen;
+                    Viewport._didMove = false;
+                    Viewport.Cursor = Viewport._resizeWidthOnly ? Cursors.SizeWE : Cursors.SizeNWSE;
+                    CanvasViewport.SetCapture(Viewport._hwnd);
+                    return;
+                }
             }
 
             // Check swim-lane resize
@@ -158,6 +170,8 @@ internal sealed class SelectionTool : CanvasToolBase
             {
                 Viewport._resizeSwimLaneKey = laneResizeHit.Lane.Key;
                 Viewport._resizeSwimLaneWorldPoint = world;
+                Viewport._dragStartScreen = screen;
+                Viewport._didMove = false;
                 Viewport.Cursor = Cursors.SizeNWSE;
                 CanvasViewport.SetCapture(Viewport._hwnd);
                 return;
@@ -195,6 +209,7 @@ internal sealed class SelectionTool : CanvasToolBase
                 var d = screen - Viewport._dragStartScreen.Value;
                 if (Math.Abs(d.X) < 4 && Math.Abs(d.Y) < 4) return;
                 Viewport._didMove = true;
+                Viewport.BeginCoalescedSceneChange();
             }
             Viewport.MoveLinearShapeVertex(Viewport._linearShapeVertexDragKey, Viewport._linearShapeVertexDragIndex, world);
             return;
@@ -207,6 +222,7 @@ internal sealed class SelectionTool : CanvasToolBase
                 var d = screen - Viewport._dragStartScreen.Value;
                 if (Math.Abs(d.X) < 4 && Math.Abs(d.Y) < 4) return;
                 Viewport._didMove = true;
+                Viewport.BeginCoalescedSceneChange();
             }
             var delta = world - Viewport._noteResizeWorldPoint.Value;
             Viewport._noteResizeWorldPoint = world;
@@ -221,6 +237,7 @@ internal sealed class SelectionTool : CanvasToolBase
                 var d = screen - Viewport._dragStartScreen.Value;
                 if (Math.Abs(d.X) < 4 && Math.Abs(d.Y) < 4) return;
                 Viewport._didMove = true;
+                Viewport.BeginCoalescedSceneChange();
             }
             var delta = world - Viewport._resizeWorldPoint.Value;
             Viewport._resizeWorldPoint = world;
@@ -235,6 +252,7 @@ internal sealed class SelectionTool : CanvasToolBase
                 var d = screen - Viewport._dragStartScreen.Value;
                 if (Math.Abs(d.X) < 4 && Math.Abs(d.Y) < 4) return;
                 Viewport._didMove = true;
+                Viewport.BeginCoalescedSceneChange();
             }
             var delta = world - Viewport._resizeSwimLaneWorldPoint.Value;
             Viewport._resizeSwimLaneWorldPoint = world;
@@ -261,6 +279,7 @@ internal sealed class SelectionTool : CanvasToolBase
                 var d = screen - Viewport._dragStartScreen.Value;
                 if (Math.Abs(d.X) < 4 && Math.Abs(d.Y) < 4) return;
                 Viewport._didMove = true;
+                Viewport.BeginCoalescedSceneChange();
             }
 
             double targetX = world.X - Viewport._dragAnchorOffset.Value.X;
@@ -299,6 +318,7 @@ internal sealed class SelectionTool : CanvasToolBase
         {
             Viewport._linearShapeVertexDragKey = null;
             Viewport._linearShapeVertexDragIndex = -1;
+            if (Viewport._didMove) Viewport.CommitCoalescedSceneChange();
             return;
         }
 
@@ -307,24 +327,31 @@ internal sealed class SelectionTool : CanvasToolBase
             Viewport._noteResizeKey = null;
             Viewport._noteResizeCorner = NoteResizeCorner.None;
             Viewport._noteResizeWorldPoint = null;
+            if (Viewport._didMove) Viewport.CommitCoalescedSceneChange();
             return;
         }
         if (Viewport._resizeKey is not null)
         {
             Viewport._resizeKey = null;
             Viewport._resizeWorldPoint = null;
+            Viewport._resizeWidthOnly = false;
+            if (Viewport._didMove) Viewport.CommitCoalescedSceneChange();
             return;
         }
         if (Viewport._resizeSwimLaneKey is not null)
         {
             Viewport._resizeSwimLaneKey = null;
             Viewport._resizeSwimLaneWorldPoint = null;
+            if (Viewport._didMove) Viewport.CommitCoalescedSceneChange();
             return;
         }
         if (Viewport._isMarquee) { Viewport.CompleteMarquee(); return; }
 
         if (Viewport._primaryDrag is not null && Viewport._didMove)
+        {
             Viewport.GlueNearbyNotes(Viewport._primaryDrag);
+            Viewport.CommitCoalescedSceneChange();
+        }
 
         if (Viewport._primaryDrag is not null && !Viewport._didMove)
         {

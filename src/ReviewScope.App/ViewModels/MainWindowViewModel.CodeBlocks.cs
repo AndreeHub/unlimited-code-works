@@ -130,7 +130,10 @@ public sealed partial class MainWindowViewModel
     private string GetRelativePath(string filePath)
     {
         if (_currentSnapshot is null) return filePath;
-        string root = Path.GetDirectoryName(_workspace.CurrentSession?.ResolvedPath ?? filePath) ?? filePath;
+        string resolvedPath = _workspace.CurrentSession?.ResolvedPath ?? _currentSnapshot.WorkspacePath;
+        string root = Directory.Exists(resolvedPath)
+            ? resolvedPath
+            : Path.GetDirectoryName(resolvedPath) ?? resolvedPath;
         return Path.GetRelativePath(root, filePath).Replace('\\', '/');
     }
 

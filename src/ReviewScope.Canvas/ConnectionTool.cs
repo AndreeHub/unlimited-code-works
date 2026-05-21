@@ -75,6 +75,34 @@ internal sealed class ConnectionTool : CanvasToolBase
 
     public override void HandleMouseMove(Point screen, Point world, ModifierKeys modifiers)
     {
+        if (Viewport._dragConnectionControlId is Guid controlId)
+        {
+            if (!Viewport._didMove && Viewport._dragStartScreen is not null)
+            {
+                var d = screen - Viewport._dragStartScreen.Value;
+                if (Math.Abs(d.X) < 4 && Math.Abs(d.Y) < 4) return;
+                Viewport._didMove = true;
+                Viewport.BeginCoalescedSceneChange();
+            }
+
+            Viewport.MoveConnectionControl(controlId, Viewport._dragConnectionControlKind, world);
+            return;
+        }
+
+        if (Viewport._dragArrowConnectionId is Guid arrowId)
+        {
+            if (!Viewport._didMove && Viewport._dragStartScreen is not null)
+            {
+                var d = screen - Viewport._dragStartScreen.Value;
+                if (Math.Abs(d.X) < 4 && Math.Abs(d.Y) < 4) return;
+                Viewport._didMove = true;
+                Viewport.BeginCoalescedSceneChange();
+            }
+
+            Viewport.MoveConnectionArrow(arrowId, world);
+            return;
+        }
+
         if (Viewport._isDrawingConnection)
         {
             Viewport._connectionCurrentWorld = world;
@@ -85,6 +113,21 @@ internal sealed class ConnectionTool : CanvasToolBase
 
     public override void HandleLUp(Point screen, Point world, ModifierKeys modifiers)
     {
+        if (Viewport._dragConnectionControlId is not null)
+        {
+            if (Viewport._didMove) Viewport.CommitCoalescedSceneChange();
+            Viewport._dragConnectionControlId = null;
+            Viewport._dragConnectionControlKind = ConnectionControlNodeKind.None;
+            return;
+        }
+
+        if (Viewport._dragArrowConnectionId is not null)
+        {
+            if (Viewport._didMove) Viewport.CommitCoalescedSceneChange();
+            Viewport._dragArrowConnectionId = null;
+            return;
+        }
+
         if (Viewport._isDrawingConnection)
         {
             var anchorHit = Viewport.HitConnectionAnchor(world);

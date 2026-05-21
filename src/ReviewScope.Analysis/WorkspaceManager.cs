@@ -20,6 +20,7 @@ public sealed class WorkspaceManager : IWorkspaceLoader
 {
     private readonly ILogger<WorkspaceManager> _logger;
     private readonly SemanticCache _cache;
+    private int _loadGeneration;
 
     public WorkspaceSession? CurrentSession { get; private set; }
     public WorkspaceSnapshot? CurrentSnapshot => CurrentSession?.Snapshot;
@@ -58,12 +59,20 @@ public sealed class WorkspaceManager : IWorkspaceLoader
         CancellationToken cancellationToken,
         string? branchName = null)
     {
+        int loadGeneration = Interlocked.Increment(ref _loadGeneration);
         string? normalizedBranch = NormalizeBranchName(branchName);
         string loadPath = normalizedBranch is null
             ? path
             : await GitBranchWorkspaceResolver.ResolveAsync(path, normalizedBranch, _logger, cancellationToken);
 
         var session = await RoslynWorkspaceLoader.LoadAsync(loadPath, _logger, cancellationToken, normalizedBranch);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (loadGeneration != _loadGeneration)
+        {
+            session.Dispose();
+            throw new OperationCanceledException(cancellationToken);
+        }
+
         CurrentSession?.Dispose();
         CurrentSession = session;
         _cache.Clear();

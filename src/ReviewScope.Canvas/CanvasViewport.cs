@@ -32,6 +32,7 @@ public sealed record BlockActivatedArgs(RenderBlock Block);
 public sealed record PasteRequestedArgs(double WorldX, double WorldY);
 public sealed record ConnectionDrawnArgs(string SourceKey, string TargetKey, int? SourceAnchorIndex, int? TargetAnchorIndex, double? MidControlX, double? MidControlY, bool MidControlBends);
 public sealed record AnnotationRequestedArgs(double WorldX, double WorldY, string? AttachedBlockKey = null);
+public sealed record CanvasSceneChangedArgs(RenderScene Before, RenderScene After, bool IsContentChange);
 
 public sealed partial class CanvasViewport : HwndHost
 {
@@ -130,6 +131,8 @@ public sealed partial class CanvasViewport : HwndHost
     internal ID2D1HwndRenderTarget? _rt;
     internal IDWriteFactory? _dwrite;
     internal bool _disposed;
+    internal bool _isCoalescingSceneChanges;
+    internal RenderScene? _coalescedSceneBefore;
 
     // Decomposed renderers
     internal DrawingContext? _drawingContext;
@@ -258,10 +261,12 @@ public sealed partial class CanvasViewport : HwndHost
         _dragWorldPoint = null;
         _dragAnchorOffset = null;
         _primaryDrag = null;
+        _didMove = false;
         _isMarquee = false;
         _isMinimapDrag = false;
         _noteResizeKey = null;
         _resizeKey = null;
+        _resizeWidthOnly = false;
         _linearShapeVertexDragKey = null;
         _linearShapeVertexDragIndex = -1;
         _resizeSwimLaneKey = null;
@@ -427,8 +432,19 @@ public sealed partial class CanvasViewport : HwndHost
 
     protected override void DestroyWindowCore(HandleRef hwnd)
     {
+        _disposed = true;
+        _cursorBlinkTimer?.Dispose();
+        _cursorBlinkTimer = null;
+        DisposeRenderTarget();
+        _dashedStrokeStyle?.Dispose();
+        _dashedStrokeStyle = null;
+        _dwrite?.Dispose();
+        _dwrite = null;
+        _factory?.Dispose();
+        _factory = null;
         _hwndMap.Remove(hwnd.Handle);
         NativeMethods.DestroyWindow(hwnd.Handle);
+        _hwnd = IntPtr.Zero;
     }
 
     private static IntPtr WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)

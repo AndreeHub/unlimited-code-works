@@ -243,7 +243,7 @@ public sealed partial class CanvasViewport
     private void ToggleConnectionArrow(Guid id) =>
         UpdateConnection(id, c => c with { ArrowForward = !c.ArrowForward });
 
-    private void MoveConnectionArrow(Guid id, Point world)
+    internal void MoveConnectionArrow(Guid id, Point world)
     {
         var visual = _snapshot.Connections.FirstOrDefault(c => c.Connection.Id == id);
         if (visual is null) return;

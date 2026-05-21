@@ -45,7 +45,7 @@ public partial class App : Application
         await _host.StartAsync();
 
         string? screenshotPath = null;
-        string workspacePath = @"c:\Users\lic\Desktop\3 SWD\ReviewScope";
+        string workspacePath = Directory.GetCurrentDirectory();
 
         for (int i = 0; i < e.Args.Length; i++)
         {

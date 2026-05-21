@@ -425,6 +425,7 @@ public sealed partial class CanvasViewport
         {
             if (IsInRestoreButton(hit.Bounds, world)) { Cursor = Cursors.Hand; return; }
             if (hit.Block.IsSelected && !IsLinearShapeTool(hit.Block.ShapeType) && HitNoteCorner(hit.Bounds, world) is var corner && corner != NoteResizeCorner.None) { Cursor = corner is NoteResizeCorner.TopLeft or NoteResizeCorner.BottomRight ? Cursors.SizeNWSE : Cursors.SizeNESW; return; }
+            if (hit.Block.IsSelected && !IsLinearShapeTool(hit.Block.ShapeType) && IsInRightEdgeResize(hit.Bounds, world)) { Cursor = Cursors.SizeWE; return; }
             Cursor = Cursors.Arrow;
             return;
         }

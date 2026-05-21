@@ -39,7 +39,7 @@ public partial class MainWindow : Window
         CanvasViewport.PasteRequestedCommand = new RelayCommand<PasteRequestedArgs>(OnCanvasPasteRequested);
 
         // When scene is mutated inside the canvas (drag, delete, resize), sync back
-        CanvasViewport.BlockMovedCommand = new RelayCommand<RenderScene>(OnSceneChangedByCanvas);
+        CanvasViewport.BlockMovedCommand = new RelayCommand<CanvasSceneChangedArgs>(OnSceneChangedByCanvas);
     }
 
     private async void OnBranchComboSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -638,9 +638,9 @@ public partial class MainWindow : Window
         CanvasViewport.BeginEditNewNote();
     }
 
-    private async void OnSceneChangedByCanvas(RenderScene? newScene)
+    private async void OnSceneChangedByCanvas(CanvasSceneChangedArgs? args)
     {
-        if (newScene is not null) await _vm.OnSceneChangedByCanvas(newScene);
+        if (args is not null && args.IsContentChange) await _vm.OnSceneChangedByCanvas(args.Before, args.After);
     }
 
     private async void OnSelectColorPreset(object sender, RoutedEventArgs e)

@@ -93,6 +93,8 @@ public partial class MainWindowViewModel : ObservableObject
     private WorkspaceSnapshot? _currentSnapshot;
     private ReviewSession? _activeSession;
     private CancellationTokenSource? _saveCts;
+    private CancellationTokenSource? _loadCts;
+    private int _loadVersion;
 
     [RelayCommand]
     public void ToggleBackground()
@@ -134,13 +136,14 @@ public partial class MainWindowViewModel : ObservableObject
         _logger = logger;
     }
 
-    private void SetSceneFromUserAction(RenderScene newScene, string? description = null)
+    private void SetSceneFromUserAction(RenderScene newScene, string? description = null, RenderScene? undoBase = null)
     {
-        _undoStack.Push(Scene);
+        RenderScene previousScene = undoBase ?? Scene;
+        if (!ReferenceEquals(previousScene, newScene))
+            _undoStack.Push(previousScene);
         _redoStack.Clear();
         Scene = newScene;
-        CanUndo = true;
-        CanRedo = false;
+        UpdateUndoRedoState();
         if (!string.IsNullOrWhiteSpace(description))
             StatusMessage = description;
     }
@@ -258,7 +261,40 @@ public partial class MainWindowViewModel : ObservableObject
         RefreshBoardDetails();
     }
 
-    private void ResetHistory() { _undoStack.Clear(); _redoStack.Clear(); CanUndo = false; CanRedo = false; }
+    private void ResetHistory()
+    {
+        _undoStack.Clear();
+        _redoStack.Clear();
+        UpdateUndoRedoState();
+    }
+
+    private void UpdateUndoRedoState()
+    {
+        CanUndo = _undoStack.Count > 0;
+        CanRedo = _redoStack.Count > 0;
+    }
+
+    [RelayCommand]
+    public async Task UndoAsync()
+    {
+        if (_undoStack.Count == 0) return;
+        _redoStack.Push(Scene);
+        Scene = _undoStack.Pop();
+        UpdateUndoRedoState();
+        StatusMessage = "Undid last board edit.";
+        await PersistSessionAsync();
+    }
+
+    [RelayCommand]
+    public async Task RedoAsync()
+    {
+        if (_redoStack.Count == 0) return;
+        _undoStack.Push(Scene);
+        Scene = _redoStack.Pop();
+        UpdateUndoRedoState();
+        StatusMessage = "Redid board edit.";
+        await PersistSessionAsync();
+    }
     private static string NormalizeTextAlignment(string? align) => align?.Trim().ToLowerInvariant() switch { "left" => "left", "right" => "right", _ => "center" };
 
     private static double MeasureCodeBlockHeight(int lineCount, double minHeight) =>

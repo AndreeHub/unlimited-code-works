@@ -41,13 +41,74 @@ public sealed partial class CanvasViewport
 
     private void ApplySceneChangeInternal(RenderScene scene)
     {
-        if (BlockMovedCommand?.CanExecute(scene) == true)
-            BlockMovedCommand.Execute(scene);
+        RenderScene before = Scene;
         SetCurrentValue(SceneProperty, scene);
+        if (!_isCoalescingSceneChanges)
+            RaiseSceneChanged(before, scene);
     }
+
+    internal void BeginCoalescedSceneChange()
+    {
+        if (_isCoalescingSceneChanges)
+            return;
+
+        _isCoalescingSceneChanges = true;
+        _coalescedSceneBefore = Scene;
+    }
+
+    internal void CommitCoalescedSceneChange()
+    {
+        if (!_isCoalescingSceneChanges)
+            return;
+
+        RenderScene? before = _coalescedSceneBefore;
+        RenderScene after = Scene;
+        _isCoalescingSceneChanges = false;
+        _coalescedSceneBefore = null;
+
+        if (before is not null && !ReferenceEquals(before, after))
+            RaiseSceneChanged(before, after);
+    }
+
+    internal void CancelCoalescedSceneChange()
+    {
+        _isCoalescingSceneChanges = false;
+        _coalescedSceneBefore = null;
+    }
+
+    private void RaiseSceneChanged(RenderScene before, RenderScene after)
+    {
+        var args = new CanvasSceneChangedArgs(before, after, HasBoardContentChanged(before, after));
+        if (BlockMovedCommand?.CanExecute(args) == true)
+            BlockMovedCommand.Execute(args);
+    }
+
+    private static bool HasBoardContentChanged(RenderScene before, RenderScene after)
+    {
+        if (ReferenceEquals(before, after))
+            return false;
+
+        return !NormalizeTransientSceneState(before).Equals(NormalizeTransientSceneState(after));
+    }
+
+    private static RenderScene NormalizeTransientSceneState(RenderScene scene) =>
+        scene with
+        {
+            Blocks = scene.Blocks
+                .Select(b => b with { IsSelected = false, IsDimmed = false })
+                .ToList(),
+            Connections = scene.Connections
+                .Select(c => c with { IsSelected = false, IsDimmed = false })
+                .ToList(),
+            SwimLanes = scene.SwimLanes
+                .Select(l => l with { IsSelected = false })
+                .ToList()
+        };
 
     private void RebuildSnapshotInternal()
     {
+        foreach (var geometry in _connectionGeoms.Values)
+            geometry.Dispose();
         _connectionGeoms.Clear();
 
         var collapsedGroupMembers = GetCollapsedGroupMemberMap(Scene);

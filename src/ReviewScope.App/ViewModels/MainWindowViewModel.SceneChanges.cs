@@ -16,9 +16,9 @@ public sealed partial class MainWindowViewModel
     // -----------------------------------------------------------------------
     // Scene changes from canvas
     // -----------------------------------------------------------------------
-    public async Task OnSceneChangedByCanvas(RenderScene newScene)
+    public async Task OnSceneChangedByCanvas(RenderScene previousScene, RenderScene newScene)
     {
-        SetSceneFromUserAction(newScene);
+        SetSceneFromUserAction(newScene, undoBase: previousScene);
         await PersistSessionAsync();
     }
 }
