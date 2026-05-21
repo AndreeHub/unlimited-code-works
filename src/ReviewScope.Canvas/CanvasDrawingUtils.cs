@@ -24,7 +24,9 @@ internal static class CanvasDrawingUtils
 {
     public const double HeaderH = 56;
     public const double FooterH = 28;
-    public const double CodeGutterW = 48;
+    public const double CodeGutterW = 54;
+    public const double CodeTextPadX = 12;
+    public const double CodeScrollbarReserveW = 34;
     public const double CodeLineH = 18;
     public const double CodeCharW = 7.2;
     public const int FocusedCodeTopPaddingLines = 2;

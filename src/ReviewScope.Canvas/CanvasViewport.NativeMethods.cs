@@ -49,6 +49,7 @@ public sealed partial class CanvasViewport
         [DllImport("user32.dll", CharSet = CharSet.Auto)] public static extern bool RegisterClassEx(ref WNDCLASSEX pcx);
         [DllImport("kernel32.dll", CharSet = CharSet.Auto)] public static extern IntPtr GetModuleHandle(string? lpModuleName);
         [DllImport("user32.dll")] public static extern IntPtr LoadCursor(IntPtr hInstance, int lpCursorName);
+        [DllImport("user32.dll")] public static extern bool ScreenToClient(IntPtr hWnd, ref POINT lpPoint);
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         public struct WNDCLASSEX
@@ -68,6 +69,13 @@ public sealed partial class CanvasViewport
         }
 
         public delegate IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POINT
+        {
+            public int X;
+            public int Y;
+        }
     }
 
     private static Point GetClientPt(IntPtr lParam)
@@ -76,6 +84,18 @@ public sealed partial class CanvasViewport
         int x = (short)(raw & 0xFFFF);
         int y = (short)((raw >> 16) & 0xFFFF);
         return new Point(x, y);
+    }
+
+    private static Point GetScreenPtAsClient(IntPtr hwnd, IntPtr lParam)
+    {
+        int raw = (int)lParam.ToInt64();
+        var point = new NativeMethods.POINT
+        {
+            X = (short)(raw & 0xFFFF),
+            Y = (short)((raw >> 16) & 0xFFFF)
+        };
+        NativeMethods.ScreenToClient(hwnd, ref point);
+        return new Point(point.X, point.Y);
     }
 
     private static int GetWheelDelta(IntPtr wParam) => (short)(((int)wParam.ToInt64() >> 16) & 0xFFFF);

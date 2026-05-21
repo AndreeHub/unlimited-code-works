@@ -11,9 +11,13 @@
         PreviewKeyDown="OnWindowPreviewKeyDown">
 
     <Window.InputBindings>
+        <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveWorkCommand}"/>
+        <KeyBinding Key="S" Modifiers="Control+Shift" Command="{Binding SaveWorkAsCommand}"/>
         <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoCommand}"/>
         <KeyBinding Key="Y" Modifiers="Control" Command="{Binding RedoCommand}"/>
         <KeyBinding Key="Z" Modifiers="Control+Shift" Command="{Binding RedoCommand}"/>
+        <KeyBinding Key="C" Modifiers="Control" Command="{Binding CopySelectedBoardItemsCommand}"/>
+        <KeyBinding Key="V" Modifiers="Control" Command="{Binding PasteBoardItemsCommand}"/>
     </Window.InputBindings>
 
     <Window.Resources>
@@ -157,9 +161,130 @@
         </Style>
 
         <Style x:Key="HeaderRibbonButton" TargetType="Button" BasedOn="{StaticResource GhostButton}">
-            <Setter Property="Padding" Value="7,2"/>
+            <Setter Property="Padding" Value="5,2"/>
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="MinHeight" Value="20"/>
+        </Style>
+
+        <Style x:Key="HeaderSeparatorText" TargetType="TextBlock">
+            <Setter Property="Text" Value="|"/>
+            <Setter Property="Foreground" Value="{StaticResource PanelBorder}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="3,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <Style x:Key="AppMenuItemStyle" TargetType="{x:Type MenuItem}">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="MinHeight" Value="28"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type MenuItem}">
+                        <Grid>
+                            <Border x:Name="ItemChrome"
+                                    Background="Transparent"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="1"
+                                    CornerRadius="4"
+                                    Padding="{TemplateBinding Padding}"
+                                    MinHeight="{TemplateBinding MinHeight}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ContentPresenter ContentSource="Header"
+                                                      RecognizesAccessKey="True"
+                                                      TextElement.Foreground="{TemplateBinding Foreground}"
+                                                      VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{TemplateBinding InputGestureText}"
+                                               Foreground="{StaticResource MutedForeground}"
+                                               FontSize="10"
+                                               Margin="24,0,6,0"
+                                               VerticalAlignment="Center"/>
+                                    <Path x:Name="SubmenuArrow"
+                                          Grid.Column="2"
+                                          Data="M4,3 L8,7 L4,11"
+                                          Stroke="{StaticResource MutedForeground}"
+                                          StrokeThickness="1.4"
+                                          StrokeLineJoin="Round"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          Width="8"
+                                          Height="10"
+                                          Margin="6,0,0,0"
+                                          Stretch="Uniform"
+                                          Visibility="Collapsed"
+                                          VerticalAlignment="Center"/>
+                                </Grid>
+                            </Border>
+                            <Popup x:Name="PART_Popup"
+                                   IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
+                                   PlacementTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   PopupAnimation="Fade"
+                                   Placement="Bottom">
+                                <Border Background="{StaticResource PanelBg}"
+                                        BorderBrush="{StaticResource PanelBorder}"
+                                        BorderThickness="1"
+                                        CornerRadius="5"
+                                        MinWidth="180"
+                                        Padding="5"
+                                        SnapsToDevicePixels="True">
+                                    <Border.Effect>
+                                        <DropShadowEffect BlurRadius="16" ShadowDepth="4" Opacity="0.12"/>
+                                    </Border.Effect>
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="360">
+                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="ItemChrome" Property="Background" Value="{StaticResource HoverBg}"/>
+                                <Setter TargetName="ItemChrome" Property="BorderBrush" Value="{StaticResource SoftBorder}"/>
+                            </Trigger>
+                            <Trigger Property="IsSubmenuOpen" Value="True">
+                                <Setter TargetName="ItemChrome" Property="Background" Value="{StaticResource SelectionBg}"/>
+                                <Setter TargetName="ItemChrome" Property="BorderBrush" Value="#CFE3FA"/>
+                            </Trigger>
+                            <Trigger Property="Role" Value="TopLevelHeader">
+                                <Setter TargetName="PART_Popup" Property="Placement" Value="Bottom"/>
+                                <Setter Property="Padding" Value="7,0"/>
+                                <Setter Property="MinHeight" Value="20"/>
+                            </Trigger>
+                            <Trigger Property="Role" Value="SubmenuHeader">
+                                <Setter TargetName="PART_Popup" Property="Placement" Value="Right"/>
+                                <Setter TargetName="SubmenuArrow" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type MenuItem}" BasedOn="{StaticResource AppMenuItemStyle}"/>
+
+        <Style TargetType="{x:Type Separator}">
+            <Setter Property="Margin" Value="5,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Separator}">
+                        <Border Height="1" Background="{StaticResource SoftBorder}"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style x:Key="ColorCircleButton" TargetType="Button">
@@ -185,7 +310,7 @@
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="94"/>
+            <RowDefinition Height="118"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="26"/>
         </Grid.RowDefinitions>
@@ -193,8 +318,9 @@
         <Border Grid.Row="0" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="57"/>
-                    <RowDefinition Height="36"/>
+                    <RowDefinition Height="25"/>
+                    <RowDefinition Height="54"/>
+                    <RowDefinition Height="39"/>
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -203,36 +329,80 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <Border Grid.Row="0" Grid.Column="0"
+                <Border Grid.Row="0" Grid.ColumnSpan="4"
+                        BorderBrush="{StaticResource PanelBorder}"
+                        BorderThickness="0,0,0,1"
+                        Padding="12,2">
+                    <Border BorderBrush="{StaticResource PanelBorder}"
+                            BorderThickness="1"
+                            CornerRadius="5"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            Height="20"
+                            Background="{StaticResource PanelBg}">
+                        <Button x:Name="FileMenuButton"
+                                Style="{StaticResource GhostButton}"
+                                Content="File"
+                                Padding="7,0"
+                                MinHeight="18"
+                                FontSize="11"
+                                FontWeight="SemiBold"
+                                Click="OnFileMenuButtonClick">
+                            <Button.ContextMenu>
+                                <ContextMenu Placement="Bottom"
+                                             PlacementTarget="{Binding ElementName=FileMenuButton}"
+                                             DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                    <MenuItem Header="Settings"
+                                              Command="{Binding OpenSettingsCommand}"/>
+                                    <Separator/>
+                                    <MenuItem Header="Save"
+                                              Command="{Binding SaveWorkCommand}"
+                                              InputGestureText="Ctrl+S"/>
+                                    <MenuItem Header="Save As"
+                                              Command="{Binding SaveWorkAsCommand}"
+                                              InputGestureText="Ctrl+Shift+S"/>
+                                    <Separator/>
+                                    <MenuItem Header="Load"
+                                              Command="{Binding LoadWorkCommand}"/>
+                                </ContextMenu>
+                            </Button.ContextMenu>
+                        </Button>
+                    </Border>
+                </Border>
+
+                <Border Grid.Row="1" Grid.Column="0"
                         BorderBrush="{StaticResource PanelBorder}"
                         BorderThickness="1"
                         CornerRadius="5"
-                        Padding="8,3"
+                        Padding="5,3"
                         Margin="12,0,10,0"
                         HorizontalAlignment="Left"
                         VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal">
-                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Open Project" Command="{Binding OpenWorkspaceCommand}" Margin="0,0,4,0"/>
-                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Folder" Command="{Binding OpenFolderCommand}" Margin="0,0,4,0"/>
+                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Open Project" Command="{Binding OpenWorkspaceCommand}"/>
+                        <TextBlock Style="{StaticResource HeaderSeparatorText}"/>
+                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Folder" Command="{Binding OpenFolderCommand}"/>
+                        <TextBlock Style="{StaticResource HeaderSeparatorText}"/>
                         <Button Style="{StaticResource HeaderRibbonButton}" Content="Reload" Command="{Binding ReloadCodeCommand}"/>
                     </StackPanel>
                 </Border>
 
-                <Border Grid.Row="0" Grid.Column="0"
+                <Border Grid.Row="1" Grid.Column="0"
                         BorderBrush="{StaticResource PanelBorder}"
                         BorderThickness="1"
                         CornerRadius="5"
-                        Padding="8,3"
-                        Margin="244,0,10,0"
+                        Padding="5,3"
+                        Margin="236,0,10,0"
                         HorizontalAlignment="Left"
                         VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal">
-                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Undo" Command="{Binding UndoCommand}" Margin="0,0,4,0"/>
+                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Undo" Command="{Binding UndoCommand}"/>
+                        <TextBlock Style="{StaticResource HeaderSeparatorText}"/>
                         <Button Style="{StaticResource HeaderRibbonButton}" Content="Redo" Command="{Binding RedoCommand}"/>
                     </StackPanel>
                 </Border>
 
-                <Border Grid.Row="0" Grid.Column="2"
+                <Border Grid.Row="1" Grid.Column="2"
                         BorderBrush="{StaticResource PanelBorder}"
                         BorderThickness="1"
                         CornerRadius="5"
@@ -249,18 +419,19 @@
                     </StackPanel>
                 </Border>
 
-                <StackPanel Grid.Row="0" Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
+                <StackPanel Grid.Row="1" Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
                     <Button Style="{StaticResource ToolButton}" Content="Frame" Click="OnFrameAll" Margin="0,0,4,0"/>
                     <Button Style="{StaticResource ToolButton}" Content="Grid" Command="{Binding ToggleBackgroundCommand}"/>
                 </StackPanel>
 
-                <Border Grid.Row="1" Grid.ColumnSpan="4" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,1,0,0">
-                    <DockPanel Margin="12,3,12,3">
+                <Border Grid.Row="2" Grid.ColumnSpan="4" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,1,0,0">
+                    <DockPanel Margin="12,5,12,5">
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                            <Button x:Name="NewSessionButton" Style="{StaticResource ToolButton}" Content="New" Command="{Binding CreateNewSessionCommand}" Margin="0,0,4,0"/>
-                            <Button Style="{StaticResource ToolButton}" Content="Delete" Command="{Binding DeleteSelectedSessionCommand}"/>
+                            <Button x:Name="NewSessionButton" Style="{StaticResource HeaderRibbonButton}" Content="New Board" Command="{Binding CreateNewSessionCommand}"/>
+                            <TextBlock Style="{StaticResource HeaderSeparatorText}"/>
+                            <Button Style="{StaticResource HeaderRibbonButton}" Content="Delete" Command="{Binding DeleteSelectedSessionCommand}"/>
                         </StackPanel>
-                        <TextBlock DockPanel.Dock="Left" Text="Sessions:" Foreground="{StaticResource SubtleForeground}"
+                        <TextBlock DockPanel.Dock="Left" Text="Boards:" Foreground="{StaticResource SubtleForeground}"
                                    FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"/>
                         <ListBox x:Name="SessionTabs"
                                  ItemsSource="{Binding Sessions}"
@@ -292,7 +463,7 @@
                                                    FontSize="11"
                                                    FontWeight="SemiBold"
                                                    VerticalAlignment="Center"
-                                                   ToolTip="Double-click to rename. Drag to reorder."/>
+                                                   ToolTip="Double-click to rename. Drag to reorder boards."/>
                                         <TextBox x:Name="SessionNameEditor"
                                                  Text="{Binding Name, Mode=OneWay}"
                                                  Visibility="Collapsed"
@@ -391,28 +562,71 @@
                                              KeyDown="OnExplorerSearchKeyDown"/>
                                 </DockPanel>
 
-                                <TreeView Grid.Row="2" x:Name="ExplorerTree"
-                                          ItemsSource="{Binding ExplorerRoots}"
-                                          MouseDoubleClick="OnExplorerDoubleClick"
-                                          VirtualizingPanel.IsVirtualizing="True"
-                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                                    <TreeView.ItemTemplate>
-                                        <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                                            <Grid Height="22" ToolTip="{Binding FilePath}">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="18"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                </Grid.ColumnDefinitions>
-                                                <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Center"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}"
-                                                           FontSize="10.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                            </Grid>
-                                        </HierarchicalDataTemplate>
-                                    </TreeView.ItemTemplate>
-                                    <TreeView.ItemContainerStyle>
-                                        <StaticResource ResourceKey="BrowserTreeItemStyle"/>
-                                    </TreeView.ItemContainerStyle>
-                                </TreeView>
+                                <TabControl Grid.Row="2" Margin="0">
+                                    <TabItem Header="Solution">
+                                        <TreeView x:Name="ExplorerTree"
+                                                  ItemsSource="{Binding ExplorerRoots}"
+                                                  MouseDoubleClick="OnExplorerDoubleClick"
+                                                  VirtualizingPanel.IsVirtualizing="True"
+                                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                                  Margin="0,8,0,0">
+                                            <TreeView.ItemTemplate>
+                                                <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                                    <Grid Height="22" ToolTip="{Binding FilePath}">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="18"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}"
+                                                                   FontSize="10.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                    </Grid>
+                                                </HierarchicalDataTemplate>
+                                            </TreeView.ItemTemplate>
+                                            <TreeView.ItemContainerStyle>
+                                                <StaticResource ResourceKey="BrowserTreeItemStyle"/>
+                                            </TreeView.ItemContainerStyle>
+                                        </TreeView>
+                                    </TabItem>
+
+                                    <TabItem Header="Files">
+                                        <Grid Margin="0,8,0,0">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+                                            <TextBlock Grid.Row="0"
+                                                       Text="{Binding FileExplorerRootPath}"
+                                                       Foreground="{StaticResource MutedForeground}"
+                                                       FontSize="9.5"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Margin="0,0,0,6"/>
+                                            <TreeView Grid.Row="1"
+                                                      x:Name="FileExplorerTree"
+                                                      ItemsSource="{Binding FileExplorerRoots}"
+                                                      MouseDoubleClick="OnExplorerDoubleClick"
+                                                      VirtualizingPanel.IsVirtualizing="True"
+                                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                                <TreeView.ItemTemplate>
+                                                    <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                                        <Grid Height="22" ToolTip="{Binding FilePath}">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="18"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Center"/>
+                                                            <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}"
+                                                                       FontSize="10.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                        </Grid>
+                                                    </HierarchicalDataTemplate>
+                                                </TreeView.ItemTemplate>
+                                                <TreeView.ItemContainerStyle>
+                                                    <StaticResource ResourceKey="BrowserTreeItemStyle"/>
+                                                </TreeView.ItemContainerStyle>
+                                            </TreeView>
+                                        </Grid>
+                                    </TabItem>
+                                </TabControl>
                             </Grid>
                         </TabItem>
 
@@ -700,6 +914,12 @@
                                         <Button Style="{StaticResource ToolButton}" Content="Medium" Click="OnSelectStrokeWidth" CommandParameter="2.5" Margin="0,0,4,0" ToolTip="Medium line (2.5px)"/>
                                         <Button Style="{StaticResource ToolButton}" Content="Thick" Click="OnSelectStrokeWidth" CommandParameter="4.0" ToolTip="Thick line (4.0px)"/>
                                     </UniformGrid>
+
+                                    <TextBlock Text="Text Size" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,2"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                        <TextBox Text="{Binding SelectedFontSize, UpdateSourceTrigger=PropertyChanged}" Width="56" FontSize="11" Padding="4,3" Margin="0,0,6,0"/>
+                                        <Button Style="{StaticResource ToolButton}" Content="Apply" Click="OnApplySelectionProperties" Height="26"/>
+                                    </StackPanel>
 
                                     <TextBlock Text="Stroke Style" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,2"/>
                                     <UniformGrid Columns="2" Margin="0,0,0,6">

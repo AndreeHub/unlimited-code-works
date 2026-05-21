@@ -12,6 +12,8 @@ namespace ReviewScope.App.ViewModels;
 
 public sealed partial class MainWindowViewModel
 {
+    private const string BoardClipboardMarker = "ReviewScope.BoardClipboard.v1";
+
     private static readonly BoardItemStyle[] ReviewStencilStyles =
     {
         new("#EFF6FF", "#2E7DD7", "#172033"),
@@ -45,7 +47,7 @@ public sealed partial class MainWindowViewModel
         var text = new RenderBlock(
             id, $"text::{id:N}", BlockKind.Text,
             "Text", string.Empty,
-            180 + Scene.Blocks.Count * 22, 120 + Scene.Blocks.Count * 18, 300, 110,
+            180 + Scene.Blocks.Count * 22, 120 + Scene.Blocks.Count * 18, 800, 1200,
             Body: "Double-click note-style text editing is coming next; edit from persistence for now.",
             LayerKey: "layer::architecture",
             Style: new BoardItemStyle("#FFFFFF", "#CBD5E1", "#111827"));
@@ -356,26 +358,42 @@ public sealed partial class MainWindowViewModel
     {
         var selected = Scene.Blocks.Where(b => b.IsSelected).ToList();
         if (selected.Count == 0) return;
-        Clipboard.SetText(JsonSerializer.Serialize(selected));
+        var selectedKeys = selected.Select(b => b.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var connections = Scene.Connections
+            .Where(c => selectedKeys.Contains(c.SourceKey) && selectedKeys.Contains(c.TargetKey))
+            .ToList();
+        var payload = new BoardClipboardPayload(BoardClipboardMarker, selected, connections);
+        Clipboard.SetText(JsonSerializer.Serialize(payload));
         StatusMessage = $"Copied {selected.Count} board item(s).";
     }
 
     [RelayCommand]
     public async Task PasteBoardItemsAsync()
     {
+        await PasteBoardItemsAtAsync(null, null);
+    }
+
+    public async Task PasteBoardItemsAtAsync(double? x, double? y)
+    {
         if (Clipboard.ContainsImage())
         {
-            await PasteImageFromClipboardAsync();
+            await PasteImageFromClipboardAtAsync(x, y);
             return;
         }
 
         if (!Clipboard.ContainsText()) return;
         try
         {
-            var items = JsonSerializer.Deserialize<List<RenderBlock>>(Clipboard.GetText());
-            if (items is null || items.Count == 0) return;
-            var pasted = items.Select(DuplicateBlock).ToList();
-            SetSceneFromUserAction(Scene with { Blocks = Scene.Blocks.Concat(pasted).ToList() }, $"Pasted {pasted.Count} board item(s)");
+            var payload = ReadBoardClipboardPayload(Clipboard.GetText());
+            if (payload.Blocks.Count == 0) return;
+            var pasted = DuplicateClipboardPayload(payload, x, y);
+            SetSceneFromUserAction(
+                Scene with
+                {
+                    Blocks = Scene.Blocks.Select(b => b with { IsSelected = false }).Concat(pasted.Blocks).ToList(),
+                    Connections = Scene.Connections.Select(c => c with { IsSelected = false }).Concat(pasted.Connections).ToList()
+                },
+                $"Pasted {pasted.Blocks.Count} board item(s)");
             await PersistSessionAsync();
         }
         catch
@@ -401,6 +419,7 @@ public sealed partial class MainWindowViewModel
                 Stroke = NormalizeHex(SelectedStroke, style.Stroke),
                 Text = NormalizeHex(SelectedTextColor, style.Text),
                 StrokeWidth = Math.Clamp(ParseDoubleOr(SelectedStrokeWidth, style.StrokeWidth), 0.5, 8),
+                FontSize = Math.Clamp(ParseDoubleOr(SelectedFontSize, style.FontSize), 8, 48),
                 TextAlign = NormalizeTextAlignment(SelectedTextAlignment),
                 Dashed = SelectedDashed
             };
@@ -547,6 +566,71 @@ public sealed partial class MainWindowViewModel
         };
     }
 
+    private static BoardClipboardPayload ReadBoardClipboardPayload(string text)
+    {
+        var payload = JsonSerializer.Deserialize<BoardClipboardPayload>(text);
+        if (payload?.Marker == BoardClipboardMarker && payload.Blocks.Count > 0)
+            return payload;
+
+        var legacyBlocks = JsonSerializer.Deserialize<List<RenderBlock>>(text);
+        return legacyBlocks is null
+            ? new BoardClipboardPayload(BoardClipboardMarker, Array.Empty<RenderBlock>(), Array.Empty<RenderConnection>())
+            : new BoardClipboardPayload(BoardClipboardMarker, legacyBlocks, Array.Empty<RenderConnection>());
+    }
+
+    private (IReadOnlyList<RenderBlock> Blocks, IReadOnlyList<RenderConnection> Connections) DuplicateClipboardPayload(
+        BoardClipboardPayload payload,
+        double? x,
+        double? y)
+    {
+        double minX = payload.Blocks.Min(b => b.X);
+        double minY = payload.Blocks.Min(b => b.Y);
+        double dx = x.HasValue ? x.Value - minX : 32;
+        double dy = y.HasValue ? y.Value - minY : 32;
+        var keyMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var pastedBlocks = new List<RenderBlock>(payload.Blocks.Count);
+
+        foreach (var block in payload.Blocks)
+        {
+            var id = Guid.NewGuid();
+            string key = $"{block.Kind.ToString().ToLowerInvariant()}::{id:N}";
+            keyMap[block.Key] = key;
+            pastedBlocks.Add(block with
+            {
+                Id = id,
+                Key = key,
+                X = block.X + dx,
+                Y = block.Y + dy,
+                IsSelected = true,
+                ZIndex = NextBlockZIndex() + pastedBlocks.Count
+            });
+        }
+
+        var pastedConnections = payload.Connections
+            .Where(c => keyMap.ContainsKey(c.SourceKey) && keyMap.ContainsKey(c.TargetKey))
+            .Select(c => c with
+            {
+                Id = Guid.NewGuid(),
+                SourceKey = keyMap[c.SourceKey],
+                TargetKey = keyMap[c.TargetKey],
+                IsSelected = false,
+                SourceControlX = c.SourceControlX.HasValue ? c.SourceControlX + dx : null,
+                SourceControlY = c.SourceControlY.HasValue ? c.SourceControlY + dy : null,
+                TargetControlX = c.TargetControlX.HasValue ? c.TargetControlX + dx : null,
+                TargetControlY = c.TargetControlY.HasValue ? c.TargetControlY + dy : null,
+                MidControlX = c.MidControlX.HasValue ? c.MidControlX + dx : null,
+                MidControlY = c.MidControlY.HasValue ? c.MidControlY + dy : null
+            })
+            .ToList();
+
+        return (pastedBlocks, pastedConnections);
+    }
+
+    private sealed record BoardClipboardPayload(
+        string Marker,
+        IReadOnlyList<RenderBlock> Blocks,
+        IReadOnlyList<RenderConnection> Connections);
+
     private string CopyToAssetFolder(string sourcePath, string kind)
     {
         if (_currentSnapshot is null) return sourcePath;
@@ -564,7 +648,7 @@ public sealed partial class MainWindowViewModel
         sb.AppendLine("# ReviewScope Code Review Package");
         sb.AppendLine();
         sb.AppendLine($"Project: {_currentSnapshot?.DisplayName ?? "Unknown"}");
-        sb.AppendLine($"Board: {_activeSession?.Name ?? "New Session"}");
+        sb.AppendLine($"Board: {_activeSession?.Name ?? "New Board"}");
         sb.AppendLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm}");
         sb.AppendLine();
 

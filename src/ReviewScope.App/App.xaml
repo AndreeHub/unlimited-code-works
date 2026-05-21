@@ -136,6 +136,7 @@
                                     </Border>
                                 </Popup>
                                 <ToggleButton Grid.ColumnSpan="2"
+                                              ClickMode="Press"
                                               IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
                                               Background="Transparent" BorderThickness="0" Cursor="Hand"/>
                             </Grid>

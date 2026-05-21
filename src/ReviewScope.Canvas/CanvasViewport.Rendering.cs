@@ -92,7 +92,7 @@ public sealed partial class CanvasViewport
                 {
                     _blockRenderer.DrawBlock(
                         block, _editingNoteKey, _editingGroupKey, _editTitle, _editBody,
-                        _editCursorVisible, _editCursorPos, _editSelectionAnchor,
+                        _editingTitle, _editCursorVisible, _editCursorPos, _editSelectionAnchor,
                         _isExtractMode, _hoverAnchorBlockKey, _hoverAnchorIndex,
                         _isDrawingConnection, _connectionSourceKey, _connectionSourceAnchorIndex,
                         _connectionHoverTargetKey, _connectionHoverTargetAnchorIndex,
@@ -182,7 +182,7 @@ public sealed partial class CanvasViewport
         var visual = new SceneBlockVisual(draftBlock, bounds);
         _blockRenderer.DrawBlock(
             visual, null, null, string.Empty, string.Empty,
-            false, 0, -1,
+            false, false, 0, -1,
             false, null, null,
             false, null, null,
             null, null,

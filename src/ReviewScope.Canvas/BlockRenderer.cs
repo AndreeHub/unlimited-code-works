@@ -32,7 +32,9 @@ internal sealed class BlockRenderer
     // Viewport-specific constants (should match CanvasViewport)
     private const double HeaderH = 56;
     private const double FooterH = 28;
-    private const double CodeGutterW = 48;
+    private const double CodeGutterW = 54;
+    private const double CodeTextPadX = 12;
+    private const double CodeScrollbarReserveW = 34;
     private const double CodeLineH = 18;
     private const double CodeCharW = 7.2;
     private const int FocusedCodeTopPaddingLines = 2;
@@ -51,6 +53,7 @@ internal sealed class BlockRenderer
         string? editingGroupKey,
         string editTitle,
         string editBody,
+        bool editingTitle,
         bool editCursorVisible,
         int editCursorPos,
         int editSelectionAnchor,
@@ -76,7 +79,7 @@ internal sealed class BlockRenderer
                 DrawCodeBlock(blockVis, codeScrollLines, isExtractMode, hoverAnchorBlockKey, hoverAnchorIndex, isDrawingConnection, connectionSourceKey, connectionSourceAnchorIndex, connectionHoverTargetKey, connectionHoverTargetAnchorIndex, connectorsEnabled);
                 break;
             case BlockKind.Note:
-                DrawNoteBlock(blockVis, editingNoteKey, editTitle, editBody, editCursorVisible, editCursorPos, editSelectionAnchor);
+                DrawNoteBlock(blockVis, editingNoteKey, editTitle, editBody, editingTitle, editCursorVisible, editCursorPos, editSelectionAnchor);
                 break;
             case BlockKind.MarkdownDoc:
                 DrawMarkdownDocBlock(blockVis);
@@ -139,15 +142,20 @@ internal sealed class BlockRenderer
         bool compact = _ctx.Zoom <= CompactZoom;
         bool preview = !compact && _ctx.Zoom <= PreviewZoom;
         bool isFocused = block.Focused is not null;
+        bool isMarkdown = IsMarkdownFileBlock(block);
 
         WpfColor accent = isFocused
             ? WpfColor.FromRgb(46, 125, 215)
+            : isMarkdown
+                ? WpfColor.FromRgb(148, 163, 184)
             : block.Kind == BlockKind.Extract
                 ? WpfColor.FromRgb(35, 162, 109)
                 : WpfColor.FromRgb(46, 125, 215);
 
         WpfColor border = block.IsSelected
             ? WpfColor.FromArgb(235, 46, 125, 215)
+            : isMarkdown
+                ? WpfColor.FromArgb(210, 148, 163, 184)
             : WpfColor.FromArgb(170, accent.R, accent.G, accent.B);
 
         Rect outer = blockVis.Bounds;
@@ -203,6 +211,8 @@ internal sealed class BlockRenderer
                 DrawPreviewBars(code, accent, 4);
             else if (preview)
                 DrawPreviewBars(code, accent, 9);
+            else if (isMarkdown)
+                DrawMarkdownFileBody(block, code, codeScrollLines);
             else
                 DrawCodeBody(block, code, codeScrollLines, isExtractMode);
         }
@@ -218,11 +228,7 @@ internal sealed class BlockRenderer
 
         // Resize handle
         if (block.IsSelected)
-        {
-            float rh = 12;
-            _ctx.RenderTarget.FillRectangle(new RectangleF((float)outer.Right - rh, (float)outer.Bottom - rh, rh, rh),
-                _ctx.GetBrush(WpfColor.FromArgb(60, accent.R, accent.G, accent.B)));
-        }
+            DrawGenericResizeHandle(outer, accent);
 
         // Restore button for focused blocks
         if (isFocused) DrawRestoreButton(outer, accent);
@@ -231,7 +237,7 @@ internal sealed class BlockRenderer
             DrawConnectionAnchors(block, outer, accent, hoverAnchorBlockKey, hoverAnchorIndex, isDrawingConnection, connectionSourceKey, connectionSourceAnchorIndex, connectionHoverTargetKey, connectionHoverTargetAnchorIndex);
     }
 
-    private void DrawNoteBlock(SceneBlockVisual blockVis, string? editingNoteKey, string editTitle, string editBody, bool editCursorVisible, int editCursorPos, int editSelectionAnchor)
+    private void DrawNoteBlock(SceneBlockVisual blockVis, string? editingNoteKey, string editTitle, string editBody, bool editingTitle, bool editCursorVisible, int editCursorPos, int editSelectionAnchor)
     {
         var block = blockVis.Block;
         bool isSelected = block.IsSelected;
@@ -263,18 +269,24 @@ internal sealed class BlockRenderer
 
         // Title
         string titleText = isEditing ? editTitle : block.Title;
-        _ctx.DrawText(titleText, x + 24, y + 12, w - 48, 14, WpfColor.FromRgb(140, 100, 30), sketchy: true);
+        if (isEditing && editingTitle)
+            DrawEditSelection(titleText, 14f, x + 24, y + 12, w - 48, wrap: false, sketchy: false, editCursorPos, editSelectionAnchor);
+
+        _ctx.DrawText(titleText, x + 24, y + 12, w - 48, 14, WpfColor.FromRgb(140, 100, 30));
+
+        if (isEditing && editingTitle && editCursorVisible)
+            DrawNoteCursor(titleText, 14f, x + 24, y + 12, w - 48, editCursorPos);
 
         // Body
         _ctx.RenderTarget.PushAxisAlignedClip(new RectangleF(x + 12, y + 42, w - 24, h - 54), AntialiasMode.PerPrimitive);
         float bx = x + 14, by = y + 42, bw = w - 28;
-        if (isEditing)
-            DrawEditSelection(bodyText, 12.5f, bx, by, bw, wrap: true, sketchy: true, editCursorPos, editSelectionAnchor);
+        if (isEditing && !editingTitle)
+            DrawEditSelection(bodyText, 12.5f, bx, by, bw, wrap: true, sketchy: false, editCursorPos, editSelectionAnchor);
         
-        _ctx.DrawText(bodyText, bx, by, bw, 12.5f, WpfColor.FromRgb(100, 75, 25), sketchy: true);
+        _ctx.DrawWrappedText(bodyText, bx, by, bw, h - 54, 12.5f, WpfColor.FromRgb(100, 75, 25), wrap: true);
         
-        if (isEditing && editCursorVisible)
-            DrawNoteCursor(bodyText, 12.5f, bx, by, bw, editCursorPos, wrap: true, sketchy: true);
+        if (isEditing && !editingTitle && editCursorVisible)
+            DrawNoteCursor(bodyText, 12.5f, bx, by, bw, editCursorPos, wrap: true);
         
         _ctx.RenderTarget.PopAxisAlignedClip();
 
@@ -309,10 +321,21 @@ internal sealed class BlockRenderer
 
         _ctx.RenderTarget.PushAxisAlignedClip(new RectangleF(x + 14, y + 58, w - 28, h - 72), AntialiasMode.PerPrimitive);
         float cy = y + 58;
-        foreach (string rawLine in (block.Body ?? string.Empty).Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n').Take(80))
+        string[] lines = (block.Body ?? string.Empty).Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n');
+        for (int i = 0; i < Math.Min(lines.Length, 80); i++)
         {
+            string rawLine = lines[i];
             string line = rawLine.TrimEnd();
             if (line.Length == 0) { cy += 10; continue; }
+            string trimmed = line.Trim();
+            if (IsMarkdownTableRow(trimmed))
+            {
+                if (LooksLikeTableSeparator(trimmed)) continue;
+                DrawMarkdownTableRow(trimmed, x + 18, cy, w - 42, header: i + 1 < lines.Length && LooksLikeTableSeparator(lines[i + 1].Trim()));
+                cy += 24;
+            }
+            else
+            {
             int level = line.TakeWhile(c => c == '#').Count();
             if (level > 0 && level <= 4 && line.Length > level && line[level] == ' ')
             {
@@ -330,6 +353,7 @@ internal sealed class BlockRenderer
             {
                 _ctx.DrawWrappedText(line, x + 18, cy, w - 42, 48, 11.5f, WpfColor.FromRgb(51, 65, 85), wrap: true);
                 cy += 24;
+            }
             }
             if (cy > y + h - 20) break;
         }
@@ -469,35 +493,60 @@ internal sealed class BlockRenderer
         using var sink = path.Open();
         sink.BeginFigure(new Vector2((float)points[0].X, (float)points[0].Y), FigureBegin.Hollow);
 
-        for (int i = 1; i < points.Count; i++)
+        // Walk corner-to-corner. Consecutive curved (shift-clicked) vertices between two corners
+        // form a single Bézier span — the curved vertices are control points, not on-curve points.
+        // This gives wide arcs instead of small rounded corners stacked together.
+        int idx = 0;
+        while (idx < points.Count - 1)
         {
-            Vector2 pCurrent = new((float)points[i].X, (float)points[i].Y);
-            if (i < points.Count - 1 && curvedFlags is not null && i < curvedFlags.Count && curvedFlags[i])
+            int nextCorner = idx + 1;
+            while (nextCorner < points.Count - 1
+                   && curvedFlags is not null
+                   && nextCorner < curvedFlags.Count
+                   && curvedFlags[nextCorner])
+                nextCorner++;
+
+            int controlCount = nextCorner - idx - 1;
+            Vector2 endCorner = new((float)points[nextCorner].X, (float)points[nextCorner].Y);
+
+            if (controlCount == 0)
             {
-                Vector2 pPrev = new((float)points[i - 1].X, (float)points[i - 1].Y);
-                Vector2 pNext = new((float)points[i + 1].X, (float)points[i + 1].Y);
-
-                if (points.Count == 3)
+                sink.AddLine(endCorner);
+            }
+            else if (controlCount == 1)
+            {
+                Vector2 c1 = new((float)points[idx + 1].X, (float)points[idx + 1].Y);
+                sink.AddQuadraticBezier(new QuadraticBezierSegment { Point1 = c1, Point2 = endCorner });
+            }
+            else if (controlCount == 2)
+            {
+                Vector2 c1 = new((float)points[idx + 1].X, (float)points[idx + 1].Y);
+                Vector2 c2 = new((float)points[idx + 2].X, (float)points[idx + 2].Y);
+                sink.AddBezier(new Vortice.Direct2D1.BezierSegment { Point1 = c1, Point2 = c2, Point3 = endCorner });
+            }
+            else
+            {
+                // 3+ controls: chain of quadratic Béziers through midpoints (quadratic B-spline).
+                // Each control point is used as a Bézier handle; the curve is joined smoothly
+                // at the midpoint between consecutive controls.
+                for (int k = 0; k < controlCount; k++)
                 {
-                    sink.AddQuadraticBezier(new QuadraticBezierSegment { Point1 = pCurrent, Point2 = pNext });
-                    continue;
-                }
-
-                float len1 = (pCurrent - pPrev).Length();
-                float len2 = (pNext - pCurrent).Length();
-                float d = Math.Min(16f, Math.Min(len1, len2) / 2f);
-
-                if (d > 0.1f)
-                {
-                    Vector2 p1 = pCurrent - (pCurrent - pPrev) * (d / len1);
-                    Vector2 p2 = pCurrent + (pNext - pCurrent) * (d / len2);
-
-                    sink.AddLine(p1);
-                    sink.AddQuadraticBezier(new QuadraticBezierSegment { Point1 = pCurrent, Point2 = p2 });
-                    continue;
+                    Vector2 ctrl = new((float)points[idx + 1 + k].X, (float)points[idx + 1 + k].Y);
+                    Vector2 end;
+                    if (k < controlCount - 1)
+                    {
+                        Vector2 ctrlNext = new((float)points[idx + 2 + k].X, (float)points[idx + 2 + k].Y);
+                        end = (ctrl + ctrlNext) * 0.5f;
+                    }
+                    else
+                    {
+                        end = endCorner;
+                    }
+                    sink.AddQuadraticBezier(new QuadraticBezierSegment { Point1 = ctrl, Point2 = end });
                 }
             }
-            sink.AddLine(pCurrent);
+
+            idx = nextCorner;
         }
         sink.EndFigure(FigureEnd.Open);
         sink.Close();
@@ -702,31 +751,34 @@ internal sealed class BlockRenderer
 
         SketchyDrawer.DrawRectangle(_ctx.RenderTarget, new RectangleF(x, y, w, h), fillBrush, strokeBrush, sw, block.Key.ToString(), fillStyle: style.FillStyle);
 
-        float headerH = block.IsCollapsed ? 42 : 36;
-        _ctx.RenderTarget.FillRectangle(new RectangleF(x + 2, y + 2, w - 4, headerH - 2), _ctx.GetBrush(WpfColor.FromArgb(32, stroke.R, stroke.G, stroke.B)));
+        float titleSize = Math.Clamp((float)style.FontSize, 8f, 48f);
+        float headerH = Math.Max(block.IsCollapsed ? 42 : 36, titleSize + (block.IsCollapsed ? 28 : 20));
+        _ctx.RenderTarget.FillRectangle(new RectangleF(x + 2, y + 2, w - 4, headerH - 2), _ctx.GetBrush(WpfColor.FromArgb(48, fill.R, fill.G, fill.B)));
         SketchyDrawer.DrawLine(_ctx.RenderTarget, new Vector2(x, y + headerH), new Vector2(x + w, y + headerH), strokeBrush, sw, block.Key.ToString() + "_header");
 
-        float titleSize = block.IsCollapsed ? 17f : 16f;
+        float titleW = w - 58;
+        float titlePadY = Math.Max(3f, (headerH - titleSize) / 2f - 3f);
+        var titleBacking = new RectangleF(x + 10, y + titlePadY, titleW + 8, titleSize + 8);
         if (isEditing)
         {
-            float titleW = w - 58;
             var inputBgBrush = _ctx.GetBrush(WpfColor.FromArgb(215, 255, 255, 255));
             var inputBorderBrush = _ctx.GetBrush(WpfColor.FromRgb(46, 125, 215));
-            SketchyDrawer.DrawRectangle(_ctx.RenderTarget, new RectangleF(x + 10, y + 5, titleW + 8, 27), inputBgBrush, inputBorderBrush, _ctx.InvStroke(1f), block.Key.ToString() + "_editbg");
+            SketchyDrawer.DrawRectangle(_ctx.RenderTarget, titleBacking, inputBgBrush, inputBorderBrush, _ctx.InvStroke(1f), block.Key.ToString() + "_editbg");
 
-            DrawEditSelection(titleText, titleSize, x + 14, y + 8, titleW, wrap: false, sketchy: true, editCursorPos, editSelectionAnchor);
-            _ctx.DrawText(titleText, x + 14, y + 8, titleW, titleSize, text, sketchy: true);
+            DrawEditSelection(titleText, titleSize, x + 14, titleBacking.Y + 4, titleW, wrap: false, sketchy: false, editCursorPos, editSelectionAnchor);
+            _ctx.DrawText(titleText, x + 14, titleBacking.Y + 4, titleW, titleSize, text);
             if (editCursorVisible)
-                DrawNoteCursor(titleText, titleSize, x + 14, y + 8, titleW, editCursorPos, wrap: false, sketchy: true);
+                DrawNoteCursor(titleText, titleSize, x + 14, titleBacking.Y + 4, titleW, editCursorPos, wrap: false);
         }
         else
         {
-            _ctx.DrawText(titleText, x + 14, y + 8, w - 58, titleSize, text, sketchy: true);
+            _ctx.RenderTarget.FillRoundedRectangle(new RoundedRectangle(titleBacking, 4, 4), _ctx.GetBrush(WpfColor.FromArgb(210, 255, 255, 255)));
+            _ctx.DrawText(titleText, x + 14, titleBacking.Y + 4, titleW, titleSize, text);
         }
 
         if (block.IsCollapsed)
         {
-            _ctx.DrawText("double-click to expand", x + 14, y + 28, w - 58, 8.5f, WpfColor.FromArgb(180, text.R, text.G, text.B), sketchy: true);
+            _ctx.DrawText("double-click to expand", x + 14, y + headerH - 14, w - 58, 8.5f, WpfColor.FromArgb(180, text.R, text.G, text.B));
             // DrawCollapsedGroupSummary is complex and depends on Scene.Blocks, maybe passed in or handled via callback
         }
         else
@@ -777,6 +829,104 @@ internal sealed class BlockRenderer
         }
     }
 
+    private void DrawMarkdownFileBody(RenderBlock block, Rect bodyRect, Dictionary<string, int> codeScrollLines)
+    {
+        _ctx.RenderTarget.PushAxisAlignedClip(CanvasDrawingUtils.ToRF(bodyRect), AntialiasMode.PerPrimitive);
+
+        string[] allLines = (block.Body ?? string.Empty).Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n');
+        int visibleLines = Math.Max(1, (int)Math.Floor(bodyRect.Height / CodeLineH));
+        int maxScroll = Math.Max(0, allLines.Length - visibleLines);
+        codeScrollLines.TryGetValue(block.Key, out int scrollLines);
+        scrollLines = Math.Clamp(scrollLines, 0, maxScroll);
+
+        float x = (float)(bodyRect.X + 22);
+        float y = (float)(bodyRect.Y + 16);
+        float maxW = (float)(bodyRect.Width - 44 - CodeScrollbarReserveW);
+        bool inCodeFence = false;
+
+        for (int lineIndex = scrollLines; lineIndex < allLines.Length; lineIndex++)
+        {
+            if (y > bodyRect.Bottom - 18) break;
+            string rawLine = allLines[lineIndex];
+            string line = rawLine.TrimEnd();
+            string trimmed = line.Trim();
+
+            if (trimmed.StartsWith("```", StringComparison.Ordinal))
+            {
+                inCodeFence = !inCodeFence;
+                y += 8;
+                continue;
+            }
+
+            if (trimmed.Length == 0)
+            {
+                y += 10;
+                continue;
+            }
+
+            if (inCodeFence)
+            {
+                var codeBg = new RectangleF(x - 8, y - 3, maxW + 16, 20);
+                _ctx.RenderTarget.FillRoundedRectangle(new RoundedRectangle(codeBg, 4, 4),
+                    _ctx.GetBrush(WpfColor.FromRgb(248, 250, 252)));
+                _ctx.DrawText(NormalizeCodeLine(line), x, y, maxW, 11.2f, WpfColor.FromRgb(51, 65, 85));
+                y += 20;
+                continue;
+            }
+
+            int headingLevel = trimmed.TakeWhile(c => c == '#').Count();
+            if (headingLevel is > 0 and <= 4 && trimmed.Length > headingLevel && trimmed[headingLevel] == ' ')
+            {
+                float size = headingLevel == 1 ? 17f : headingLevel == 2 ? 14.5f : 12.8f;
+                string heading = trimmed[(headingLevel + 1)..];
+                float textH = EstimateWrappedHeight(heading, maxW, size, 2);
+                _ctx.DrawWrappedText(heading, x, y, maxW, textH, size, WpfColor.FromRgb(15, 23, 42), wrap: true);
+                y += textH + (headingLevel == 1 ? 10 : 7);
+                continue;
+            }
+
+            if (trimmed is "---" or "***" or "___")
+            {
+                _ctx.RenderTarget.DrawLine(new Vector2(x, y + 6), new Vector2(x + maxW, y + 6),
+                    _ctx.GetBrush(WpfColor.FromArgb(180, 203, 213, 225)), _ctx.InvStroke(1.0f));
+                y += 16;
+                continue;
+            }
+
+            if (IsMarkdownTableRow(trimmed))
+            {
+                if (!LooksLikeTableSeparator(trimmed))
+                {
+                    bool isHeader = lineIndex + 1 < allLines.Length &&
+                        LooksLikeTableSeparator(allLines[lineIndex + 1].Trim());
+                    DrawMarkdownTableRow(trimmed, x, y, maxW, isHeader);
+                    y += 24;
+                }
+                continue;
+            }
+
+            if (trimmed.StartsWith("- ", StringComparison.Ordinal) || trimmed.StartsWith("* ", StringComparison.Ordinal))
+            {
+                string bullet = StripMarkdownInline(trimmed[2..]);
+                float textH = EstimateWrappedHeight(bullet, maxW - 18, 11.4f, 3);
+                _ctx.DrawText("*", x, y, 16, 12, WpfColor.FromRgb(100, 116, 139));
+                _ctx.DrawWrappedText(bullet, x + 18, y, maxW - 18, textH, 11.4f, WpfColor.FromRgb(51, 65, 85), wrap: true);
+                y += textH + 7;
+                continue;
+            }
+
+            string paragraph = StripMarkdownInline(trimmed);
+            float paragraphH = EstimateWrappedHeight(paragraph, maxW, 11.4f, 4);
+            _ctx.DrawWrappedText(paragraph, x, y, maxW, paragraphH, 11.4f, WpfColor.FromRgb(51, 65, 85), wrap: true);
+            y += paragraphH + 7;
+        }
+
+        if (maxScroll > 0)
+            DrawCodeScrollbar(bodyRect, scrollLines, visibleLines, allLines.Length);
+
+        _ctx.RenderTarget.PopAxisAlignedClip();
+    }
+
     private void DrawCodeBody(RenderBlock block, Rect bodyRect, Dictionary<string, int> codeScrollLines, bool isExtractMode)
     {
         _ctx.RenderTarget.PushAxisAlignedClip(CanvasDrawingUtils.ToRF(bodyRect), AntialiasMode.PerPrimitive);
@@ -815,7 +965,7 @@ internal sealed class BlockRenderer
             _ctx.DrawText(srcLine.ToString(), (float)bodyRect.X, lineY, (float)CodeGutterW - 6, 11,
                 WpfColor.FromRgb(85, 98, 108));
 
-            float codeX = (float)bodyRect.X + (float)CodeGutterW;
+            float codeX = (float)(bodyRect.X + CodeGutterW + CodeTextPadX);
             DrawScopeGuides(lineText, codeX, lineY, bodyRect);
             DrawEditorLine(block, srcLine, lineText, codeX, lineY, bodyRect, isExtractMode);
         }
@@ -830,7 +980,7 @@ internal sealed class BlockRenderer
     {
         if (string.IsNullOrEmpty(lineText)) return;
         const float fontSize = 11.5f;
-        float maxWidth = (float)(bodyRect.Right - startX - 14);
+        float maxWidth = (float)(bodyRect.Right - startX - CodeScrollbarReserveW);
         if (maxWidth < 4) return;
 
         IDWriteTextFormat fmt = _ctx.GetTextFormat(fontSize);
@@ -892,7 +1042,7 @@ internal sealed class BlockRenderer
         for (int i = 1; i <= guideCount; i++)
         {
             float x = codeX + i * 4 * (float)CodeCharW - 7;
-            if (x <= bodyRect.Left || x >= bodyRect.Right - 12) continue;
+            if (x <= bodyRect.Left || x >= bodyRect.Right - CodeScrollbarReserveW) continue;
             _ctx.RenderTarget.DrawLine(new Vector2(x, top), new Vector2(x, bottom), guideBrush, 1f);
         }
     }
@@ -900,7 +1050,7 @@ internal sealed class BlockRenderer
     private void DrawCodeScrollbar(Rect bodyRect, int scrollLines, int visibleLines, int totalLines)
     {
         if (totalLines <= 0) return;
-        const float trackRightInset = 22f;
+        const float trackRightInset = 12f;
         float trackW = 4f;
         float trackX = (float)bodyRect.Right - trackW - trackRightInset;
         float trackY = (float)bodyRect.Y + 8;
@@ -944,7 +1094,7 @@ internal sealed class BlockRenderer
         var stroke = _ctx.GetBrush(WpfColor.FromArgb(210, accent.R, accent.G, accent.B));
         var hoverStroke = _ctx.GetBrush(WpfColor.FromArgb(235, 35, 162, 109));
         var sourceStroke = _ctx.GetBrush(WpfColor.FromArgb(235, 32, 104, 192));
-        float r = Math.Max(1.75f, _ctx.InvStroke(2.25f));
+        float r = Math.Max(3.0f, _ctx.InvStroke(4.0f));
         for (int i = 0; i < 16; i++)
         {
             System.Windows.Point p = CanvasDrawingUtils.GetBlockOutlinePoint(block, bounds, CanvasDrawingUtils.GetConnectionAnchorPoint(bounds, i));
@@ -956,7 +1106,7 @@ internal sealed class BlockRenderer
             _ctx.RenderTarget.FillEllipse(ellipse, fill);
             _ctx.RenderTarget.DrawEllipse(new Ellipse(new Vector2((float)p.X, (float)p.Y), rr, rr),
                 isTarget || isHover ? hoverStroke : isSource ? sourceStroke : stroke,
-                _ctx.InvStroke(isTarget || isSource || isHover ? 0.9f : 0.6f));
+                _ctx.InvStroke(isTarget || isSource || isHover ? 1.2f : 0.85f));
         }
     }
 
@@ -1005,6 +1155,61 @@ internal sealed class BlockRenderer
         shapeType is "line" or "arrow" or "polyline";
 
     private static string NormalizeCodeLine(string text) => text.Replace("\t", "    ", StringComparison.Ordinal);
+
+    private static bool IsMarkdownFileBlock(RenderBlock block) =>
+        string.Equals(block.ShapeType, "markdown", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(System.IO.Path.GetExtension(block.FilePath ?? string.Empty), ".md", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(System.IO.Path.GetExtension(block.FilePath ?? string.Empty), ".markdown", StringComparison.OrdinalIgnoreCase);
+
+    private void DrawMarkdownTableRow(string line, float x, float y, float width, bool header)
+    {
+        var cells = line.Trim().Trim('|').Split('|').Select(c => StripMarkdownInline(c.Trim())).ToArray();
+        if (cells.Length == 0) return;
+
+        float cellW = Math.Max(42, width / cells.Length);
+        var bg = header
+            ? WpfColor.FromRgb(241, 245, 249)
+            : WpfColor.FromArgb(90, 248, 250, 252);
+        var border = WpfColor.FromArgb(170, 203, 213, 225);
+        _ctx.RenderTarget.FillRectangle(new RectangleF(x, y - 3, width, 22), _ctx.GetBrush(bg));
+        _ctx.RenderTarget.DrawRectangle(new RectangleF(x, y - 3, width, 22), _ctx.GetBrush(border), _ctx.InvStroke(0.8f));
+
+        for (int i = 1; i < cells.Length; i++)
+        {
+            float cx = x + i * cellW;
+            _ctx.RenderTarget.DrawLine(new Vector2(cx, y - 3), new Vector2(cx, y + 19), _ctx.GetBrush(border), _ctx.InvStroke(0.7f));
+        }
+
+        for (int i = 0; i < cells.Length; i++)
+        {
+            float cellX = x + i * cellW + 6;
+            _ctx.DrawText(cells[i], cellX, y + 1, Math.Max(12, cellW - 12), header ? 10.8f : 10.4f,
+                header ? WpfColor.FromRgb(30, 41, 59) : WpfColor.FromRgb(51, 65, 85));
+        }
+    }
+
+    private static bool IsMarkdownTableRow(string line) =>
+        line.Count(c => c == '|') >= 2;
+
+    private static bool LooksLikeTableSeparator(string line)
+    {
+        if (!IsMarkdownTableRow(line)) return false;
+        string text = line.Trim().Trim('|').Replace(" ", string.Empty, StringComparison.Ordinal);
+        return text.Length > 0 && text.All(c => c is '-' or ':' or '|');
+    }
+
+    private static string StripMarkdownInline(string text) =>
+        text.Replace("**", string.Empty, StringComparison.Ordinal)
+            .Replace("__", string.Empty, StringComparison.Ordinal)
+            .Replace("`", string.Empty, StringComparison.Ordinal);
+
+    private static float EstimateWrappedHeight(string text, float maxWidth, float fontSize, int maxLines)
+    {
+        float avgCharW = Math.Max(4.5f, fontSize * 0.58f);
+        int charsPerLine = Math.Max(12, (int)Math.Floor(maxWidth / avgCharW));
+        int lines = Math.Clamp((int)Math.Ceiling(Math.Max(1, text.Length) / (double)charsPerLine), 1, Math.Max(1, maxLines));
+        return lines * fontSize * 1.45f;
+    }
 
     private static IReadOnlyList<Vector2> BuildRegularPolygonPoints(Rect bounds, int sides, float rotation)
     {

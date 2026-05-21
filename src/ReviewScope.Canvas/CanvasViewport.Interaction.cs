@@ -376,7 +376,7 @@ public sealed partial class CanvasViewport
         int lineIndex = (int)Math.Floor(relY / CodeLineH);
         int visibleLines = (int)Math.Floor(bodyRect.Height / CodeLineH);
         if (lineIndex < 0 || lineIndex >= visibleLines) return false;
-        float codeX = (float)bodyRect.X + (float)CodeGutterW;
+        float codeX = (float)(bodyRect.X + CodeGutterW + CodeTextPadX);
         if (world.X < codeX) return false;
         int startLine = block.Block.Focused?.StartLine ?? block.Block.StartLine ?? 1;
         _codeScrollLines.TryGetValue(block.Block.Key, out int scrollLines);

@@ -24,9 +24,9 @@ internal sealed record ConnectionEndpointHit(SceneConnectionVisual Connection, C
 
 public sealed partial class CanvasViewport
 {
-    private const double ConnectionArrowHitRadius = 14;
-    private const double ConnectionAnchorHitRadius = 6;
-    private const double ConnectionControlHitRadius = 6;
+    private const double ConnectionArrowHitRadius = 17;
+    private const double ConnectionAnchorHitRadius = 9;
+    private const double ConnectionControlHitRadius = 9;
     private const int ConnectionHitSamples = 48;
 
     internal static int FindNearestConnectionAnchor(Rect bounds, Point world)

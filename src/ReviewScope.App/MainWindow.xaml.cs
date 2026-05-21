@@ -35,6 +35,7 @@ public partial class MainWindow : Window
         CanvasViewport.RestoreRequestedCommand = new RelayCommand<RestoreRequestedArgs>(OnRestoreRequested);
         CanvasViewport.ConnectionDrawnCommand = new RelayCommand<ConnectionDrawnArgs>(OnConnectionDrawn);
         CanvasViewport.AnnotationRequestedCommand = new RelayCommand<AnnotationRequestedArgs>(OnAnnotationRequested);
+        CanvasViewport.CopyRequestedCommand = new RelayCommand<object>(_ => _vm.CopySelectedBoardItemsCommand.Execute(null));
         CanvasViewport.PasteRequestedCommand = new RelayCommand<PasteRequestedArgs>(OnCanvasPasteRequested);
 
         // When scene is mutated inside the canvas (drag, delete, resize), sync back
@@ -50,13 +51,30 @@ public partial class MainWindow : Window
 
     private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Delete)
+        if (e.Key != Key.Delete && !(Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && e.Key == Key.C))
             return;
 
         if (IsTextInputSource(e.OriginalSource as DependencyObject))
             return;
 
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && e.Key == Key.C)
+        {
+            _vm.CopySelectedBoardItemsCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
         CanvasViewport.DeleteSelection();
+        e.Handled = true;
+    }
+
+    private void OnFileMenuButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.ContextMenu is null)
+            return;
+
+        button.ContextMenu.PlacementTarget = button;
+        button.ContextMenu.IsOpen = true;
         e.Handled = true;
     }
 
@@ -78,10 +96,22 @@ public partial class MainWindow : Window
 
     private async void OnExplorerDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (ExplorerTree.SelectedItem is FileExplorerItemViewModel item && item.IsFile && item.FilePath is not null)
+        if (sender is not TreeView tree)
+            return;
+
+        if (tree.SelectedItem is FileExplorerItemViewModel item && item.IsFile && item.FilePath is not null)
         {
-            await _vm.LoadSymbolsForFileAsync(item.FilePath);
-            await _vm.AddFileToCanvasAsync(item.FilePath);
+            if (IsImageFile(item.FilePath))
+            {
+                await _vm.AddImageFileToCanvasAsync(item.FilePath);
+                return;
+            }
+
+            if (IsTextLikeBoardFile(item.FilePath))
+            {
+                await _vm.LoadSymbolsForFileAsync(item.FilePath);
+                await _vm.AddFileToCanvasAsync(item.FilePath);
+            }
         }
     }
 
@@ -427,7 +457,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        await _vm.PasteBoardItemsAsync();
+        Point pasteWorld = CanvasViewport.GetLastMouseWorldPoint();
+        await _vm.PasteBoardItemsAtAsync(pasteWorld.X, pasteWorld.Y);
     }
 
     private async void OnCanvasPasteRequested(PasteRequestedArgs? args)
@@ -445,7 +476,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        await _vm.PasteBoardItemsAsync();
+        await _vm.PasteBoardItemsAtAsync(args.WorldX, args.WorldY);
     }
 
     private async void OnSessionTabSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -541,6 +572,22 @@ public partial class MainWindow : Window
             || IsImageFile(file);
     }
 
+    private static bool IsTextLikeBoardFile(string file)
+    {
+        string ext = System.IO.Path.GetExtension(file);
+        return ext.Equals(".cs", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".xaml", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".md", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".txt", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".json", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".xml", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".props", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".targets", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".config", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".yml", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".yaml", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool IsImageFile(string file)
     {
         string ext = System.IO.Path.GetExtension(file);
@@ -609,6 +656,11 @@ public partial class MainWindow : Window
     {
         if (sender is not Button btn || btn.CommandParameter is not string width) return;
         _vm.SelectedStrokeWidth = width;
+        await _vm.ApplySelectionPropertiesAsync();
+    }
+
+    private async void OnApplySelectionProperties(object sender, RoutedEventArgs e)
+    {
         await _vm.ApplySelectionPropertiesAsync();
     }
 

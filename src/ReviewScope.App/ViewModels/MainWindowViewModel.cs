@@ -31,10 +31,10 @@ public partial class MainWindowViewModel : ObservableObject
 
     private const double CodeLineHeight = 18.0;
     private const double CodeBlockVerticalChrome = 100.0;
-    private const double MinFileBlockHeight = 140.0;
-    private const double MaxUnfocusedFileBlockHeight = 480.0;
-    private const double DefaultFileBlockWidth = 480.0;
-    private const double MinScopedBlockHeight = 120.0;
+    private const double MinFileBlockHeight = 1200.0;
+    private const double MaxUnfocusedFileBlockHeight = 1200.0;
+    private const double DefaultFileBlockWidth = 800.0;
+    private const double MinScopedBlockHeight = 1200.0;
 
     // ---- Observable state ----
     [ObservableProperty] private RenderScene _scene = RenderScene.Empty;
@@ -42,7 +42,7 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _workspacePath = string.Empty;
     [ObservableProperty] private string _workspaceBranchName = string.Empty;
     [ObservableProperty] private ReviewSession? _selectedSession;
-    [ObservableProperty] private string _sessionNameDraft = "New Session";
+    [ObservableProperty] private string _sessionNameDraft = "New Board";
     [ObservableProperty] private Guid? _sessionSpawnAnimationId;
     [ObservableProperty] private string _selectedAnnotationContent = string.Empty;
     [ObservableProperty] private Guid? _editingAnnotationId;
@@ -70,6 +70,7 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _selectedStroke = "#CBD5E1";
     [ObservableProperty] private string _selectedTextColor = "#111827";
     [ObservableProperty] private string _selectedStrokeWidth = "1.2";
+    [ObservableProperty] private string _selectedFontSize = "16";
     [ObservableProperty] private string _selectedTextAlignment = "Center";
     [ObservableProperty] private bool _selectedDashed;
     [ObservableProperty] private bool _selectedLocked;
@@ -84,9 +85,11 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _canUndo;
     [ObservableProperty] private bool _canRedo;
     [ObservableProperty] private string _selectedBranch = string.Empty;
+    [ObservableProperty] private string _fileExplorerRootPath = string.Empty;
 
     // Fields used by partial classes
     private string? _lastWorkspaceLoadPath;
+    private string? _lastBoardFilePath;
     private WorkspaceSnapshot? _currentSnapshot;
     private ReviewSession? _activeSession;
     private CancellationTokenSource? _saveCts;
@@ -102,6 +105,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     public ObservableCollection<string> AvailableBranches { get; } = new();
     public ObservableCollection<FileExplorerItemViewModel> ExplorerRoots { get; } = new();
+    public ObservableCollection<FileExplorerItemViewModel> FileExplorerRoots { get; } = new();
     public ObservableCollection<ReviewSession> Sessions { get; } = new();
     public ObservableCollection<SymbolExplorerItemViewModel> SymbolRoots { get; } = new();
     public ObservableCollection<BoardSearchResultViewModel> BoardSearchResults { get; } = new();
@@ -179,6 +183,7 @@ public partial class MainWindowViewModel : ObservableObject
             SelectedStroke = style.Stroke;
             SelectedTextColor = style.Text;
             SelectedStrokeWidth = style.StrokeWidth.ToString("0.##");
+            SelectedFontSize = style.FontSize.ToString("0.#");
             SelectedTextAlignment = NormalizeTextAlignment(style.TextAlign);
             SelectedDashed = style.Dashed;
             SelectedLocked = SelectedBlock.IsLocked;
@@ -196,6 +201,7 @@ public partial class MainWindowViewModel : ObservableObject
             SelectedConnectionLabel = SelectedConnection.Label ?? string.Empty;
             SelectedStroke = SelectedConnection.Stroke;
             SelectedStrokeWidth = "1.6";
+            SelectedFontSize = "16";
             SelectedTextAlignment = "Center";
             SelectedDashed = SelectedConnection.Dashed;
             SelectedRouteKind = SelectedConnection.RouteKind.ToString();
@@ -224,6 +230,7 @@ public partial class MainWindowViewModel : ObservableObject
         SelectedBodyDraft = string.Empty;
         SelectedConnectionLabel = string.Empty;
         SelectedStrokeWidth = "1.2";
+        SelectedFontSize = "16";
         SelectedTextAlignment = "Center";
         SelectedLocked = false;
         ClearSelectedObjectData();

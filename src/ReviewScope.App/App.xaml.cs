@@ -193,6 +193,17 @@ public partial class App : Application
     {
         if (_host is not null)
         {
+            try
+            {
+                var vm = _host.Services.GetService<MainWindowViewModel>();
+                if (vm is not null)
+                    await vm.FlushPendingSaveAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Final save failure: {ex}");
+            }
+
             await _host.StopAsync(TimeSpan.FromSeconds(3));
             _host.Dispose();
         }

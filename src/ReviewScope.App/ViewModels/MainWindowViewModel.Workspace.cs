@@ -15,6 +15,16 @@ public sealed partial class MainWindowViewModel
 {
     private bool _suppressBranchReload;
     internal string? CurrentSymbolFilePath { get; private set; }
+    private static readonly HashSet<string> FileExplorerSkippedDirectories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".git",
+        ".vs",
+        ".reviewscope",
+        "bin",
+        "obj",
+        "node_modules",
+        "packages"
+    };
 
     // -----------------------------------------------------------------------
     // Workspace loading
@@ -89,6 +99,7 @@ public sealed partial class MainWindowViewModel
 
             await RefreshAvailableBranchesAsync(path, normalizedBranch, ct);
             BuildExplorer(_currentSnapshot);
+            BuildFileExplorer(_currentSnapshot);
             await LoadSessionsAsync(_currentSnapshot.WorkspaceKey, ct);
         }
         catch (Exception ex)
@@ -136,6 +147,25 @@ public sealed partial class MainWindowViewModel
         SelectedSymbolsHeader = "Symbols";
     }
 
+    private void BuildFileExplorer(WorkspaceSnapshot snapshot, string? query = null)
+    {
+        FileExplorerRoots.Clear();
+
+        string rootPath = ResolveWorkspaceFolder(snapshot.WorkspacePath);
+        FileExplorerRootPath = rootPath;
+        if (!Directory.Exists(rootPath))
+            return;
+
+        string rootName = Path.GetFileName(rootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrWhiteSpace(rootName))
+            rootName = rootPath;
+
+        var root = new FileExplorerItemViewModel(rootName, null, isFile: false, isProjectRoot: true) { IsExpanded = true };
+        string trimmedQuery = query?.Trim() ?? string.Empty;
+        PopulateFileExplorerNode(root, rootPath, trimmedQuery);
+        FileExplorerRoots.Add(root);
+    }
+
     [RelayCommand]
     public void ApplyExplorerSearch()
     {
@@ -144,6 +174,7 @@ public sealed partial class MainWindowViewModel
         if (query.Length == 0)
         {
             BuildExplorer(_currentSnapshot);
+            BuildFileExplorer(_currentSnapshot);
             return;
         }
 
@@ -155,7 +186,89 @@ public sealed partial class MainWindowViewModel
                 .ToList()
         };
         BuildExplorer(filtered);
+        BuildFileExplorer(_currentSnapshot, query);
         StatusMessage = $"Explorer search: {filtered.Files.Count} file(s)";
+    }
+
+    private static bool PopulateFileExplorerNode(FileExplorerItemViewModel parent, string directoryPath, string query)
+    {
+        var childDirectories = EnumerateDirectoriesSafe(directoryPath)
+            .Where(d => !FileExplorerSkippedDirectories.Contains(Path.GetFileName(d)))
+            .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var childFiles = EnumerateFilesSafe(directoryPath)
+            .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        bool hasMatch = false;
+        foreach (string childDirectory in childDirectories)
+        {
+            var folder = new FileExplorerItemViewModel(Path.GetFileName(childDirectory), null, isFile: false);
+            bool childMatched = PopulateFileExplorerNode(folder, childDirectory, query);
+            bool selfMatched = MatchesExplorerQuery(childDirectory, query);
+            if (query.Length == 0 || childMatched || selfMatched)
+            {
+                folder.IsExpanded = query.Length > 0 && (childMatched || selfMatched);
+                parent.Children.Add(folder);
+                hasMatch = true;
+            }
+        }
+
+        foreach (string file in childFiles)
+        {
+            if (query.Length > 0 && !MatchesExplorerQuery(file, query))
+                continue;
+
+            parent.Children.Add(new FileExplorerItemViewModel(Path.GetFileName(file), file, isFile: true));
+            hasMatch = true;
+        }
+
+        return hasMatch;
+    }
+
+    private static IEnumerable<string> EnumerateDirectoriesSafe(string directoryPath)
+    {
+        try
+        {
+            return Directory.EnumerateDirectories(directoryPath);
+        }
+        catch (IOException)
+        {
+            return Array.Empty<string>();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    private static IEnumerable<string> EnumerateFilesSafe(string directoryPath)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(directoryPath);
+        }
+        catch (IOException)
+        {
+            return Array.Empty<string>();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    private static bool MatchesExplorerQuery(string path, string query) =>
+        query.Length == 0 ||
+        Path.GetFileName(path).Contains(query, StringComparison.OrdinalIgnoreCase) ||
+        path.Contains(query, StringComparison.OrdinalIgnoreCase);
+
+    private static string ResolveWorkspaceFolder(string workspacePath)
+    {
+        string path = Path.GetFullPath(workspacePath);
+        if (Directory.Exists(path)) return path;
+        return Path.GetDirectoryName(path) ?? path;
     }
 
     private static void AddFileToExplorer(FileExplorerItemViewModel projectRoot, WorkspaceFileSummary file)

@@ -29,6 +29,12 @@ public sealed partial class CanvasViewport
         
         if (modifiers.HasFlag(ModifierKeys.Control) && key == Key.G) { GroupSelectedBlocks(); return; }
         if (modifiers.HasFlag(ModifierKeys.Control) && key == Key.U) { UngroupSelectedGroups(); return; }
+        if (modifiers.HasFlag(ModifierKeys.Control) && key == Key.C)
+        {
+            if (CopyRequestedCommand?.CanExecute(null) == true)
+                CopyRequestedCommand.Execute(null);
+            return;
+        }
         if (modifiers.HasFlag(ModifierKeys.Control) && key == Key.V)
         {
             WpfPoint world = GetLastMouseWorldPoint();
@@ -42,6 +48,7 @@ public sealed partial class CanvasViewport
         if (key == Key.F) { FrameAll(); return; }
         if (key == Key.B) { ToggleBackground(); return; }
         if (key == Key.E) { AddOrMoveConnectionArrow(ToWorld(_lastMouseScreenPoint)); return; }
+        if (modifiers == ModifierKeys.None && key == Key.W) { RequestNoteAtLastMousePoint(); return; }
         if (key == Key.Space) { ToggleSelectedGroupCollapse(); return; }
         
         if (key == Key.Return)
@@ -118,9 +125,10 @@ public sealed partial class CanvasViewport
             if (editVis is null || !editVis.Bounds.Contains(world)) CommitNoteEdit(save: true);
             else
             {
-                _editingTitle = false;
-                var metrics = GetEditTextMetrics(editVis);
-                int newPos = HitTestCursorPos(_editBody, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap);
+                _editingTitle = IsNoteTitleHit(editVis, world);
+                var metrics = GetEditTextMetrics(editVis, _editingTitle);
+                string editText = _editingTitle ? _editTitle : _editBody;
+                int newPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap);
                 if (modifiers.HasFlag(ModifierKeys.Shift)) { if (_editSelectionAnchor < 0) _editSelectionAnchor = _editCursorPos; }
                 else _editSelectionAnchor = newPos;
                 _editCursorPos = newPos;
@@ -233,8 +241,9 @@ public sealed partial class CanvasViewport
             var ev = _snapshot.Blocks.FirstOrDefault(b => b.Block.Key == _editingNoteKey);
             if (ev is not null)
             {
-                var metrics = GetEditTextMetrics(ev);
-                _editCursorPos = HitTestCursorPos(_editBody, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap);
+                var metrics = GetEditTextMetrics(ev, _editingTitle);
+                string editText = _editingTitle ? _editTitle : _editBody;
+                _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap);
                 _editCursorVisible = true;
                 RenderNative();
             }
@@ -261,11 +270,11 @@ public sealed partial class CanvasViewport
     {
         WpfPoint world = ToWorld(screen);
         var hit = HitBlock(world);
-        if (hit is null || !hit.Block.IsSelected || hit.Block.Body is null || hit.Block.Kind is not (BlockKind.File or BlockKind.Extract)) return false;
+        if (hit is null || hit.Block.Body is null || hit.Block.Kind is not (BlockKind.File or BlockKind.Extract or BlockKind.MarkdownDoc)) return false;
         Rect bodyRect = CanvasDrawingUtils.GetBodyRect(hit.Bounds);
         if (!bodyRect.Contains(world)) return false;
         int maxScroll = GetMaxCodeScrollLines(hit.Block, bodyRect);
-        if (maxScroll <= 0) return false;
+        if (maxScroll <= 0) return true;
         _codeScrollLines.TryGetValue(hit.Block.Key, out int current);
         int step = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 12 : 4;
         int next = Math.Clamp(current + (delta < 0 ? step : -step), 0, maxScroll);
@@ -527,19 +536,33 @@ public sealed partial class CanvasViewport
     {
         _editingNoteKey = block.Key; _editTitle = block.Title; _editBody = block.Body ?? string.Empty; _editSelectionAnchor = -1; _editMouseSelecting = false; _editingTitle = false;
         var vis = _snapshot.Blocks.FirstOrDefault(b => b.Block.Key == block.Key);
-        if (clickWorld is WpfPoint cw && vis is not null) { var metrics = GetEditTextMetrics(vis); _editCursorPos = HitTestCursorPos(_editBody, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, cw, wrap: metrics.Wrap); }
+        if (clickWorld is WpfPoint cw && vis is not null)
+        {
+            _editingTitle = IsNoteTitleHit(vis, cw);
+            var metrics = GetEditTextMetrics(vis, _editingTitle);
+            string editText = _editingTitle ? _editTitle : _editBody;
+            _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, cw, wrap: metrics.Wrap);
+        }
         else _editCursorPos = _editBody.Length;
         _editCursorVisible = true; _cursorBlinkTimer?.Dispose();
         _cursorBlinkTimer = new System.Threading.Timer(_ => { _editCursorVisible = !_editCursorVisible; Dispatcher.BeginInvoke(new Action(RenderNative)); }, null, 530, 530);
         ApplySceneChange(CanvasViewport.SetSelection(Scene, new[] { block.Key })); RebuildSnapshot(); RenderNative();
     }
 
-    private static (float X, float Y, float Width, float FontSize, bool Wrap) GetEditTextMetrics(SceneBlockVisual visual)
+    private static (float X, float Y, float Width, float FontSize, bool Wrap) GetEditTextMetrics(SceneBlockVisual visual, bool title = false)
     {
         Rect bounds = visual.Bounds;
-        if (visual.Block.Kind == BlockKind.Note) return ((float)bounds.X + 10, (float)bounds.Y + 8, (float)bounds.Width - 20, 11f, true);
+        if (visual.Block.Kind == BlockKind.Note && title) return ((float)bounds.X + 24, (float)bounds.Y + 12, (float)bounds.Width - 48, 14f, false);
+        if (visual.Block.Kind == BlockKind.Note) return ((float)bounds.X + 14, (float)bounds.Y + 42, (float)bounds.Width - 28, 12.5f, true);
         if (visual.Block.Kind == BlockKind.Text) return ((float)bounds.X + 12, (float)bounds.Y + 12, (float)bounds.Width - 24, 14f, true);
         return ((float)bounds.X + 14, (float)(bounds.Y + bounds.Height / 2 - 8), (float)bounds.Width - 28, 13f, false);
+    }
+
+    private static bool IsNoteTitleHit(SceneBlockVisual visual, WpfPoint world)
+    {
+        if (visual.Block.Kind != BlockKind.Note) return false;
+        Rect bounds = visual.Bounds;
+        return world.Y < bounds.Y + 38;
     }
 
     internal void CommitNoteEdit(bool save)
@@ -550,7 +573,8 @@ public sealed partial class CanvasViewport
             var noteBlock = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
             if (noteBlock is not null)
             {
-                var blocks = Scene.Blocks.Select(b => b.Key.Equals(key, StringComparison.OrdinalIgnoreCase) ? b with { Body = _editBody } : b).ToList();
+                string title = string.IsNullOrWhiteSpace(_editTitle) ? "Note" : _editTitle.Trim();
+                var blocks = Scene.Blocks.Select(b => b.Key.Equals(key, StringComparison.OrdinalIgnoreCase) ? b with { Title = title, Body = _editBody } : b).ToList();
                 var annotations = Scene.Annotations.Select(a => a.Id == noteBlock.Id ? a with { Content = _editBody } : a).ToList();
                 ApplySceneChange(Scene with { Blocks = blocks, Annotations = annotations }); RebuildSnapshot(); return;
             }
@@ -658,6 +682,13 @@ public sealed partial class CanvasViewport
         SharpGen.Runtime.RawBool isTrailing = false; SharpGen.Runtime.RawBool isInside = false;
         var metrics = layout.HitTestPoint((float)(world.X - textX), (float)(world.Y - textY), out isTrailing, out isInside);
         return Math.Clamp((int)metrics.TextPosition + (isTrailing ? 1 : 0), 0, text.Length);
+    }
+
+    private void RequestNoteAtLastMousePoint()
+    {
+        if (AnnotationRequestedCommand?.CanExecute(null) != true) return;
+        WpfPoint world = GetLastMouseWorldPoint();
+        AnnotationRequestedCommand.Execute(new AnnotationRequestedArgs(world.X, world.Y));
     }
 
     private void ToggleNoteGlue(string noteKey) { bool isAttached = Scene.Connections.Any(c => c.Label == "__note" && c.TargetKey.Equals(noteKey, StringComparison.OrdinalIgnoreCase)); if (isAttached) { DetachNote(noteKey); return; } var note = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(noteKey, StringComparison.OrdinalIgnoreCase)); if (note is null) return; var nearest = Scene.Blocks.Where(b => b.Kind != BlockKind.Note).OrderBy(b => DistanceBetween(note, b)).FirstOrDefault(); if (nearest is not null) AttachNote(nearest.Key, noteKey); }

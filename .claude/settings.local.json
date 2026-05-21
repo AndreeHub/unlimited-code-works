@@ -3,7 +3,8 @@
     "allow": [
       "Bash(dotnet build *)",
       "Bash(git show *)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "PowerShell(ls \"C:\\\\Users\\\\lic\\\\Desktop\\\\3 SWD\\\\ReviewScope\\\\src\" -Recurse | Where-Object {$_.Extension -eq \".cs\"} | Select-Object FullName)"
     ]
   }
 }

@@ -29,7 +29,7 @@ internal sealed class ConnectionRenderer
         WpfColor lineColor = conn.IsSelected
             ? WpfColor.FromArgb(230, 32, 104, 192)
             : CanvasDrawingUtils.ParseColor(conn.Stroke);
-        float stroke = _ctx.InvStroke(conn.IsSelected ? 2.2f : 1.6f);
+        float stroke = _ctx.InvStroke(conn.IsSelected ? 3.0f : 2.1f);
 
         var brush = _ctx.GetBrush(lineColor);
         var points = SampleConnectionPoints(connVis).ToArray();
@@ -111,7 +111,7 @@ internal sealed class ConnectionRenderer
         previewPoints.Add(new Vector2((float)endLead.X, (float)endLead.Y));
         previewPoints.Add(new Vector2((float)end.X, (float)end.Y));
 
-        float strokeW = _ctx.InvStroke(isHoveringTarget ? 2.1f : 1.5f);
+        float strokeW = _ctx.InvStroke(isHoveringTarget ? 2.8f : 2.0f);
         var brush = _ctx.GetBrush(color);
         SketchyDrawer.DrawPolygon(_ctx.RenderTarget, previewPoints.ToArray(), null, brush, strokeW, "connection_preview", close: false);
         if (draftMid is Point p)
@@ -130,7 +130,7 @@ internal sealed class ConnectionRenderer
 
     private void DrawControlPoint(Point p, ID2D1SolidColorBrush brush)
     {
-        float r = Math.Max(1.5f, _ctx.InvStroke(2f));
+        float r = Math.Max(2.5f, _ctx.InvStroke(3.2f));
         _ctx.RenderTarget.FillEllipse(new Ellipse(new Vector2((float)p.X, (float)p.Y), r, r), brush);
     }
 
@@ -141,7 +141,7 @@ internal sealed class ConnectionRenderer
         if (len < 0.01f) return;
         dir /= len;
         Vector2 perp = new(-dir.Y, dir.X);
-        float aLen = Math.Max(8f, stroke * 5);
+        float aLen = Math.Max(11f, stroke * 5.8f);
         Vector2 tipV = new((float)tip.X, (float)tip.Y);
         Vector2 left = tipV - dir * aLen + perp * (aLen * 0.45f);
         Vector2 right = tipV - dir * aLen - perp * (aLen * 0.45f);

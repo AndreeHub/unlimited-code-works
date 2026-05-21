@@ -57,7 +57,8 @@ public sealed record BlockPlacement(
     string? ShapeType = null,
     BoardItemStyle? Style = null,
     BoardSourceBinding? Source = null,
-    BoardGroupState? GroupState = null);
+    BoardGroupState? GroupState = null,
+    string? Body = null);
 
 public sealed record FocusedRange(
     int StartLine,
@@ -75,7 +76,8 @@ public sealed record BoardItemStyle(
     double Opacity = 1,
     double CornerRadius = 8,
     string TextAlign = "Center",
-    string FillStyle = "hatch");
+    string FillStyle = "hatch",
+    double FontSize = 16);
 
 public sealed record BoardSourceBinding(
     string? AssetPath = null,

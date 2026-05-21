@@ -14,7 +14,7 @@ namespace ReviewScope.App.ViewModels;
 public sealed partial class MainWindowViewModel
 {
     // -----------------------------------------------------------------------
-    // Session management
+    // Board management
     // -----------------------------------------------------------------------
     private async Task LoadSessionsAsync(string workspaceKey, CancellationToken ct)
     {
@@ -31,17 +31,17 @@ public sealed partial class MainWindowViewModel
     [RelayCommand]
     public async Task CreateNewSessionAsync()
     {
-        if (_currentSnapshot is null) return;
+        var workspace = EnsureBoardWorkspace();
         string name = NextSessionName();
         var session = new ReviewSession(
-            Guid.NewGuid(), name, _currentSnapshot.WorkspaceKey,
+            Guid.NewGuid(), name, workspace.WorkspaceKey,
             Array.Empty<BlockPlacement>(), Array.Empty<ConnectionSnapshot>(),
             Array.Empty<AnnotationSnapshot>(), Array.Empty<SwimLaneSnapshot>(),
             DateTimeOffset.UtcNow, DefaultBoardLayers());
         SessionSpawnAnimationId = session.Id;
         Sessions.Add(session);
         await _sessions.SaveSessionAsync(session, CancellationToken.None);
-        await _sessions.SaveSessionOrderAsync(_currentSnapshot.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), CancellationToken.None);
+        await _sessions.SaveSessionOrderAsync(workspace.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), CancellationToken.None);
         await ActivateSessionAsync(session, hydrateCode: false);
     }
 
@@ -55,14 +55,15 @@ public sealed partial class MainWindowViewModel
     [RelayCommand]
     public async Task RenameSelectedSessionAsync()
     {
-        if (SelectedSession is null || _currentSnapshot is null) return;
+        if (SelectedSession is null) return;
+        EnsureBoardWorkspace();
         string name = string.IsNullOrWhiteSpace(SessionNameDraft) ? SelectedSession.Name : SessionNameDraft.Trim();
         await RenameSessionAsync(SelectedSession, name);
     }
 
     public async Task RenameSessionAsync(ReviewSession session, string? requestedName)
     {
-        if (_currentSnapshot is null) return;
+        EnsureBoardWorkspace();
         var current = Sessions.FirstOrDefault(s => s.Id == session.Id) ?? session;
         string name = string.IsNullOrWhiteSpace(requestedName) ? current.Name : requestedName.Trim();
         var renamed = current with { Name = name, UpdatedAt = DateTimeOffset.UtcNow };
@@ -72,18 +73,19 @@ public sealed partial class MainWindowViewModel
         if (_activeSession?.Id == renamed.Id) _activeSession = renamed;
         SelectedSession = renamed;
         SessionNameDraft = renamed.Name;
-        StatusMessage = $"Renamed session: {name}";
+        StatusMessage = $"Renamed board: {name}";
     }
 
     [RelayCommand]
     public async Task DeleteSelectedSessionAsync()
     {
-        if (SelectedSession is null || _currentSnapshot is null) return;
+        if (SelectedSession is null) return;
+        var workspace = EnsureBoardWorkspace();
         var deleting = SelectedSession;
-        await _sessions.DeleteSessionAsync(deleting.Id, _currentSnapshot.WorkspaceKey, CancellationToken.None);
+        await _sessions.DeleteSessionAsync(deleting.Id, workspace.WorkspaceKey, CancellationToken.None);
         Sessions.Remove(deleting);
-        await _sessions.SaveSessionOrderAsync(_currentSnapshot.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), CancellationToken.None);
-        StatusMessage = $"Deleted session: {deleting.Name}";
+        await _sessions.SaveSessionOrderAsync(workspace.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), CancellationToken.None);
+        StatusMessage = $"Deleted board: {deleting.Name}";
 
         if (Sessions.Count == 0)
         {
@@ -103,7 +105,7 @@ public sealed partial class MainWindowViewModel
         UpdateSelectedObject(Scene);
         RefreshBoardDetails();
         ResetHistory();
-        StatusMessage = $"Session: {session.Name}";
+        StatusMessage = $"Board: {session.Name}";
         if (hydrateCode)
             await HydrateCodeBlocksAsync();
     }
@@ -116,7 +118,7 @@ public sealed partial class MainWindowViewModel
 
     public async Task MoveSessionAsync(ReviewSession session, int targetIndex)
     {
-        if (_currentSnapshot is null) return;
+        EnsureBoardWorkspace();
         if (!MoveSessionInQueue(session, targetIndex))
             return;
 
@@ -125,7 +127,7 @@ public sealed partial class MainWindowViewModel
 
     public bool MoveSessionInQueue(ReviewSession session, int targetIndex)
     {
-        if (_currentSnapshot is null) return false;
+        EnsureBoardWorkspace();
         int oldIndex = Sessions.ToList().FindIndex(s => s.Id == session.Id);
         if (oldIndex < 0) return false;
 
@@ -138,19 +140,19 @@ public sealed partial class MainWindowViewModel
 
         Sessions.Move(oldIndex, targetIndex);
         SelectedSession = Sessions[targetIndex];
-        StatusMessage = $"Moved session: {SelectedSession.Name}";
+        StatusMessage = $"Moved board: {SelectedSession.Name}";
         return true;
     }
 
     public async Task PersistSessionOrderAsync()
     {
-        if (_currentSnapshot is null) return;
-        await _sessions.SaveSessionOrderAsync(_currentSnapshot.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), CancellationToken.None);
+        var workspace = EnsureBoardWorkspace();
+        await _sessions.SaveSessionOrderAsync(workspace.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), CancellationToken.None);
     }
 
     private string NextSessionName()
     {
-        const string baseName = "New Session";
+        const string baseName = "New Board";
         if (!Sessions.Any(s => string.Equals(s.Name, baseName, StringComparison.OrdinalIgnoreCase)))
             return baseName;
 
@@ -172,7 +174,7 @@ public sealed partial class MainWindowViewModel
             b.Id, b.Key, b.Kind, b.Title, b.Subtitle,
             b.X, b.Y, b.Width, b.Height,
             IsCollapsed: b.IsCollapsed,
-            Body: b.Kind == BlockKind.Note ? note?.Content : null,
+            Body: b.Kind == BlockKind.Note ? note?.Content : ResolvePersistedBlockBody(b),
             FilePath: b.FilePath,
             StartLine: b.StartLine,
             EndLine: b.EndLine,
@@ -275,18 +277,78 @@ public sealed partial class MainWindowViewModel
 
     private async Task PersistSessionAsync()
     {
-        if (_activeSession is null || _currentSnapshot is null) return;
+        if (_activeSession is null) return;
+        EnsureBoardWorkspace();
         _saveCts?.Cancel();
         _saveCts = new CancellationTokenSource();
         var ct = _saveCts.Token;
         try
         {
             await Task.Delay(800, ct);
-            var updated = BuildSessionFromScene(_activeSession, Scene);
-            _activeSession = updated;
-            await _sessions.SaveSessionAsync(updated, CancellationToken.None);
+            await SaveCurrentSessionSnapshotAsync(CancellationToken.None);
         }
         catch (OperationCanceledException) { }
+    }
+
+    public async Task SaveActiveSessionNowAsync(bool showStatus = true)
+    {
+        if (_activeSession is null)
+        {
+            if (showStatus) StatusMessage = "Create a board before saving.";
+            return;
+        }
+
+        EnsureBoardWorkspace();
+        _saveCts?.Cancel();
+        _saveCts = null;
+        await SaveCurrentSessionSnapshotAsync(CancellationToken.None);
+
+        if (showStatus)
+            StatusMessage = $"Saved board: {_activeSession.Name}";
+    }
+
+    public async Task FlushPendingSaveAsync()
+    {
+        if (_activeSession is null) return;
+        await SaveActiveSessionNowAsync(showStatus: false);
+    }
+
+    private async Task SaveCurrentSessionSnapshotAsync(CancellationToken ct)
+    {
+        if (_activeSession is null) return;
+        var workspace = EnsureBoardWorkspace();
+
+        var updated = BuildSessionFromScene(_activeSession, Scene);
+        _activeSession = updated;
+        await _sessions.SaveSessionAsync(updated, ct);
+
+        int index = Sessions.ToList().FindIndex(s => s.Id == updated.Id);
+        if (index >= 0)
+            Sessions[index] = updated;
+
+        if (SelectedSession?.Id == updated.Id)
+            SelectedSession = updated;
+
+        await _sessions.SaveSessionOrderAsync(workspace.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), ct);
+    }
+
+    private WorkspaceSnapshot EnsureBoardWorkspace()
+    {
+        if (_currentSnapshot is not null) return _currentSnapshot;
+
+        string root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "ReviewScope",
+            "UntitledBoards");
+        Directory.CreateDirectory(root);
+
+        _currentSnapshot = new WorkspaceSnapshot(
+            root,
+            "Untitled Boards",
+            Array.Empty<WorkspaceFileSummary>());
+        WorkspacePath = _currentSnapshot.DisplayName;
+        StatusMessage = "Untitled board workspace ready.";
+        return _currentSnapshot;
     }
 
     private static ReviewSession BuildSessionFromScene(ReviewSession template, RenderScene scene)
@@ -295,7 +357,7 @@ public sealed partial class MainWindowViewModel
             b.Id, b.Kind, b.Key, b.Title, b.Subtitle,
             b.FilePath, b.StartLine, b.EndLine,
             b.X, b.Y, b.Width, b.Height, b.IsCollapsed, b.Focused,
-            b.ZIndex, b.LayerKey, b.IsLocked, b.ShapeType, b.Style, b.Source, b.GroupState)).ToList();
+            b.ZIndex, b.LayerKey, b.IsLocked, b.ShapeType, b.Style, b.Source, b.GroupState, PersistedBodyFor(b))).ToList();
 
         var connections = scene.Connections
             .Select(c => new ConnectionSnapshot(c.Id, c.SourceKey, c.TargetKey, c.Label,
@@ -340,6 +402,40 @@ public sealed partial class MainWindowViewModel
 
         return template with { Blocks = blocks, Connections = connections, Annotations = annotations, SwimLanes = swimLanes, Layers = layers, UpdatedAt = DateTimeOffset.UtcNow };
 }
+
+    private static string? ResolvePersistedBlockBody(BlockPlacement block)
+    {
+        if (block.Kind is BlockKind.File or BlockKind.Extract)
+            return null;
+
+        if (!string.IsNullOrEmpty(block.Body))
+            return block.Body;
+
+        string? assetPath = block.Source?.AssetPath;
+        if (string.IsNullOrWhiteSpace(assetPath) || !File.Exists(assetPath))
+            return null;
+
+        if (block.Kind == BlockKind.MarkdownDoc || block.Kind == BlockKind.Text || block.Kind == BlockKind.Shape)
+        {
+            try
+            {
+                return File.ReadAllText(assetPath);
+            }
+            catch (IOException)
+            {
+                return null;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? PersistedBodyFor(RenderBlock block) =>
+        block.Kind is BlockKind.File or BlockKind.Extract ? null : block.Body;
 
     private static IReadOnlyList<BoardLayerSnapshot> DefaultBoardLayers() => new[]
     {

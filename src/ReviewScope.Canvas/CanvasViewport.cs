@@ -40,7 +40,9 @@ public sealed partial class CanvasViewport : HwndHost
 
     internal const double HeaderH = 56;
     internal const double FooterH = 28;
-    internal const double CodeGutterW = 48;
+    internal const double CodeGutterW = 54;
+    internal const double CodeTextPadX = 12;
+    internal const double CodeScrollbarReserveW = 34;
     internal const double CodeLineH = 18;
     internal const double CodeCharW = 7.2;
     internal const int FocusedCodeTopPaddingLines = 2;
@@ -105,6 +107,7 @@ public sealed partial class CanvasViewport : HwndHost
     public ICommand? FocusRequestedCommand { get; set; }
     public ICommand? BlockMovedCommand { get; set; }
     public ICommand? BlockActivatedCommand { get; set; }
+    public ICommand? CopyRequestedCommand { get; set; }
     public ICommand? PasteRequestedCommand { get; set; }
     public ICommand? ConnectionDrawnCommand { get; set; }
     public ICommand? AnnotationRequestedCommand { get; set; }
@@ -355,7 +358,7 @@ public sealed partial class CanvasViewport : HwndHost
     {
         Rect bodyRect = CanvasDrawingUtils.GetBodyRect(block.Bounds);
         double topPadding = block.Block.Focused is not null ? FocusedCodeTopPaddingLines * CodeLineH : 0;
-        double relY = world.Y - bodyRect.Y - topPadding - 12;
+        double relY = world.Y - bodyRect.Y - topPadding;
         int lineIndex = Math.Max(0, (int)(relY / CodeLineH));
         int startLine = block.Block.Focused?.StartLine ?? block.Block.StartLine ?? 1;
         _codeScrollLines.TryGetValue(block.Block.Key, out int scrollLines);
@@ -444,7 +447,7 @@ public sealed partial class CanvasViewport : HwndHost
             case 0x0207: viewport.HandleMDown(GetMousePoint(lParam)); return IntPtr.Zero;
             case 0x0208: viewport.HandleMUp(GetMousePoint(lParam)); return IntPtr.Zero;
             case 0x0200: viewport.HandleMove(GetMousePoint(lParam)); return IntPtr.Zero;
-            case 0x020A: viewport.HandleWheel(GetMousePoint(lParam), (short)((wParam.ToInt64() >> 16) & 0xFFFF)); return IntPtr.Zero;
+            case 0x020A: viewport.HandleWheel(GetScreenPtAsClient(hwnd, lParam), GetWheelDelta(wParam)); return IntPtr.Zero;
             case 0x0100: viewport.HandleKeyDown(wParam); return IntPtr.Zero;
             case 0x0101: viewport.HandleKeyUp(wParam); return IntPtr.Zero;
             case 0x0102: viewport.HandleChar((char)wParam.ToInt64()); return IntPtr.Zero;
@@ -455,7 +458,7 @@ public sealed partial class CanvasViewport : HwndHost
     private static readonly Dictionary<IntPtr, WeakReference<CanvasViewport>> _hwndMap = new();
     private static CanvasViewport? FromHwnd(IntPtr hwnd) => _hwndMap.TryGetValue(hwnd, out var wr) && wr.TryGetTarget(out var v) ? v : null;
 
-    private static WpfPoint GetMousePoint(IntPtr lParam) => new(lParam.ToInt64() & 0xFFFF, (lParam.ToInt64() >> 16) & 0xFFFF);
+    private static WpfPoint GetMousePoint(IntPtr lParam) => GetClientPt(lParam);
 
     private static void OnSceneChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {

@@ -35,7 +35,7 @@ public sealed partial class MainWindowViewModel
         sb.AppendLine();
         sb.AppendLine($"Project: {_currentSnapshot?.DisplayName ?? "Unknown"}");
         sb.AppendLine("Branch: unknown");
-        sb.AppendLine($"Canvas: {_activeSession?.Name ?? "New Session"}");
+        sb.AppendLine($"Board: {_activeSession?.Name ?? "New Board"}");
         sb.AppendLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm}");
         sb.AppendLine();
         sb.AppendLine("---");

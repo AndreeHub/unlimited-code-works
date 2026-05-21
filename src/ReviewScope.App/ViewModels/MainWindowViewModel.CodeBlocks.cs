@@ -63,6 +63,8 @@ public sealed partial class MainWindowViewModel
     {
         foreach (var root in ExplorerRoots)
             SetExpandedRecursive(root, expanded);
+        foreach (var root in FileExplorerRoots)
+            SetExpandedRecursive(root, expanded);
     }
 
     private static void SetExpandedRecursive(FileExplorerItemViewModel item, bool expanded)
@@ -200,7 +202,7 @@ public sealed partial class MainWindowViewModel
             Guid.NewGuid(), key, BlockKind.Extract,
             $"{symbolName}(...)",
             $"{containingType}  *  {Path.GetFileName(sourceFilePath)}",
-            x, y, 640, height,
+            x, y, DefaultFileBlockWidth, height,
             FilePath: sourceFilePath,
             StartLine: startLine,
             EndLine: endLine,
@@ -260,7 +262,7 @@ public sealed partial class MainWindowViewModel
         double originalHeight = args.SourceBlock.Focused?.OriginalHeight ?? args.SourceBlock.Height;
 
         int lineCount = scope.Value.EndLine - scope.Value.StartLine + 1;
-        const double maxFocusedW = 720;
+        const double maxFocusedW = DefaultFileBlockWidth;
         double focusedW = Math.Min(originalWidth, maxFocusedW);
         double focusedH = MeasureCodeBlockHeight(lineCount, 220);
 
