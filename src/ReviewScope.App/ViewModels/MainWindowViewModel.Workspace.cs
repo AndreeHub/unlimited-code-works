@@ -315,7 +315,7 @@ public sealed partial class MainWindowViewModel
         CurrentSymbolFilePath = filePath;
         SymbolRoots.Clear();
         SelectedSymbolsHeader = $"Symbols ({Path.GetFileName(filePath)})";
-        IsSymbolsPanelVisible = true;
+        SelectedLeftTabIndex = 1;
 
         var structure = await _fileStructure.GetFileStructureAsync(filePath, CancellationToken.None);
         if (structure is null || structure.Types.Count == 0)

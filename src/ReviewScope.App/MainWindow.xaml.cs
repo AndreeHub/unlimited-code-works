@@ -6,9 +6,6 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using DrawingColor = System.Drawing.Color;
-using DrawingColorTranslator = System.Drawing.ColorTranslator;
-using Forms = System.Windows.Forms;
 
 namespace ReviewScope.App;
 
@@ -487,59 +484,6 @@ public partial class MainWindow : Window
 
     private void OnFrameAll(object sender, RoutedEventArgs e) => CanvasViewport.FrameAll();
 
-    private async void OnPickFillColor(object sender, RoutedEventArgs e)
-    {
-        if (TryPickColor(_vm.SelectedFill, out string hex))
-        {
-            _vm.SelectedFill = hex;
-            await _vm.ApplySelectionPropertiesAsync();
-        }
-    }
-
-    private async void OnPickStrokeColor(object sender, RoutedEventArgs e)
-    {
-        if (TryPickColor(_vm.SelectedStroke, out string hex))
-        {
-            _vm.SelectedStroke = hex;
-            await _vm.ApplySelectionPropertiesAsync();
-        }
-    }
-
-    private async void OnPickTextColor(object sender, RoutedEventArgs e)
-    {
-        if (TryPickColor(_vm.SelectedTextColor, out string hex))
-        {
-            _vm.SelectedTextColor = hex;
-            await _vm.ApplySelectionPropertiesAsync();
-        }
-    }
-
-    private static bool TryPickColor(string currentHex, out string hex)
-    {
-        hex = currentHex;
-        using var dialog = new Forms.ColorDialog
-        {
-            FullOpen = true,
-            AnyColor = true
-        };
-
-        try
-        {
-            dialog.Color = DrawingColorTranslator.FromHtml(currentHex);
-        }
-        catch
-        {
-            dialog.Color = DrawingColor.White;
-        }
-
-        if (dialog.ShowDialog() != Forms.DialogResult.OK)
-            return false;
-
-        DrawingColor color = dialog.Color;
-        hex = $"#{color.R:X2}{color.G:X2}{color.B:X2}";
-        return true;
-    }
-
     // Canvas drag-drop from explorer
     private void OnCanvasDragOver(object sender, DragEventArgs e)
     {
@@ -641,48 +585,6 @@ public partial class MainWindow : Window
     private async void OnSceneChangedByCanvas(CanvasSceneChangedArgs? args)
     {
         if (args is not null && args.IsContentChange) await _vm.OnSceneChangedByCanvas(args.Before, args.After);
-    }
-
-    private async void OnSelectColorPreset(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button btn || btn.Tag is not string type || btn.CommandParameter is not string hex) return;
-        if (type == "Fill") _vm.SelectedFill = hex;
-        else if (type == "Stroke") _vm.SelectedStroke = hex;
-        else if (type == "Text") _vm.SelectedTextColor = hex;
-        await _vm.ApplySelectionPropertiesAsync();
-    }
-
-    private async void OnSelectStrokeWidth(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button btn || btn.CommandParameter is not string width) return;
-        _vm.SelectedStrokeWidth = width;
-        await _vm.ApplySelectionPropertiesAsync();
-    }
-
-    private async void OnApplySelectionProperties(object sender, RoutedEventArgs e)
-    {
-        await _vm.ApplySelectionPropertiesAsync();
-    }
-
-    private async void OnSelectTextAlignment(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button btn || btn.CommandParameter is not string alignment) return;
-        _vm.SelectedTextAlignment = alignment;
-        await _vm.ApplySelectionPropertiesAsync();
-    }
-
-    private async void OnSelectStrokeStyle(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button btn || btn.CommandParameter is not string style) return;
-        _vm.SelectedDashed = style == "dashed";
-        await _vm.ApplySelectionPropertiesAsync();
-    }
-
-    private async void OnSelectFillStyle(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button btn || btn.CommandParameter is not string style) return;
-        _vm.SelectedFillStyle = style;
-        await _vm.ApplySelectionPropertiesAsync();
     }
 }
 

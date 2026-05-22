@@ -1,0 +1,325 @@
+<UserControl x:Class="ReviewScope.App.Controls.BoardSidebar"
+             x:Name="Root"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:ReviewScope.App.Controls">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/ReviewScope.App;component/Styles/MainWindowStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1,0,0,0">
+                <Grid>
+                    <TabControl SelectedIndex="{Binding SelectedRightTabIndex, Mode=TwoWay}" Margin="12,10,12,12">
+                        <TabItem Header="Inspector">
+                            <Grid Margin="0,10,0,0">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding HasBoardSelection, Converter={StaticResource BoolVis}}">
+                                    <StackPanel Margin="0,0,0,12">
+                                        <TextBlock Text="{Binding SelectedObjectTitle}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding SelectedObjectKind}" FontSize="11" Foreground="{StaticResource SubtleForeground}" Margin="0,4,0,2"/>
+                                        <TextBlock Text="{Binding SelectedObjectLineRange}" FontSize="10" Foreground="{StaticResource MutedForeground}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+                                        <Expander Header="Style" IsExpanded="True" Margin="0,0,0,8" Visibility="{Binding SelectionSupportsStyle, Converter={StaticResource BoolVis}}">
+                                            <StackPanel Margin="0,8,0,0">
+                                                <Border Background="{StaticResource HoverBg}" BorderBrush="{StaticResource SoftBorder}" BorderThickness="1" CornerRadius="6" Padding="3" Margin="0,0,0,10">
+                                                    <UniformGrid Columns="3">
+                                                        <RadioButton Style="{StaticResource SegmentedStyleTarget}" GroupName="StyleTarget" Content="Background" Tag="Fill" IsChecked="{Binding StyleTargetFillSelected, Mode=TwoWay}" Checked="OnSelectStyleTarget"/>
+                                                        <RadioButton Style="{StaticResource SegmentedStyleTarget}" GroupName="StyleTarget" Content="Border" Tag="Stroke" IsChecked="{Binding StyleTargetStrokeSelected, Mode=TwoWay}" Checked="OnSelectStyleTarget"/>
+                                                        <RadioButton Style="{StaticResource SegmentedStyleTarget}" GroupName="StyleTarget" Content="Text" Tag="Text" IsChecked="{Binding StyleTargetTextSelected, Mode=TwoWay}" Checked="OnSelectStyleTarget"/>
+                                                    </UniformGrid>
+                                                </Border>
+
+                                                <DockPanel Margin="0,0,0,8">
+                                                    <Border DockPanel.Dock="Left" Width="24" Height="24" CornerRadius="5" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" Background="{Binding SelectedStyleColor}" Margin="0,0,8,0"/>
+                                                    <TextBlock Text="{Binding SelectedStyleTarget, StringFormat=Current: {0}}" FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource SubtleForeground}" VerticalAlignment="Center"/>
+                                                </DockPanel>
+
+                                                <WrapPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#00000000" Click="OnSelectColorPreset" ToolTip="Transparent">
+                                                        <Grid Width="28" Height="28">
+                                                            <Line X1="6" Y1="22" X2="22" Y2="6" Stroke="#EF4444" StrokeThickness="1.6"/>
+                                                        </Grid>
+                                                    </Button>
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#FFFFFF" Background="#FFFFFF" Click="OnSelectColorPreset" ToolTip="White"/>
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#F8FAFC" Background="#F8FAFC" Click="OnSelectColorPreset" ToolTip="Mist"/>
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#E2E8F0" Background="#E2E8F0" Click="OnSelectColorPreset" ToolTip="Cloud"/>
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#FFF7ED" Background="#FFF7ED" Click="OnSelectColorPreset" ToolTip="Warm"/>
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#FFE4E6" Background="#FFE4E6" Click="OnSelectColorPreset" ToolTip="Rose"/>
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#FEF3C7" Background="#FEF3C7" Click="OnSelectColorPreset" ToolTip="Amber"/>
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#DCFCE7" Background="#DCFCE7" Click="OnSelectColorPreset" ToolTip="Mint"/>
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#CCFBF1" Background="#CCFBF1" Click="OnSelectColorPreset" ToolTip="Teal"/>
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#DBEAFE" Background="#DBEAFE" Click="OnSelectColorPreset" ToolTip="Blue"/>
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#EDE9FE" Background="#EDE9FE" Click="OnSelectColorPreset" ToolTip="Violet"/>
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#1E293B" Background="#1E293B" Click="OnSelectColorPreset" ToolTip="Slate"/>
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#0F766E" Background="#0F766E" Click="OnSelectColorPreset" ToolTip="Deep teal"/>
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#2E7DD7" Background="#2E7DD7" Click="OnSelectColorPreset" ToolTip="Accent"/>
+                                                    <Button Style="{StaticResource ColorCircleButton}" CommandParameter="#C2410C" Background="#C2410C" Click="OnSelectColorPreset" ToolTip="Rust"/>
+                                                </WrapPanel>
+
+                                                <Button Style="{StaticResource ToolButton}" Content="Custom..." Click="OnPickColorCustom" Height="28" Padding="8,2" Margin="0,0,0,12" HorizontalAlignment="Left"/>
+
+                                                <TextBlock Text="Fill Style" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                                <UniformGrid Columns="2" Margin="0,0,0,8">
+                                                    <Button Style="{StaticResource ToolButton}" Content="Hatched" Click="OnSelectFillStyle" CommandParameter="hatch" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Solid" Click="OnSelectFillStyle" CommandParameter="solid"/>
+                                                </UniformGrid>
+
+                                                <TextBlock Text="Stroke Width" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                                <UniformGrid Columns="3" Margin="0,0,0,8">
+                                                    <Button Style="{StaticResource ToolButton}" Content="Thin" Click="OnSelectStrokeWidth" CommandParameter="1.2" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Medium" Click="OnSelectStrokeWidth" CommandParameter="2.5" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Thick" Click="OnSelectStrokeWidth" CommandParameter="4.0"/>
+                                                </UniformGrid>
+
+                                                <TextBlock Text="Stroke Style" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                                <UniformGrid Columns="2" Margin="0,0,0,8">
+                                                    <Button Style="{StaticResource ToolButton}" Content="Solid" Click="OnSelectStrokeStyle" CommandParameter="solid" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Dashed" Click="OnSelectStrokeStyle" CommandParameter="dashed"/>
+                                                </UniformGrid>
+
+                                                <TextBlock Text="Text Alignment" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                                <UniformGrid Columns="3" Margin="0,0,0,8">
+                                                    <Button Style="{StaticResource ToolButton}" Content="Left" Click="OnSelectTextAlignment" CommandParameter="Left" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Center" Click="OnSelectTextAlignment" CommandParameter="Center" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Right" Click="OnSelectTextAlignment" CommandParameter="Right"/>
+                                                </UniformGrid>
+
+                                                <TextBlock Text="Text Size" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                                    <TextBox Text="{Binding SelectedFontSize, UpdateSourceTrigger=PropertyChanged}" Width="56" FontSize="11" Padding="4,3" Margin="0,0,6,0" KeyDown="OnApplySelectionPropertiesKeyDown"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Apply" Click="OnApplySelectionProperties" Height="26"/>
+                                                </StackPanel>
+
+                                                <TextBlock Text="Opacity" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,4"/>
+                                                <DockPanel Margin="0,0,0,8">
+                                                    <TextBlock Text="{Binding SelectedOpacity, StringFormat={}{0:P0}}" DockPanel.Dock="Right" FontSize="11" Foreground="{StaticResource SubtleForeground}" Margin="8,0,0,0" VerticalAlignment="Center" Width="38" TextAlignment="Right"/>
+                                                    <Slider Minimum="0" Maximum="1" Value="{Binding SelectedOpacity, Mode=TwoWay}" SmallChange="0.05" LargeChange="0.1" TickFrequency="0.05" IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
+                                                </DockPanel>
+
+                                                <TextBlock Text="Corner Rounding" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,4"/>
+                                                <UniformGrid Columns="4" Margin="0,0,0,4">
+                                                    <Button Style="{StaticResource ToolButton}" Content="Sharp" Click="OnSelectCornerRadius" CommandParameter="0" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Sm" Click="OnSelectCornerRadius" CommandParameter="4" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Md" Click="OnSelectCornerRadius" CommandParameter="8" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Lg" Click="OnSelectCornerRadius" CommandParameter="16"/>
+                                                </UniformGrid>
+                                            </StackPanel>
+                                        </Expander>
+
+                                        <Expander Header="Geometry" IsExpanded="True" Margin="0,0,0,8" Visibility="{Binding HasBoardSelection, Converter={StaticResource BoolVis}}">
+                                            <UniformGrid Columns="4" Margin="0,8,0,0">
+                                                <StackPanel Margin="0,0,8,0">
+                                                    <TextBlock Text="X" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
+                                                    <TextBox Text="{Binding SelectedObjectX, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
+                                                </StackPanel>
+                                                <StackPanel Margin="0,0,8,0">
+                                                    <TextBlock Text="Y" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
+                                                    <TextBox Text="{Binding SelectedObjectY, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
+                                                </StackPanel>
+                                                <StackPanel Margin="0,0,8,0">
+                                                    <TextBlock Text="W" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
+                                                    <TextBox Text="{Binding SelectedObjectWidth, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
+                                                </StackPanel>
+                                                <StackPanel>
+                                                    <TextBlock Text="H" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
+                                                    <TextBox Text="{Binding SelectedObjectHeight, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
+                                                </StackPanel>
+                                            </UniformGrid>
+                                        </Expander>
+
+                                        <Expander Header="Connector" IsExpanded="True" Margin="0,0,0,8" Visibility="{Binding SelectionIsConnection, Converter={StaticResource BoolVis}}">
+                                            <StackPanel Margin="0,8,0,0">
+                                                <TextBox Text="{Binding SelectedConnectionLabel, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Margin="0,0,0,8"/>
+                                                <UniformGrid Columns="3" Margin="0,0,0,6">
+                                                    <Button Style="{StaticResource ToolButton}" Content="Curve" Command="{Binding SetConnectorRouteCommand}" CommandParameter="Curved" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Line" Command="{Binding SetConnectorRouteCommand}" CommandParameter="Straight" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Elbow" Command="{Binding SetConnectorRouteCommand}" CommandParameter="Orthogonal"/>
+                                                </UniformGrid>
+                                                <UniformGrid Columns="4">
+                                                    <Button Style="{StaticResource ToolButton}" Content="None" Command="{Binding SetConnectorArrowCommand}" CommandParameter="None" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Fwd" Command="{Binding SetConnectorArrowCommand}" CommandParameter="Forward" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Back" Command="{Binding SetConnectorArrowCommand}" CommandParameter="Backward" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Both" Command="{Binding SetConnectorArrowCommand}" CommandParameter="Both"/>
+                                                </UniformGrid>
+                                            </StackPanel>
+                                        </Expander>
+
+                                        <Expander Header="Arrange" IsExpanded="True" Margin="0,0,0,8" Visibility="{Binding SelectionIsBlock, Converter={StaticResource BoolVis}}">
+                                            <StackPanel Margin="0,8,0,0">
+                                                <UniformGrid Columns="4" Margin="0,0,0,8">
+                                                    <Button Style="{StaticResource ToolButton}" Content="Front" Command="{Binding ChangeZOrderCommand}" CommandParameter="front" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Fwd" Command="{Binding ChangeZOrderCommand}" CommandParameter="forward" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Back" Command="{Binding ChangeZOrderCommand}" CommandParameter="backward" Margin="0,0,4,0"/>
+                                                    <Button Style="{StaticResource ToolButton}" Content="Rear" Command="{Binding ChangeZOrderCommand}" CommandParameter="back"/>
+                                                </UniformGrid>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <CheckBox Content="Locked" IsChecked="{Binding SelectedLocked}" Margin="0,0,12,0"/>
+                                                    <CheckBox Content="Snap" IsChecked="{Binding SnapToGrid}" Margin="0,0,12,0"/>
+                                                    <CheckBox Content="Connectors" IsChecked="{Binding ConnectorsEnabled}"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Expander>
+                                    </StackPanel>
+                                </ScrollViewer>
+
+                                <Grid Margin="20">
+                                    <Grid.Style>
+                                        <Style TargetType="Grid">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasBoardSelection}" Value="False">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Grid.Style>
+                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                        <TextBlock Text="No Selection" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                        <TextBlock Text="Select a canvas item to inspect it." TextWrapping="Wrap" TextAlignment="Center" FontSize="11" Foreground="{StaticResource MutedForeground}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Grid>
+                        </TabItem>
+
+                        <TabItem Header="Toolbox">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                                <StackPanel>
+                                    <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddNoteCardCommand}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="34"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="28" Height="28" CornerRadius="6" Background="#FFF7ED" VerticalAlignment="Top">
+                                                <Path Data="M7,5 H21 V17 L17,21 H7 Z M17,21 V17 H21" Stroke="#C2410C" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="Sticky Note" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                                <TextBlock Text="Write down architectural concerns or rapid notes." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+
+                                    <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddContainerCardCommand}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="34"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="28" Height="28" CornerRadius="6" Background="#F8FAFC" VerticalAlignment="Top">
+                                                <Path Data="M4,5 H20 V19 H4 Z M7,8 H17" Stroke="#64748B" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="Architecture Area" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                                <TextBlock Text="Group related components in a clean, dashed container." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+
+                                    <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddShapeCommand}" CommandParameter="database">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="34"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="28" Height="28" CornerRadius="6" Background="#CCFBF1" VerticalAlignment="Top">
+                                                <Path Data="M6,8 C6,6.3 8.7,5 12,5 C15.3,5 18,6.3 18,8 C18,9.7 15.3,11 12,11 C8.7,11 6,9.7 6,8 Z M6,8 V16 C6,17.7 8.7,19 12,19 C15.3,19 18,17.7 18,16 V8 M6,12 C6,13.7 8.7,15 12,15 C15.3,15 18,13.7 18,12" Stroke="#0F766E" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="Database Shape" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                                <TextBlock Text="Represent services, microservices, or data layers." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+
+                                    <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddSwimLaneCommand}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="34"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="28" Height="28" CornerRadius="6" Background="#DBEAFE" VerticalAlignment="Top">
+                                                <Path Data="M5,6 H19 V18 H5 Z M5,10 H19 M12,6 V18" Stroke="#2E7DD7" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="Frame Layer" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                                <TextBlock Text="Define horizontal or vertical lanes to outline components." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+
+                                    <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddTextCardCommand}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="34"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="28" Height="28" CornerRadius="6" Background="#EDE9FE" VerticalAlignment="Top">
+                                                <Path Data="M5,7 H19 M12,7 V19 M8,19 H16" Stroke="#7C3AED" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="Text Card" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                                <TextBlock Text="Add rich floating headers or detailed markdown descriptions." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem Header="Overview">
+                            <Grid Margin="0,10,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="2*"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="10" MinHeight="260">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Text="Mini Map" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" Margin="0,0,0,8"/>
+                                        <Border Grid.Row="1" BorderBrush="#E2E8F0" BorderThickness="1" Background="#FFFFFF" CornerRadius="4" ClipToBounds="True">
+                                            <controls:SceneMiniMap
+                                                Scene="{Binding Scene}"
+                                                Camera="{Binding Camera, ElementName=Root, Mode=TwoWay}"
+                                                ViewportWidth="{Binding ViewportWidth, ElementName=Root}"
+                                                ViewportHeight="{Binding ViewportHeight, ElementName=Root}"
+                                                ClipToBounds="True"
+                                                HorizontalAlignment="Stretch"
+                                                VerticalAlignment="Stretch"/>
+                                        </Border>
+                                    </Grid>
+                                </Border>
+                                <UniformGrid Grid.Row="1" Columns="2" Margin="0,12,0,0">
+                                    <Border Background="{StaticResource HoverBg}" BorderBrush="{StaticResource SoftBorder}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,6,0">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Scene.Blocks.Count}" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                            <TextBlock Text="Blocks" FontSize="10.5" Foreground="{StaticResource SubtleForeground}"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Background="{StaticResource HoverBg}" BorderBrush="{StaticResource SoftBorder}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="6,0,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Scene.Connections.Count}" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                            <TextBlock Text="Connections" FontSize="10.5" Foreground="{StaticResource SubtleForeground}"/>
+                                        </StackPanel>
+                                    </Border>
+                                </UniformGrid>
+                                <Border Grid.Row="2" Background="{StaticResource SuccessSoft}" BorderBrush="#CFEBDD" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,12,0,0" VerticalAlignment="Top">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Scene.Annotations.Count, StringFormat=Notes: {0}}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource SuccessBrush}"/>
+                                        <TextBlock Text="{Binding BackgroundMode, StringFormat=Canvas: {0}}" FontSize="10.5" Foreground="{StaticResource SubtleForeground}" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </TabItem>
+                    </TabControl>
+
+                </Grid>
+            </Border>
+</UserControl>

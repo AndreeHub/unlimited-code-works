@@ -28,7 +28,7 @@ internal sealed class BlockRenderer
 
     /// <summary>Snapshot of blocks for resolving linear shape attachments. Set by viewport per frame.</summary>
     public IReadOnlyDictionary<string, SceneBlockVisual>? BlockLookup { get; set; }
-    
+
     // Viewport-specific constants (should match CanvasViewport)
     private const double HeaderH = 56;
     private const double FooterH = 28;
@@ -48,7 +48,7 @@ internal sealed class BlockRenderer
     }
 
     public void DrawBlock(
-        SceneBlockVisual blockVis, 
+        SceneBlockVisual blockVis,
         string? editingNoteKey,
         string? editingGroupKey,
         string editTitle,
@@ -97,6 +97,37 @@ internal sealed class BlockRenderer
                 DrawContainerBlock(blockVis, editingGroupKey, editTitle, editCursorVisible, editCursorPos, editSelectionAnchor, codeScrollLines);
                 break;
         }
+
+        if (block.IsLocked)
+        {
+            WpfColor lockStroke = CanvasDrawingUtils.ParseColor(block.Style?.Stroke ?? "#64748B");
+            DrawLockIndicator(blockVis.Bounds, lockStroke, block.Key.ToString());
+        }
+    }
+
+    private void DrawLockIndicator(Rect bounds, WpfColor strokeColor, string seedKey)
+    {
+        float padX = (float)(bounds.X + bounds.Width - 24);
+        float padY = (float)(bounds.Y + 8);
+        float w = 14;
+        float h = 10;
+
+        var bodyRect = new RectangleF(padX, padY + 6, w, h);
+        var bodyBrush = _ctx.GetBrush(WpfColor.FromArgb(200, 241, 245, 249));
+        var strokeBrush = _ctx.GetBrush(strokeColor);
+        float sw = _ctx.InvStroke(1.2f);
+
+        SketchyDrawer.DrawRectangle(_ctx.RenderTarget, bodyRect, bodyBrush, strokeBrush, sw, seedKey + "_lock_body", fillStyle: "solid");
+
+        Vector2[] loopPoints = new Vector2[]
+        {
+            new(padX + 3, padY + 6),
+            new(padX + 3, padY + 2),
+            new(padX + 7, padY),
+            new(padX + 11, padY + 2),
+            new(padX + 11, padY + 6)
+        };
+        SketchyDrawer.DrawPolygon(_ctx.RenderTarget, loopPoints, null, strokeBrush, sw, seedKey + "_lock_shackle", close: false);
     }
 
     private void DrawMicroBlock(SceneBlockVisual blockVis)
@@ -126,7 +157,7 @@ internal sealed class BlockRenderer
     }
 
     private void DrawCodeBlock(
-        SceneBlockVisual blockVis, 
+        SceneBlockVisual blockVis,
         Dictionary<string, int> codeScrollLines,
         bool isExtractMode,
         string? hoverAnchorBlockKey,
@@ -228,7 +259,7 @@ internal sealed class BlockRenderer
 
         // Resize handle
         if (block.IsSelected)
-            DrawGenericResizeHandle(outer, accent);
+            DrawGenericResizeHandle(outer, accent, block.IsLocked);
 
         // Restore button for focused blocks
         if (isFocused) DrawRestoreButton(outer, accent);
@@ -246,6 +277,12 @@ internal sealed class BlockRenderer
         float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
 
         string bodyText = isEditing ? editBody : (block.Body ?? string.Empty);
+
+        // Resolve styled font sizes
+        var style = block.Style ?? new BoardItemStyle();
+        float baseFontSize = Math.Clamp((float)style.FontSize, 8f, 48f);
+        float bodyFontSize = baseFontSize;
+        float titleFontSize = baseFontSize + 1.5f;
 
         // Shadow
         _ctx.RenderTarget.FillRoundedRectangle(
@@ -270,28 +307,28 @@ internal sealed class BlockRenderer
         // Title
         string titleText = isEditing ? editTitle : block.Title;
         if (isEditing && editingTitle)
-            DrawEditSelection(titleText, 14f, x + 24, y + 12, w - 48, wrap: false, sketchy: false, editCursorPos, editSelectionAnchor);
+            DrawEditSelection(titleText, titleFontSize, x + 24, y + 12, w - 48, wrap: false, sketchy: false, editCursorPos, editSelectionAnchor);
 
-        _ctx.DrawText(titleText, x + 24, y + 12, w - 48, 14, WpfColor.FromRgb(140, 100, 30));
+        _ctx.DrawText(titleText, x + 24, y + 12, w - 48, titleFontSize, WpfColor.FromRgb(140, 100, 30));
 
         if (isEditing && editingTitle && editCursorVisible)
-            DrawNoteCursor(titleText, 14f, x + 24, y + 12, w - 48, editCursorPos);
+            DrawNoteCursor(titleText, titleFontSize, x + 24, y + 12, w - 48, editCursorPos);
 
         // Body
         _ctx.RenderTarget.PushAxisAlignedClip(new RectangleF(x + 12, y + 42, w - 24, h - 54), AntialiasMode.PerPrimitive);
         float bx = x + 14, by = y + 42, bw = w - 28;
         if (isEditing && !editingTitle)
-            DrawEditSelection(bodyText, 12.5f, bx, by, bw, wrap: true, sketchy: false, editCursorPos, editSelectionAnchor);
-        
-        _ctx.DrawWrappedText(bodyText, bx, by, bw, h - 54, 12.5f, WpfColor.FromRgb(100, 75, 25), wrap: true);
-        
+            DrawEditSelection(bodyText, bodyFontSize, bx, by, bw, wrap: true, sketchy: false, editCursorPos, editSelectionAnchor);
+
+        _ctx.DrawWrappedText(bodyText, bx, by, bw, h - 54, bodyFontSize, WpfColor.FromRgb(100, 75, 25), wrap: true);
+
         if (isEditing && !editingTitle && editCursorVisible)
-            DrawNoteCursor(bodyText, 12.5f, bx, by, bw, editCursorPos, wrap: true);
-        
+            DrawNoteCursor(bodyText, bodyFontSize, bx, by, bw, editCursorPos, wrap: true);
+
         _ctx.RenderTarget.PopAxisAlignedClip();
 
         // Corner handles for notes
-        if (isSelected || isEditing)
+        if ((isSelected || isEditing) && !block.IsLocked)
         {
             float ch = 8;
             DrawNoteCornerHandle(x - ch / 2, y - ch / 2, ch);
@@ -313,7 +350,10 @@ internal sealed class BlockRenderer
         var block = blockVis.Block;
         Rect outer = blockVis.Bounds;
         float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
-        DrawCardShell(outer, block.IsSelected, CanvasDrawingUtils.ParseColor(block.Style?.Stroke ?? "#E2E8F0"), 8, block.Key.ToString());
+        var style = block.Style ?? new BoardItemStyle();
+        WpfColor stroke = CanvasDrawingUtils.ParseColor(style.Stroke);
+        WpfColor fill = CanvasDrawingUtils.ParseColor(style.Fill);
+        DrawCardShell(outer, block.IsSelected, stroke, (float)style.CornerRadius, block.Key.ToString(), fill, style.FillStyle ?? "hatch", style.Opacity);
         _ctx.RenderTarget.FillRectangle(new RectangleF(x, y, w, 46), _ctx.GetBrush(WpfColor.FromRgb(248, 250, 252)));
         _ctx.DrawText(block.Title, x + 16, y + 12, w - 32, 15, WpfColor.FromRgb(17, 24, 39));
         _ctx.DrawText(block.Subtitle, x + 16, y + 30, w - 32, 9.5f, WpfColor.FromRgb(100, 116, 139));
@@ -359,11 +399,11 @@ internal sealed class BlockRenderer
         }
         _ctx.RenderTarget.PopAxisAlignedClip();
         if (block.IsSelected)
-            DrawGenericResizeHandle(outer, CanvasDrawingUtils.ParseColor(block.Style?.Stroke ?? "#2E7DD7"));
+            DrawGenericResizeHandle(outer, CanvasDrawingUtils.ParseColor(block.Style?.Stroke ?? "#2E7DD7"), block.IsLocked);
     }
 
     private void DrawShapeBlock(
-        SceneBlockVisual blockVis, 
+        SceneBlockVisual blockVis,
         string? editingNoteKey,
         string editTitle,
         string editBody,
@@ -382,18 +422,23 @@ internal sealed class BlockRenderer
     {
         var block = blockVis.Block;
         Rect outer = blockVis.Bounds;
-        WpfColor fill = CanvasDrawingUtils.ParseColor(block.Style?.Fill ?? "#EFF6FF");
-        WpfColor stroke = CanvasDrawingUtils.ParseColor(block.Style?.Stroke ?? "#2E7DD7");
+        var style = block.Style ?? new BoardItemStyle();
+        WpfColor fill = CanvasDrawingUtils.ParseColor(style.Fill);
+        WpfColor stroke = CanvasDrawingUtils.ParseColor(style.Stroke);
         float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
         string shape = block.ShapeType ?? "service";
-        float baseStroke = (float)Math.Clamp(block.Style?.StrokeWidth ?? 1.3, 0.5, 8.0);
+        float baseStroke = (float)Math.Clamp(style.StrokeWidth, 0.5, 8.0);
         float strokeWidth = block.IsSelected ? _ctx.InvStroke(Math.Max(2, baseStroke + 0.6f)) : _ctx.InvStroke(baseStroke);
-        bool dashed = block.Style?.Dashed == true;
+        bool dashed = style.Dashed;
+        double opacity = style.Opacity;
 
-        var fillBrush = _ctx.GetBrush(fill);
-        var strokeBrush = _ctx.GetBrush(stroke);
+        WpfColor opacityFill = WpfColor.FromArgb((byte)(fill.A * opacity), fill.R, fill.G, fill.B);
+        WpfColor opacityStroke = WpfColor.FromArgb((byte)(stroke.A * opacity), stroke.R, stroke.G, stroke.B);
+
+        var fillBrush = opacityFill.A == 0 ? null : _ctx.GetBrush(opacityFill);
+        var strokeBrush = _ctx.GetBrush(opacityStroke);
         var strokeStyle = dashed ? _ctx.DashedStroke : null;
-        string fillStyle = block.Style?.FillStyle ?? "hatch";
+        string fillStyle = style.FillStyle ?? "hatch";
 
         if (IsLinearShapeTool(shape))
         {
@@ -440,11 +485,19 @@ internal sealed class BlockRenderer
         else if (shape is "square")
         {
             Rect square = CanvasDrawingUtils.CenteredSquare(outer);
-            SketchyDrawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(square), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle);
+            float radius = (float)style.CornerRadius;
+            if (radius > 0)
+                SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(square), radius, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle);
+            else
+                SketchyDrawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(square), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle);
         }
         else if (shape is "rectangle")
         {
-            SketchyDrawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle);
+            float radius = (float)style.CornerRadius;
+            if (radius > 0)
+                SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), radius, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle);
+            else
+                SketchyDrawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle);
         }
         else
         {
@@ -472,10 +525,10 @@ internal sealed class BlockRenderer
                 DrawShapeText(label, outer, CanvasDrawingUtils.ParseColor(block.Style?.Text ?? "#111827"), block.Style?.TextAlign);
             }
         }
-        if (ShouldDrawConnectionAnchors(block, connectorsEnabled)) 
+        if (ShouldDrawConnectionAnchors(block, connectorsEnabled))
             DrawConnectionAnchors(block, outer, stroke, hoverAnchorBlockKey, hoverAnchorIndex, isDrawingConnection, connectionSourceKey, connectionSourceAnchorIndex, connectionHoverTargetKey, connectionHoverTargetAnchorIndex);
         if (block.IsSelected)
-            DrawGenericResizeHandle(outer, stroke);
+            DrawGenericResizeHandle(outer, stroke, block.IsLocked);
     }
 
     private void DrawLinearShape(RenderBlock block, Rect outer, WpfColor stroke, float strokeWidth, bool dashed)
@@ -643,22 +696,27 @@ internal sealed class BlockRenderer
         var block = blockVis.Block;
         Rect outer = blockVis.Bounds;
         bool isEditing = editingNoteKey == block.Key;
-        DrawCardShell(outer, block.IsSelected || isEditing, CanvasDrawingUtils.ParseColor(block.Style?.Stroke ?? "#CBD5E1"), 6, block.Key.ToString());
+        var style = block.Style ?? new BoardItemStyle();
+        WpfColor fill = CanvasDrawingUtils.ParseColor(style.Fill);
+        WpfColor stroke = CanvasDrawingUtils.ParseColor(style.Stroke);
+        WpfColor textColor = CanvasDrawingUtils.ParseColor(style.Text);
+        float fontSize = Math.Clamp((float)style.FontSize, 8f, 48f);
+        DrawCardShell(outer, block.IsSelected || isEditing, stroke, (float)style.CornerRadius, block.Key.ToString(), fill, style.FillStyle ?? "hatch", style.Opacity);
         string text = isEditing ? editBody : block.Body ?? block.Title;
         float x = (float)outer.X + 12;
         float y = (float)outer.Y + 12;
         float w = (float)outer.Width - 24;
         if (isEditing)
-            DrawEditSelection(text, 14f, x, y, w, wrap: true, sketchy: true, editCursorPos, editSelectionAnchor);
-        _ctx.DrawWrappedText(text, x, y, w, (float)outer.Height - 24, 14, CanvasDrawingUtils.ParseColor(block.Style?.Text ?? "#111827"), wrap: true, sketchy: true);
+            DrawEditSelection(text, fontSize, x, y, w, wrap: true, sketchy: true, editCursorPos, editSelectionAnchor);
+        _ctx.DrawWrappedText(text, x, y, w, (float)outer.Height - 24, fontSize, WpfColor.FromArgb((byte)(textColor.A * style.Opacity), textColor.R, textColor.G, textColor.B), wrap: true, sketchy: true);
         if (isEditing && editCursorVisible)
-            DrawNoteCursor(text, 14f, x, y, w, editCursorPos, wrap: true, sketchy: true);
+            DrawNoteCursor(text, fontSize, x, y, w, editCursorPos, wrap: true, sketchy: true);
         if (block.IsSelected)
-            DrawGenericResizeHandle(outer, CanvasDrawingUtils.ParseColor(block.Style?.Stroke ?? "#CBD5E1"));
+            DrawGenericResizeHandle(outer, stroke, block.IsLocked);
     }
 
     private void DrawImageBlock(
-        SceneBlockVisual blockVis, 
+        SceneBlockVisual blockVis,
         Func<string?, ImageBitmapResource?> imageLoader,
         string? hoverAnchorBlockKey,
         int? hoverAnchorIndex,
@@ -672,7 +730,10 @@ internal sealed class BlockRenderer
         var block = blockVis.Block;
         Rect outer = blockVis.Bounds;
         float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
-        DrawCardShell(outer, block.IsSelected, CanvasDrawingUtils.ParseColor(block.Style?.Stroke ?? "#CBD5E1"), 8, block.Key.ToString());
+        var style = block.Style ?? new BoardItemStyle();
+        WpfColor stroke = CanvasDrawingUtils.ParseColor(style.Stroke);
+        WpfColor fill = CanvasDrawingUtils.ParseColor(style.Fill);
+        DrawCardShell(outer, block.IsSelected, stroke, (float)style.CornerRadius, block.Key.ToString(), fill, style.FillStyle ?? "hatch", style.Opacity);
         _ctx.DrawText(block.Title, x + 14, y + 12, w - 28, 12, WpfColor.FromRgb(30, 41, 59), sketchy: true);
 
         var imageArea = new Rect(outer.X + 12, outer.Y + 38, Math.Max(1, outer.Width - 24), Math.Max(1, outer.Height - 56));
@@ -691,15 +752,15 @@ internal sealed class BlockRenderer
             _ctx.DrawWrappedText(block.Source?.AssetPath ?? block.Body ?? string.Empty, x + 20, y + h / 2 + 12, w - 40, 42, 9, WpfColor.FromRgb(100, 116, 139), wrap: true, sketchy: true);
         }
 
-        WpfColor stroke = CanvasDrawingUtils.ParseColor(block.Style?.Stroke ?? "#CBD5E1");
+        stroke = CanvasDrawingUtils.ParseColor(block.Style?.Stroke ?? "#CBD5E1");
         if (ShouldDrawConnectionAnchors(block, connectorsEnabled))
             DrawConnectionAnchors(block, outer, stroke, hoverAnchorBlockKey, hoverAnchorIndex, isDrawingConnection, connectionSourceKey, connectionSourceAnchorIndex, connectionHoverTargetKey, connectionHoverTargetAnchorIndex);
         if (block.IsSelected)
-            DrawGenericResizeHandle(outer, stroke);
+            DrawGenericResizeHandle(outer, stroke, block.IsLocked);
     }
 
     private void DrawContainerBlock(
-        SceneBlockVisual blockVis, 
+        SceneBlockVisual blockVis,
         string? editingGroupKey,
         string editTitle,
         bool editCursorVisible,
@@ -729,7 +790,7 @@ internal sealed class BlockRenderer
 
         _ctx.DrawText(block.Title, x + 12, y + 8, w - 24, 12, WpfColor.FromRgb(51, 65, 85), sketchy: true);
         if (block.IsSelected)
-            DrawGenericResizeHandle(outer, stroke);
+            DrawGenericResizeHandle(outer, stroke, block.IsLocked);
     }
 
     private void DrawColorGroupBlock(SceneBlockVisual blockVis, string? editingGroupKey, string editTitle, bool editCursorVisible, int editCursorPos, int editSelectionAnchor)
@@ -784,24 +845,52 @@ internal sealed class BlockRenderer
         else
         {
             if (block.IsSelected)
-                DrawGenericResizeHandle(outer, stroke);
+                DrawGenericResizeHandle(outer, stroke, block.IsLocked);
         }
     }
 
-    private void DrawCardShell(Rect outer, bool selected, WpfColor stroke, float radius, string seedKey)
+    private void DrawCardShell(Rect outer, bool selected, WpfColor stroke, float radius, string seedKey, WpfColor? fill = null, string fillStyle = "hatch", double opacity = 1.0)
     {
         float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
-        SketchyDrawer.DrawRectangle(_ctx.RenderTarget, new RectangleF(x + 4, y + 4, w, h), _ctx.GetBrush(WpfColor.FromArgb(12, 35, 49, 66)), _ctx.GetBrush(WpfColor.FromArgb(12, 35, 49, 66)), 1f, seedKey + "_shadow");
-        var fillBrush = _ctx.GetBrush(WpfColor.FromRgb(255, 255, 255));
-        WpfColor borderColor = selected ? WpfColor.FromRgb(46, 125, 215) : stroke;
+
+        WpfColor fillVal = fill ?? WpfColor.FromRgb(255, 255, 255);
+        byte fillA = (byte)(fillVal.A * opacity);
+        byte strokeA = (byte)(stroke.A * opacity);
+
+        bool isFillTransparent = fillA == 0;
+        bool isStrokeTransparent = strokeA == 0;
+
+        if (isFillTransparent && isStrokeTransparent)
+        {
+            if (selected)
+            {
+                WpfColor selectedStroke = WpfColor.FromRgb(46, 125, 215);
+                var selStrokeBrush = _ctx.GetBrush(selectedStroke);
+                float selSw = _ctx.InvStroke(2.0f);
+                SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, new RectangleF(x, y, w, h), radius, null, selStrokeBrush, selSw, seedKey, strokeStyle: _ctx.DashedStroke, fillStyle: fillStyle);
+            }
+            return;
+        }
+
+        if (fill != null && fillA > 0)
+        {
+            SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, new RectangleF(x + 4, y + 4, w, h), radius, _ctx.GetBrush(WpfColor.FromArgb(12, 35, 49, 66)), _ctx.GetBrush(WpfColor.FromArgb(12, 35, 49, 66)), 1f, seedKey + "_shadow", fillStyle: "solid");
+        }
+
+        var opacityFill = WpfColor.FromArgb(fillA, fillVal.R, fillVal.G, fillVal.B);
+        var opacityStroke = WpfColor.FromArgb(strokeA, stroke.R, stroke.G, stroke.B);
+
+        var fillBrush = isFillTransparent ? null : _ctx.GetBrush(opacityFill);
+        WpfColor borderColor = selected ? WpfColor.FromRgb(46, 125, 215) : opacityStroke;
         var strokeBrush = _ctx.GetBrush(borderColor);
         float sw = selected ? _ctx.InvStroke(2.0f) : _ctx.InvStroke(1.1f);
-        SketchyDrawer.DrawRectangle(_ctx.RenderTarget, new RectangleF(x, y, w, h), fillBrush, strokeBrush, sw, seedKey);
+
+        SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, new RectangleF(x, y, w, h), radius, fillBrush, strokeBrush, sw, seedKey, fillStyle: fillStyle);
     }
 
-    private void DrawGenericResizeHandle(Rect outer, WpfColor color)
+    private void DrawGenericResizeHandle(Rect outer, WpfColor color, bool isLocked)
     {
-        if (_ctx.Zoom <= UltraCompactZoom) return;
+        if (isLocked || _ctx.Zoom <= UltraCompactZoom) return;
         float x = (float)outer.X;
         float y = (float)outer.Y;
         float w = (float)outer.Width;
@@ -1079,8 +1168,8 @@ internal sealed class BlockRenderer
     }
 
     private void DrawConnectionAnchors(
-        RenderBlock block, 
-        Rect bounds, 
+        RenderBlock block,
+        Rect bounds,
         WpfColor accent,
         string? hoverAnchorBlockKey,
         int? hoverAnchorIndex,

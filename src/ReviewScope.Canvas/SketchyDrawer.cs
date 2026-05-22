@@ -238,4 +238,65 @@ public static class SketchyDrawer
             }
         }
     }
+
+    public static Vector2[] BuildRoundedRectPoints(RectangleF rect, float radius, int pointsPerCorner = 6)
+    {
+        if (radius <= 0)
+        {
+            return new Vector2[]
+            {
+                new(rect.X, rect.Y),
+                new(rect.X + rect.Width, rect.Y),
+                new(rect.X + rect.Width, rect.Y + rect.Height),
+                new(rect.X, rect.Y + rect.Height)
+            };
+        }
+
+        float w = rect.Width;
+        float h = rect.Height;
+        float x = rect.X;
+        float y = rect.Y;
+
+        // Make sure radius is not larger than half of width or height
+        radius = Math.Min(radius, Math.Min(w / 2f, h / 2f));
+
+        var pts = new List<Vector2>();
+
+        // Top-Right corner (from angle -PI/2 to 0)
+        for (int i = 0; i <= pointsPerCorner; i++)
+        {
+            float angle = -MathF.PI / 2f + (MathF.PI / 2f) * ((float)i / pointsPerCorner);
+            pts.Add(new Vector2(x + w - radius + radius * MathF.Cos(angle), y + radius + radius * MathF.Sin(angle)));
+        }
+
+        // Bottom-Right corner (from angle 0 to PI/2)
+        for (int i = 0; i <= pointsPerCorner; i++)
+        {
+            float angle = (MathF.PI / 2f) * ((float)i / pointsPerCorner);
+            pts.Add(new Vector2(x + w - radius + radius * MathF.Cos(angle), y + h - radius + radius * MathF.Sin(angle)));
+        }
+
+        // Bottom-Left corner (from angle PI/2 to PI)
+        for (int i = 0; i <= pointsPerCorner; i++)
+        {
+            float angle = MathF.PI / 2f + (MathF.PI / 2f) * ((float)i / pointsPerCorner);
+            pts.Add(new Vector2(x + radius + radius * MathF.Cos(angle), y + h - radius + radius * MathF.Sin(angle)));
+        }
+
+        // Top-Left corner (from angle PI to 3*PI/2)
+        for (int i = 0; i <= pointsPerCorner; i++)
+        {
+            float angle = MathF.PI + (MathF.PI / 2f) * ((float)i / pointsPerCorner);
+            pts.Add(new Vector2(x + radius + radius * MathF.Cos(angle), y + radius + radius * MathF.Sin(angle)));
+        }
+
+        return pts.ToArray();
+    }
+
+    public static void DrawRoundedRectangle(ID2D1RenderTarget rt, RectangleF rect, float radius, ID2D1Brush? fillBrush, ID2D1Brush strokeBrush, float strokeWidth, string seedKey, ID2D1StrokeStyle? strokeStyle = null, string fillStyle = "hatch")
+    {
+        var pts = BuildRoundedRectPoints(rect, radius);
+        DrawPolygon(rt, pts, fillBrush, strokeBrush, strokeWidth, seedKey, close: true, strokeStyle: strokeStyle, fillStyle: fillStyle);
+    }
 }
+

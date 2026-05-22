@@ -43,6 +43,13 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _workspaceBranchName = string.Empty;
     [ObservableProperty] private ReviewSession? _selectedSession;
     [ObservableProperty] private string _sessionNameDraft = "New Board";
+    [ObservableProperty] private int _selectedLeftTabIndex;
+    [ObservableProperty] private int _selectedRightTabIndex = 1;
+    [ObservableProperty] private string _selectedStyleTarget = "Fill";
+    [ObservableProperty] private string _selectedStyleColor = "#FFFFFF";
+    [ObservableProperty] private bool _styleTargetFillSelected = true;
+    [ObservableProperty] private bool _styleTargetStrokeSelected;
+    [ObservableProperty] private bool _styleTargetTextSelected;
     [ObservableProperty] private Guid? _sessionSpawnAnimationId;
     [ObservableProperty] private string _selectedAnnotationContent = string.Empty;
     [ObservableProperty] private Guid? _editingAnnotationId;
@@ -63,6 +70,7 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _hasBoardSelection;
     [ObservableProperty] private bool _selectionIsBlock;
     [ObservableProperty] private bool _selectionIsConnection;
+    [ObservableProperty] private bool _selectionSupportsStyle;
     [ObservableProperty] private string _selectedTitleDraft = string.Empty;
     [ObservableProperty] private string _selectedBodyDraft = string.Empty;
     [ObservableProperty] private string _selectedFill = "#FFFFFF";
@@ -74,11 +82,12 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _selectedTextAlignment = "Center";
     [ObservableProperty] private bool _selectedDashed;
     [ObservableProperty] private bool _selectedLocked;
+    [ObservableProperty] private double _selectedOpacity = 1.0;
+    [ObservableProperty] private double _selectedCornerRadius = 8.0;
     [ObservableProperty] private string _selectedConnectionLabel = string.Empty;
     [ObservableProperty] private string _selectedRouteKind = ConnectorRouteKind.Curved.ToString();
     [ObservableProperty] private string _selectedArrowKind = ConnectorArrowKind.Forward.ToString();
     [ObservableProperty] private string _selectedSymbolsHeader = "Symbols";
-    [ObservableProperty] private bool _isSymbolsPanelVisible = true;
     [ObservableProperty] private string _boardSearchQuery = string.Empty;
     [ObservableProperty] private string _explorerSearchQuery = string.Empty;
     [ObservableProperty] private string _llmExportPreview = string.Empty;
@@ -95,6 +104,8 @@ public partial class MainWindowViewModel : ObservableObject
     private CancellationTokenSource? _saveCts;
     private CancellationTokenSource? _loadCts;
     private int _loadVersion;
+    private bool _syncingStyleTarget;
+    private bool _isUpdatingSelection;
 
     [RelayCommand]
     public void ToggleBackground()
@@ -150,93 +161,166 @@ public partial class MainWindowViewModel : ObservableObject
 
     private void UpdateSelectedObject(RenderScene? scene = null)
     {
-        scene ??= Scene;
-        SelectedBlock = scene.Blocks.FirstOrDefault(b => b.IsSelected);
-        SelectedConnection = scene.Connections.FirstOrDefault(c => c.IsSelected);
-        SelectedSwimLane = scene.SwimLanes.FirstOrDefault(l => l.IsSelected);
-        SelectionIsBlock = SelectedBlock is not null;
-        SelectionIsConnection = SelectedConnection is not null;
-        HasBoardSelection = SelectionIsBlock || SelectionIsConnection || SelectedSwimLane is not null;
-
-        if (SelectedBlock is not null)
+        _isUpdatingSelection = true;
+        try
         {
-            SelectedObjectTitle = SelectedBlock.Focused?.SymbolName ?? SelectedBlock.Title;
-            SelectedObjectKind = SelectedBlock.Kind switch
+            scene ??= Scene;
+            SelectedBlock = scene.Blocks.FirstOrDefault(b => b.IsSelected);
+            SelectedConnection = scene.Connections.FirstOrDefault(c => c.IsSelected);
+            SelectedSwimLane = scene.SwimLanes.FirstOrDefault(l => l.IsSelected);
+            SelectionIsBlock = SelectedBlock is not null;
+            SelectionIsConnection = SelectedConnection is not null;
+            SelectionSupportsStyle = SelectionIsBlock || SelectionIsConnection;
+            HasBoardSelection = SelectionIsBlock || SelectionIsConnection || SelectedSwimLane is not null;
+            if (HasBoardSelection)
+                SelectedRightTabIndex = 0;
+
+            if (SelectedBlock is not null)
             {
-                BlockKind.File => "File card",
-                BlockKind.Extract => "Symbol card",
-                BlockKind.Note => "Note",
-                BlockKind.MarkdownDoc => "Architecture doc",
-                BlockKind.Shape => "Diagram symbol",
-                BlockKind.Text => "Text",
-                BlockKind.Image => "Image",
-                BlockKind.Container => "Container",
-                _ => "Canvas object"
-            };
-            SelectedObjectPath = SelectedBlock.FilePath is null ? string.Empty : GetRelativePath(SelectedBlock.FilePath);
-            SelectedObjectLineRange = SelectedBlock.StartLine.HasValue && SelectedBlock.EndLine.HasValue
-                ? $"Lines {SelectedBlock.StartLine}-{SelectedBlock.EndLine}"
-                : string.Empty;
-            SetSelectedObjectData(SelectedBlock.X, SelectedBlock.Y, SelectedBlock.Width, SelectedBlock.Height);
-            var style = SelectedBlock.Style ?? new BoardItemStyle();
-            SelectedTitleDraft = SelectedBlock.Title;
-            SelectedBodyDraft = SelectedBlock.Body ?? string.Empty;
-            SelectedFill = style.Fill;
-            SelectedFillStyle = style.FillStyle ?? "hatch";
-            SelectedStroke = style.Stroke;
-            SelectedTextColor = style.Text;
-            SelectedStrokeWidth = style.StrokeWidth.ToString("0.##");
-            SelectedFontSize = style.FontSize.ToString("0.#");
-            SelectedTextAlignment = NormalizeTextAlignment(style.TextAlign);
-            SelectedDashed = style.Dashed;
-            SelectedLocked = SelectedBlock.IsLocked;
-            SelectedConnectionLabel = string.Empty;
-            return;
-        }
+                SelectedObjectTitle = SelectedBlock.Focused?.SymbolName ?? SelectedBlock.Title;
+                SelectedObjectKind = SelectedBlock.Kind switch
+                {
+                    BlockKind.File => "File card",
+                    BlockKind.Extract => "Symbol card",
+                    BlockKind.Note => "Note",
+                    BlockKind.MarkdownDoc => "Architecture doc",
+                    BlockKind.Shape => "Diagram symbol",
+                    BlockKind.Text => "Text",
+                    BlockKind.Image => "Image",
+                    BlockKind.Container => "Container",
+                    _ => "Canvas object"
+                };
+                SelectedObjectPath = SelectedBlock.FilePath is null ? string.Empty : GetRelativePath(SelectedBlock.FilePath);
+                SelectedObjectLineRange = SelectedBlock.StartLine.HasValue && SelectedBlock.EndLine.HasValue
+                    ? $"Lines {SelectedBlock.StartLine}-{SelectedBlock.EndLine}"
+                    : string.Empty;
+                SetSelectedObjectData(SelectedBlock.X, SelectedBlock.Y, SelectedBlock.Width, SelectedBlock.Height);
+                var style = SelectedBlock.Style ?? new BoardItemStyle();
+                SelectedTitleDraft = SelectedBlock.Title;
+                SelectedBodyDraft = SelectedBlock.Body ?? string.Empty;
+                SelectedFill = style.Fill;
+                SelectedFillStyle = style.FillStyle ?? "hatch";
+                SelectedStroke = style.Stroke;
+                SelectedTextColor = style.Text;
+                SelectedStrokeWidth = style.StrokeWidth.ToString("0.##");
+                SelectedFontSize = style.FontSize.ToString("0.#");
+                SelectedTextAlignment = NormalizeTextAlignment(style.TextAlign);
+                SelectedDashed = style.Dashed;
+                SelectedLocked = SelectedBlock.IsLocked;
+                SelectedOpacity = style.Opacity;
+                SelectedCornerRadius = style.CornerRadius;
+                SelectedConnectionLabel = string.Empty;
+                RefreshSelectedStyleColor();
+                return;
+            }
 
-        if (SelectedConnection is not null)
-        {
-            SelectedObjectTitle = string.IsNullOrWhiteSpace(SelectedConnection.Label) ? "Connector" : SelectedConnection.Label!;
-            SelectedObjectKind = "Connector";
-            SelectedObjectPath = string.Empty;
-            SelectedObjectLineRange = $"{SelectedConnection.SourceKey} -> {SelectedConnection.TargetKey}";
-            ClearSelectedObjectData();
-            SelectedConnectionLabel = SelectedConnection.Label ?? string.Empty;
-            SelectedStroke = SelectedConnection.Stroke;
-            SelectedStrokeWidth = "1.6";
-            SelectedFontSize = "16";
-            SelectedTextAlignment = "Center";
-            SelectedDashed = SelectedConnection.Dashed;
-            SelectedRouteKind = SelectedConnection.RouteKind.ToString();
-            SelectedArrowKind = SelectedConnection.ArrowKind.ToString();
-            SelectedTitleDraft = string.Empty;
-            SelectedBodyDraft = string.Empty;
-            SelectedLocked = false;
-            return;
-        }
+            if (SelectedConnection is not null)
+            {
+                SelectedObjectTitle = string.IsNullOrWhiteSpace(SelectedConnection.Label) ? "Connector" : SelectedConnection.Label!;
+                SelectedObjectKind = "Connector";
+                SelectedObjectPath = string.Empty;
+                SelectedObjectLineRange = $"{SelectedConnection.SourceKey} -> {SelectedConnection.TargetKey}";
+                ClearSelectedObjectData();
+                SelectedConnectionLabel = SelectedConnection.Label ?? string.Empty;
+                SelectedStroke = SelectedConnection.Stroke;
+                SelectedStrokeWidth = "1.6";
+                SelectedFontSize = "16";
+                SelectedTextAlignment = "Center";
+                SelectedDashed = SelectedConnection.Dashed;
+                SelectedRouteKind = SelectedConnection.RouteKind.ToString();
+                SelectedArrowKind = SelectedConnection.ArrowKind.ToString();
+                SelectedTitleDraft = string.Empty;
+                SelectedBodyDraft = string.Empty;
+                SelectedLocked = false;
+                SelectedOpacity = 1.0;
+                SelectedCornerRadius = 8.0;
+                SelectedStyleTarget = "Stroke";
+                RefreshSelectedStyleColor();
+                return;
+            }
 
-        if (SelectedSwimLane is not null)
-        {
-            SelectedObjectTitle = SelectedSwimLane.Name;
-            SelectedObjectKind = "Architecture frame";
+            if (SelectedSwimLane is not null)
+            {
+                SelectedObjectTitle = SelectedSwimLane.Name;
+                SelectedObjectKind = "Architecture frame";
+                SelectedObjectPath = string.Empty;
+                SelectedObjectLineRange = string.Empty;
+                SetSelectedObjectData(SelectedSwimLane.X, SelectedSwimLane.Y, SelectedSwimLane.Width, SelectedSwimLane.Height);
+                SelectedOpacity = 1.0;
+                SelectedCornerRadius = 8.0;
+                return;
+            }
+
+            SelectedObjectTitle = "Canvas";
+            SelectedObjectKind = "Review canvas";
             SelectedObjectPath = string.Empty;
             SelectedObjectLineRange = string.Empty;
-            SetSelectedObjectData(SelectedSwimLane.X, SelectedSwimLane.Y, SelectedSwimLane.Width, SelectedSwimLane.Height);
-            return;
+            SelectedTitleDraft = string.Empty;
+            SelectedBodyDraft = string.Empty;
+            SelectedConnectionLabel = string.Empty;
+            SelectedStrokeWidth = "1.2";
+            SelectedFontSize = "16";
+            SelectedTextAlignment = "Center";
+            SelectedLocked = false;
+            SelectedOpacity = 1.0;
+            SelectedCornerRadius = 8.0;
+            SelectionSupportsStyle = false;
+            RefreshSelectedStyleColor();
+            ClearSelectedObjectData();
         }
+        finally
+        {
+            _isUpdatingSelection = false;
+        }
+    }
 
-        SelectedObjectTitle = "Canvas";
-        SelectedObjectKind = "Review canvas";
-        SelectedObjectPath = string.Empty;
-        SelectedObjectLineRange = string.Empty;
-        SelectedTitleDraft = string.Empty;
-        SelectedBodyDraft = string.Empty;
-        SelectedConnectionLabel = string.Empty;
-        SelectedStrokeWidth = "1.2";
-        SelectedFontSize = "16";
-        SelectedTextAlignment = "Center";
-        SelectedLocked = false;
-        ClearSelectedObjectData();
+    partial void OnSelectedStyleTargetChanged(string value)
+    {
+        RefreshSelectedStyleColor();
+        _syncingStyleTarget = true;
+        StyleTargetFillSelected = value == "Fill";
+        StyleTargetStrokeSelected = value == "Stroke";
+        StyleTargetTextSelected = value == "Text";
+        _syncingStyleTarget = false;
+    }
+
+    partial void OnStyleTargetFillSelectedChanged(bool value)
+    {
+        if (value && !_syncingStyleTarget)
+            SelectedStyleTarget = "Fill";
+    }
+
+    partial void OnStyleTargetStrokeSelectedChanged(bool value)
+    {
+        if (value && !_syncingStyleTarget)
+            SelectedStyleTarget = "Stroke";
+    }
+
+    partial void OnStyleTargetTextSelectedChanged(bool value)
+    {
+        if (value && !_syncingStyleTarget)
+            SelectedStyleTarget = "Text";
+    }
+
+    partial void OnSelectedFillChanged(string value) => RefreshSelectedStyleColor();
+    partial void OnSelectedStrokeChanged(string value) => RefreshSelectedStyleColor();
+    partial void OnSelectedTextColorChanged(string value) => RefreshSelectedStyleColor();
+    partial void OnSelectedLockedChanged(bool value) { if (!_isUpdatingSelection) _ = ApplySelectionPropertiesAsync(); }
+    partial void OnSelectedDashedChanged(bool value) { if (!_isUpdatingSelection) _ = ApplySelectionPropertiesAsync(); }
+    partial void OnSelectedOpacityChanged(double value) { if (!_isUpdatingSelection) _ = ApplySelectionPropertiesAsync(); }
+    partial void OnSelectedCornerRadiusChanged(double value) { if (!_isUpdatingSelection) _ = ApplySelectionPropertiesAsync(); }
+    partial void OnSelectedFontSizeChanged(string value) { if (!_isUpdatingSelection) _ = ApplySelectionPropertiesAsync(); }
+    partial void OnSelectedTextAlignmentChanged(string value) { if (!_isUpdatingSelection) _ = ApplySelectionPropertiesAsync(); }
+    partial void OnSelectedStrokeWidthChanged(string value) { if (!_isUpdatingSelection) _ = ApplySelectionPropertiesAsync(); }
+
+    private void RefreshSelectedStyleColor()
+    {
+        SelectedStyleColor = SelectedStyleTarget switch
+        {
+            "Stroke" => SelectedStroke,
+            "Text" => SelectedTextColor,
+            _ => SelectedFill
+        };
     }
 
     private void SetSelectedObjectData(double x, double y, double width, double height)
@@ -299,9 +383,6 @@ public partial class MainWindowViewModel : ObservableObject
 
     private static double MeasureCodeBlockHeight(int lineCount, double minHeight) =>
         Math.Max(minHeight, lineCount * CodeLineHeight + CodeBlockVerticalChrome);
-
-    [RelayCommand]
-    public void CloseSymbolsPanel() => IsSymbolsPanelVisible = false;
 
     private static double MeasureUnfocusedFileBlockHeight(int lineCount) =>
         Math.Min(MaxUnfocusedFileBlockHeight, MeasureCodeBlockHeight(lineCount, MinFileBlockHeight));

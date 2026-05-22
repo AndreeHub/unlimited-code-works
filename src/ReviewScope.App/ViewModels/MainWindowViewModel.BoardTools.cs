@@ -34,7 +34,7 @@ public sealed partial class MainWindowViewModel
             Body: "New note...",
             ZIndex: NextBlockZIndex(),
             LayerKey: "layer::notes",
-            Style: new BoardItemStyle("#FFF3C7", "#E2BA4C", "#3C3412"));
+            Style: new BoardItemStyle("#FFF3C7", "#E2BA4C", "#3C3412", FontSize: 12.5));
         var annotations = Scene.Annotations.Append(new RenderAnnotation(id, note.Key, note.Body!, note.X, note.Y)).ToList();
         SetSceneFromUserAction(Scene with { Blocks = Scene.Blocks.Append(note).ToList(), Annotations = annotations }, "Added note");
         await PersistSessionAsync();
@@ -50,7 +50,7 @@ public sealed partial class MainWindowViewModel
             180 + Scene.Blocks.Count * 22, 120 + Scene.Blocks.Count * 18, 800, 1200,
             Body: "Double-click note-style text editing is coming next; edit from persistence for now.",
             LayerKey: "layer::architecture",
-            Style: new BoardItemStyle("#FFFFFF", "#CBD5E1", "#111827"));
+            Style: new BoardItemStyle("#00000000", "#CBD5E1", "#111827"));
         SetSceneFromUserAction(Scene with { Blocks = Scene.Blocks.Append(text).ToList() }, "Added text");
         await PersistSessionAsync();
     }
@@ -421,7 +421,9 @@ public sealed partial class MainWindowViewModel
                 StrokeWidth = Math.Clamp(ParseDoubleOr(SelectedStrokeWidth, style.StrokeWidth), 0.5, 8),
                 FontSize = Math.Clamp(ParseDoubleOr(SelectedFontSize, style.FontSize), 8, 48),
                 TextAlign = NormalizeTextAlignment(SelectedTextAlignment),
-                Dashed = SelectedDashed
+                Dashed = SelectedDashed,
+                Opacity = Math.Clamp(SelectedOpacity, 0.0, 1.0),
+                CornerRadius = Math.Clamp(SelectedCornerRadius, 0.0, 30.0)
             };
             var blocks = Scene.Blocks.Select(b =>
                 b.Key.Equals(SelectedBlock.Key, StringComparison.OrdinalIgnoreCase)
