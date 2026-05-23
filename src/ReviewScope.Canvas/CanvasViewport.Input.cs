@@ -128,7 +128,7 @@ public sealed partial class CanvasViewport
                 _editingTitle = IsNoteTitleHit(editVis, world);
                 var metrics = GetEditTextMetrics(editVis, _editingTitle);
                 string editText = _editingTitle ? _editTitle : _editBody;
-                int newPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap);
+                int newPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap, alignment: metrics.Alignment);
                 if (modifiers.HasFlag(ModifierKeys.Shift)) { if (_editSelectionAnchor < 0) _editSelectionAnchor = _editCursorPos; }
                 else _editSelectionAnchor = newPos;
                 _editCursorPos = newPos;
@@ -243,7 +243,7 @@ public sealed partial class CanvasViewport
             {
                 var metrics = GetEditTextMetrics(ev, _editingTitle);
                 string editText = _editingTitle ? _editTitle : _editBody;
-                _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap);
+                _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap, alignment: metrics.Alignment);
                 _editCursorVisible = true;
                 RenderNative();
             }
@@ -541,7 +541,7 @@ public sealed partial class CanvasViewport
             _editingTitle = IsNoteTitleHit(vis, cw);
             var metrics = GetEditTextMetrics(vis, _editingTitle);
             string editText = _editingTitle ? _editTitle : _editBody;
-            _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, cw, wrap: metrics.Wrap);
+            _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, cw, wrap: metrics.Wrap, alignment: metrics.Alignment);
         }
         else _editCursorPos = _editBody.Length;
         _editCursorVisible = true; _cursorBlinkTimer?.Dispose();
@@ -549,13 +549,28 @@ public sealed partial class CanvasViewport
         ApplySceneChange(CanvasViewport.SetSelection(Scene, new[] { block.Key })); RebuildSnapshot(); RenderNative();
     }
 
-    private static (float X, float Y, float Width, float FontSize, bool Wrap) GetEditTextMetrics(SceneBlockVisual visual, bool title = false)
+    private static Vortice.DirectWrite.TextAlignment ToDWriteTextAlignment(string? alignment) =>
+        alignment?.Trim().ToLowerInvariant() switch
+        {
+            "left" => Vortice.DirectWrite.TextAlignment.Leading,
+            "right" => Vortice.DirectWrite.TextAlignment.Trailing,
+            _ => Vortice.DirectWrite.TextAlignment.Center
+        };
+
+    private static (float X, float Y, float Width, float FontSize, bool Wrap, Vortice.DirectWrite.TextAlignment Alignment) GetEditTextMetrics(SceneBlockVisual visual, bool title = false)
     {
         Rect bounds = visual.Bounds;
-        if (visual.Block.Kind == BlockKind.Note && title) return ((float)bounds.X + 24, (float)bounds.Y + 12, (float)bounds.Width - 48, 14f, false);
-        if (visual.Block.Kind == BlockKind.Note) return ((float)bounds.X + 14, (float)bounds.Y + 42, (float)bounds.Width - 28, 12.5f, true);
-        if (visual.Block.Kind == BlockKind.Text) return ((float)bounds.X + 12, (float)bounds.Y + 12, (float)bounds.Width - 24, 14f, true);
-        return ((float)bounds.X + 14, (float)(bounds.Y + bounds.Height / 2 - 8), (float)bounds.Width - 28, 13f, false);
+        if (visual.Block.Kind == BlockKind.Note && title) 
+            return ((float)bounds.X + 24, (float)bounds.Y + 12, (float)bounds.Width - 48, 14f, false, Vortice.DirectWrite.TextAlignment.Leading);
+        if (visual.Block.Kind == BlockKind.Note) 
+            return ((float)bounds.X + 14, (float)bounds.Y + 42, (float)bounds.Width - 28, 12.5f, true, Vortice.DirectWrite.TextAlignment.Leading);
+        if (visual.Block.Kind == BlockKind.Text)
+        {
+            float fs = visual.Block.Style is not null ? Math.Clamp((float)visual.Block.Style.FontSize, 8f, 48f) : 14f;
+            var align = ToDWriteTextAlignment(visual.Block.Style?.TextAlign);
+            return ((float)bounds.X + 12, (float)bounds.Y + 12, (float)bounds.Width - 24, fs, true, align);
+        }
+        return ((float)bounds.X + 14, (float)(bounds.Y + bounds.Height / 2 - 8), (float)bounds.Width - 28, 13f, false, Vortice.DirectWrite.TextAlignment.Leading);
     }
 
     private static bool IsNoteTitleHit(SceneBlockVisual visual, WpfPoint world)
@@ -574,6 +589,12 @@ public sealed partial class CanvasViewport
             if (noteBlock is not null)
             {
                 string title = string.IsNullOrWhiteSpace(_editTitle) ? "Note" : _editTitle.Trim();
+                if (noteBlock.Kind == BlockKind.Text)
+                {
+                    string body = _editBody ?? string.Empty;
+                    title = body.Length > 40 ? body.Substring(0, 37) + "..." : body;
+                    if (string.IsNullOrWhiteSpace(title)) title = "Text";
+                }
                 var blocks = Scene.Blocks.Select(b => b.Key.Equals(key, StringComparison.OrdinalIgnoreCase) ? b with { Title = title, Body = _editBody } : b).ToList();
                 var annotations = Scene.Annotations.Select(a => a.Id == noteBlock.Id ? a with { Content = _editBody } : a).ToList();
                 ApplySceneChange(Scene with { Blocks = blocks, Annotations = annotations }); RebuildSnapshot(); return;
@@ -673,14 +694,20 @@ public sealed partial class CanvasViewport
         else { int curEnd = LineEnd(text, pos); if (curEnd >= text.Length) return pos; int nextStart = curEnd + 1; int nextEnd = LineEnd(text, nextStart); int nextLen = nextEnd - nextStart; return nextStart + Math.Min(col, nextLen); }
     }
 
-    private int HitTestCursorPos(string text, float fontSize, float textX, float textY, float maxW, WpfPoint world, bool wrap = false)
+    private int HitTestCursorPos(string text, float fontSize, float textX, float textY, float maxW, WpfPoint world, bool wrap = false, Vortice.DirectWrite.TextAlignment alignment = Vortice.DirectWrite.TextAlignment.Leading)
     {
         if (_dwrite is null) return 0; string layoutText = text.Length == 0 ? " " : text;
         Vortice.DirectWrite.IDWriteTextFormat fmt = GetTextFormat(fontSize);
+        var oldTextAlign = fmt.TextAlignment;
+        fmt.TextAlignment = alignment;
+        
         using var layout = _dwrite.CreateTextLayout(layoutText, fmt, maxW, 9999f);
         if (wrap) layout.WordWrapping = Vortice.DirectWrite.WordWrapping.Wrap;
         SharpGen.Runtime.RawBool isTrailing = false; SharpGen.Runtime.RawBool isInside = false;
         var metrics = layout.HitTestPoint((float)(world.X - textX), (float)(world.Y - textY), out isTrailing, out isInside);
+        
+        fmt.TextAlignment = oldTextAlign;
+        
         return Math.Clamp((int)metrics.TextPosition + (isTrailing ? 1 : 0), 0, text.Length);
     }
 

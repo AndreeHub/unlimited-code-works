@@ -203,4 +203,19 @@ public partial class BoardSidebar : UserControl
         vm.SelectedCornerRadius = r;
         await vm.ApplySelectionPropertiesAsync();
     }
+
+    private void OnPickColorForActiveInspector(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string propName) return;
+        if (ViewModel?.ActiveInspector is not { } inspector) return;
+
+        var prop = inspector.GetType().GetProperty(propName);
+        if (prop is null) return;
+
+        string currentHex = prop.GetValue(inspector) as string ?? "#FFFFFF";
+        if (TryPickColor(currentHex, out string newHex))
+        {
+            prop.SetValue(inspector, newHex);
+        }
+    }
 }

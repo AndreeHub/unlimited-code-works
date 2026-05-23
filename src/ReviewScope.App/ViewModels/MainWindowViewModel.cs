@@ -3,22 +3,13 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using ReviewScope.Analysis;
 using ReviewScope.App.Persistence;
+using ReviewScope.App.ViewModels.Inspectors;
 using ReviewScope.Domain;
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Input;
 
 namespace ReviewScope.App.ViewModels;
-
-/*
- * File: MainWindowViewModel.cs
- * Purpose: Main application ViewModel coordinating workspace loading, navigation, and global canvas state.
- * Functions:
- * - LoadWorkspaceAsync: Entry point for opening solutions or folders.
- * - ToggleBackground: Command to switch between grid and dot canvas modes.
- * - Observable Properties: Scene, StatusMessage, WorkspacePath, and more.
- * Please read the first 15 lines of this file for a summary before reading the entire file to save tokens.
- */
 
 public partial class MainWindowViewModel : ObservableObject
 {
@@ -59,6 +50,7 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private RenderBlock? _selectedBlock;
     [ObservableProperty] private RenderConnection? _selectedConnection;
     [ObservableProperty] private RenderSwimLane? _selectedSwimLane;
+    [ObservableProperty] private InspectorViewModelBase? _activeInspector;
     [ObservableProperty] private string _selectedObjectTitle = "Canvas";
     [ObservableProperty] private string _selectedObjectKind = "Review canvas";
     [ObservableProperty] private string _selectedObjectPath = string.Empty;
@@ -159,6 +151,30 @@ public partial class MainWindowViewModel : ObservableObject
             StatusMessage = description;
     }
 
+    internal void UpdateSceneBlock(RenderBlock updatedBlock, string description)
+    {
+        if (_isUpdatingSelection) return;
+        var blocks = Scene.Blocks.Select(b => b.Key.Equals(updatedBlock.Key, StringComparison.OrdinalIgnoreCase) ? updatedBlock : b).ToList();
+        SetSceneFromUserAction(Scene with { Blocks = blocks }, description);
+        _ = PersistSessionAsync();
+    }
+
+    internal void UpdateSceneConnection(RenderConnection updatedConnection, string description)
+    {
+        if (_isUpdatingSelection) return;
+        var connections = Scene.Connections.Select(c => c.Id == updatedConnection.Id ? updatedConnection : c).ToList();
+        SetSceneFromUserAction(Scene with { Connections = connections }, description);
+        _ = PersistSessionAsync();
+    }
+
+    internal void UpdateSceneSwimLane(RenderSwimLane updatedSwimLane, string description)
+    {
+        if (_isUpdatingSelection) return;
+        var lanes = Scene.SwimLanes.Select(l => l.Key.Equals(updatedSwimLane.Key, StringComparison.OrdinalIgnoreCase) ? updatedSwimLane : l).ToList();
+        SetSceneFromUserAction(Scene with { SwimLanes = lanes }, description);
+        _ = PersistSessionAsync();
+    }
+
     private void UpdateSelectedObject(RenderScene? scene = null)
     {
         _isUpdatingSelection = true;
@@ -174,6 +190,47 @@ public partial class MainWindowViewModel : ObservableObject
             HasBoardSelection = SelectionIsBlock || SelectionIsConnection || SelectedSwimLane is not null;
             if (HasBoardSelection)
                 SelectedRightTabIndex = 0;
+
+            Type? targetInspectorType = null;
+            if (SelectedBlock is not null)
+            {
+                targetInspectorType = SelectedBlock.Kind switch
+                {
+                    BlockKind.Text => typeof(TextBlockInspectorViewModel),
+                    BlockKind.Note => typeof(StickyNoteInspectorViewModel),
+                    BlockKind.Shape or BlockKind.Container => typeof(ShapeInspectorViewModel),
+                    _ => typeof(DefaultBlockInspectorViewModel)
+                };
+            }
+            else if (SelectedConnection is not null)
+            {
+                targetInspectorType = typeof(ConnectionInspectorViewModel);
+            }
+            else if (SelectedSwimLane is not null)
+            {
+                targetInspectorType = typeof(SwimLaneInspectorViewModel);
+            }
+
+            if (targetInspectorType is null)
+            {
+                ActiveInspector = null;
+            }
+            else if (ActiveInspector?.GetType() == targetInspectorType)
+            {
+                ActiveInspector.Refresh();
+            }
+            else
+            {
+                ActiveInspector = targetInspectorType switch
+                {
+                    Type t when t == typeof(TextBlockInspectorViewModel) => new TextBlockInspectorViewModel(this),
+                    Type t when t == typeof(StickyNoteInspectorViewModel) => new StickyNoteInspectorViewModel(this),
+                    Type t when t == typeof(ShapeInspectorViewModel) => new ShapeInspectorViewModel(this),
+                    Type t when t == typeof(ConnectionInspectorViewModel) => new ConnectionInspectorViewModel(this),
+                    Type t when t == typeof(SwimLaneInspectorViewModel) => new SwimLaneInspectorViewModel(this),
+                    _ => new DefaultBlockInspectorViewModel(this)
+                };
+            }
 
             if (SelectedBlock is not null)
             {

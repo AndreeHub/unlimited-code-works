@@ -47,10 +47,10 @@ public sealed partial class MainWindowViewModel
         var text = new RenderBlock(
             id, $"text::{id:N}", BlockKind.Text,
             "Text", string.Empty,
-            180 + Scene.Blocks.Count * 22, 120 + Scene.Blocks.Count * 18, 800, 1200,
-            Body: "Double-click note-style text editing is coming next; edit from persistence for now.",
+            180 + Scene.Blocks.Count * 22, 120 + Scene.Blocks.Count * 18, 240, 80,
+            Body: "Double-click to edit text",
             LayerKey: "layer::architecture",
-            Style: new BoardItemStyle("#00000000", "#CBD5E1", "#111827"));
+            Style: new BoardItemStyle(Fill: "#00000000", Stroke: "#00000000", Text: "#111827", TextAlign: "Center", FontSize: 14));
         SetSceneFromUserAction(Scene with { Blocks = Scene.Blocks.Append(text).ToList() }, "Added text");
         await PersistSessionAsync();
     }

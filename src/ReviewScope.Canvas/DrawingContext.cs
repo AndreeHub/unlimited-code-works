@@ -1,9 +1,16 @@
+using System;
+using System.Collections.Generic;
 using System.Numerics;
 using System.Windows;
 using Vortice.Direct2D1;
 using Vortice.DirectWrite;
 using WpfColor = System.Windows.Media.Color;
 using Color4 = Vortice.Mathematics.Color4;
+using DWriteFontWeight = Vortice.DirectWrite.FontWeight;
+using DWriteFontStyle = Vortice.DirectWrite.FontStyle;
+using DWriteFontStretch = Vortice.DirectWrite.FontStretch;
+using DWriteTextAlignment = Vortice.DirectWrite.TextAlignment;
+using DWriteParagraphAlignment = Vortice.DirectWrite.ParagraphAlignment;
 
 namespace ReviewScope.Canvas;
 
@@ -60,14 +67,91 @@ internal sealed class DrawingContext
         _rt.DrawTextLayout(new Vector2(x, y), layout, GetBrush(color), DrawTextOptions.Clip);
     }
 
-    public void DrawWrappedText(string text, float x, float y, float maxWidth, float maxHeight, float fontSize, WpfColor color, bool wrap = false, bool sketchy = false)
+    public void DrawWrappedText(string text, float x, float y, float maxWidth, float maxHeight, float fontSize, WpfColor color, bool wrap = false, bool sketchy = false, Vortice.DirectWrite.TextAlignment alignment = Vortice.DirectWrite.TextAlignment.Leading)
     {
         if (string.IsNullOrEmpty(text) || maxWidth < 1 || maxHeight < 1) return;
         var fmt = GetTextFormat(fontSize, sketchy);
+        var oldTextAlign = fmt.TextAlignment;
+        fmt.TextAlignment = alignment;
+        
         using var layout = _dwrite.CreateTextLayout(text, fmt, maxWidth, maxHeight);
         if (wrap) layout.WordWrapping = WordWrapping.Wrap;
         _rt.DrawTextLayout(new Vector2(x, y), layout, GetBrush(color), DrawTextOptions.Clip);
+        
+        fmt.TextAlignment = oldTextAlign;
     }
 
     public Color4 ToColor4(WpfColor c) => new(c.R / 255f, c.G / 255f, c.B / 255f, c.A / 255f);
+
+    // ---- Rich text (custom font family/weight/style) ----
+
+    private readonly Dictionary<string, IDWriteTextFormat> _richFormats = new();
+
+    private IDWriteTextFormat GetRichFormat(string fontFamily, float size, bool bold, bool italic)
+    {
+        string key = $"{fontFamily}|{size:F1}|{(bold ? 'B' : 'n')}|{(italic ? 'I' : 'n')}";
+        if (_richFormats.TryGetValue(key, out var cached)) return cached;
+
+        var weight = bold ? DWriteFontWeight.Bold : DWriteFontWeight.Normal;
+        var style = italic ? DWriteFontStyle.Italic : DWriteFontStyle.Normal;
+        IDWriteTextFormat fmt;
+        try
+        {
+            fmt = _dwrite.CreateTextFormat(fontFamily, weight, style, DWriteFontStretch.Normal, size);
+        }
+        catch
+        {
+            fmt = _dwrite.CreateTextFormat("Segoe UI", weight, style, DWriteFontStretch.Normal, size);
+        }
+        fmt.WordWrapping = WordWrapping.Wrap;
+        _richFormats[key] = fmt;
+        return fmt;
+    }
+
+    /// <summary>
+    /// Draws text with full rich-text styling: font family, weight, italic, underline,
+    /// strikethrough, horizontal + vertical alignment, optional word-wrap, optional
+    /// drop shadow.
+    /// </summary>
+    public void DrawRichText(
+        string text,
+        float x, float y, float width, float height,
+        string fontFamily,
+        float fontSize,
+        bool bold,
+        bool italic,
+        bool underline,
+        bool strikethrough,
+        WpfColor color,
+        DWriteTextAlignment hAlign,
+        DWriteParagraphAlignment vAlign,
+        bool wrap,
+        bool shadow)
+    {
+        if (string.IsNullOrEmpty(text) || width < 1 || height < 1) return;
+
+        var fmt = GetRichFormat(string.IsNullOrWhiteSpace(fontFamily) ? "Segoe UI" : fontFamily, fontSize, bold, italic);
+        var oldH = fmt.TextAlignment;
+        var oldV = fmt.ParagraphAlignment;
+        var oldWrap = fmt.WordWrapping;
+        fmt.TextAlignment = hAlign;
+        fmt.ParagraphAlignment = vAlign;
+        fmt.WordWrapping = wrap ? WordWrapping.Wrap : WordWrapping.NoWrap;
+
+        using var layout = _dwrite.CreateTextLayout(text, fmt, width, height);
+        var fullRange = new TextRange(0, (uint)text.Length);
+        if (underline) layout.SetUnderline(true, fullRange);
+        if (strikethrough) layout.SetStrikethrough(true, fullRange);
+
+        if (shadow)
+        {
+            var shadowColor = WpfColor.FromArgb((byte)(color.A * 0.35), 0, 0, 0);
+            _rt.DrawTextLayout(new Vector2(x + 1.5f, y + 1.5f), layout, GetBrush(shadowColor), DrawTextOptions.Clip);
+        }
+        _rt.DrawTextLayout(new Vector2(x, y), layout, GetBrush(color), DrawTextOptions.Clip);
+
+        fmt.TextAlignment = oldH;
+        fmt.ParagraphAlignment = oldV;
+        fmt.WordWrapping = oldWrap;
+    }
 }

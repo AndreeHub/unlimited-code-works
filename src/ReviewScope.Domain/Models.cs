@@ -77,7 +77,28 @@ public sealed record BoardItemStyle(
     double CornerRadius = 8,
     string TextAlign = "Center",
     string FillStyle = "hatch",
-    double FontSize = 16);
+    double FontSize = 16,
+    // --- Rich text (draw.io parity) ---
+    string FontFamily = "Helvetica",
+    bool Bold = false,
+    bool Italic = false,
+    bool Underline = false,
+    bool Strikethrough = false,
+    string VerticalAlign = "Middle",       // Top | Middle | Bottom
+    string Position = "Center",            // Center | Top | Bottom | Left | Right (label position)
+    string WritingDirection = "Automatic", // Automatic | LeftToRight | RightToLeft
+    bool FontColorEnabled = true,
+    bool BackgroundColorEnabled = false,
+    bool BorderColorEnabled = false,
+    bool ShadowEnabled = false,
+    bool WordWrap = true,
+    bool FormattedText = true,
+    bool ConvertLabelsToSvg = false,
+    bool AutoFontSize = false,
+    double SpacingTop = 4,
+    double SpacingRight = 4,
+    double SpacingBottom = 4,
+    double SpacingLeft = 4);
 
 public sealed record BoardSourceBinding(
     string? AssetPath = null,

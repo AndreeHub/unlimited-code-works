@@ -697,23 +697,83 @@ internal sealed class BlockRenderer
         Rect outer = blockVis.Bounds;
         bool isEditing = editingNoteKey == block.Key;
         var style = block.Style ?? new BoardItemStyle();
-        WpfColor fill = CanvasDrawingUtils.ParseColor(style.Fill);
-        WpfColor stroke = CanvasDrawingUtils.ParseColor(style.Stroke);
-        WpfColor textColor = CanvasDrawingUtils.ParseColor(style.Text);
-        float fontSize = Math.Clamp((float)style.FontSize, 8f, 48f);
-        DrawCardShell(outer, block.IsSelected || isEditing, stroke, (float)style.CornerRadius, block.Key.ToString(), fill, style.FillStyle ?? "hatch", style.Opacity);
+
+        // Background / border are conditionally drawn based on the enable flags from the inspector.
+        WpfColor fill = style.BackgroundColorEnabled
+            ? CanvasDrawingUtils.ParseColor(style.Fill)
+            : WpfColor.FromArgb(0, 0, 0, 0);
+        WpfColor stroke = style.BorderColorEnabled
+            ? CanvasDrawingUtils.ParseColor(style.Stroke)
+            : WpfColor.FromArgb(0, 0, 0, 0);
+        WpfColor textColor = style.FontColorEnabled
+            ? CanvasDrawingUtils.ParseColor(style.Text)
+            : WpfColor.FromArgb(0, 0, 0, 0);
+
+        // Shell still draws selection outline regardless of fill/stroke visibility.
+        DrawCardShell(outer, block.IsSelected || isEditing, stroke, (float)style.CornerRadius, block.Key.ToString(), fill, style.FillStyle ?? "solid", style.Opacity);
+
         string text = isEditing ? editBody : block.Body ?? block.Title;
-        float x = (float)outer.X + 12;
-        float y = (float)outer.Y + 12;
-        float w = (float)outer.Width - 24;
+
+        // Auto font-size: choose the largest size that fits the box height.
+        float baseFont = (float)Math.Clamp(style.FontSize, 8, 96);
+        float fontSize = baseFont;
+        if (style.AutoFontSize && !string.IsNullOrEmpty(text))
+        {
+            // Simple heuristic: fit roughly height/(1.4*lines) where lines is estimated.
+            float lines = Math.Max(1, text.Split('\n').Length);
+            fontSize = (float)Math.Clamp((outer.Height - 8) / (lines * 1.4f), 6f, 96f);
+        }
+
+        // Spacing (padding) inside the text box.
+        float padL = (float)Math.Max(0, style.SpacingLeft);
+        float padR = (float)Math.Max(0, style.SpacingRight);
+        float padT = (float)Math.Max(0, style.SpacingTop);
+        float padB = (float)Math.Max(0, style.SpacingBottom);
+
+        float x = (float)outer.X + padL;
+        float y = (float)outer.Y + padT;
+        float w = Math.Max(4, (float)outer.Width - padL - padR);
+        float h = Math.Max(4, (float)outer.Height - padT - padB);
+
+        var hAlign = ToDWriteTextAlignment(style.TextAlign);
+        var vAlign = ToParagraphAlignment(style.VerticalAlign);
+        bool wrap = style.WordWrap;
+
+        // Editing overlays (selection + caret) still use the wrapped-text helper which
+        // is good enough for the caret position; they ignore B/I/U/strikethrough.
         if (isEditing)
-            DrawEditSelection(text, fontSize, x, y, w, wrap: true, sketchy: true, editCursorPos, editSelectionAnchor);
-        _ctx.DrawWrappedText(text, x, y, w, (float)outer.Height - 24, fontSize, WpfColor.FromArgb((byte)(textColor.A * style.Opacity), textColor.R, textColor.G, textColor.B), wrap: true, sketchy: true);
+            DrawEditSelection(text, fontSize, x, y, w, wrap: wrap, sketchy: false, editCursorPos, editSelectionAnchor, hAlign);
+
+        var renderColor = WpfColor.FromArgb((byte)(textColor.A * style.Opacity), textColor.R, textColor.G, textColor.B);
+
+        _ctx.DrawRichText(
+            text,
+            x, y, w, h,
+            string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily,
+            fontSize,
+            style.Bold,
+            style.Italic,
+            style.Underline,
+            style.Strikethrough,
+            renderColor,
+            hAlign,
+            vAlign,
+            wrap,
+            style.ShadowEnabled);
+
         if (isEditing && editCursorVisible)
-            DrawNoteCursor(text, fontSize, x, y, w, editCursorPos, wrap: true, sketchy: true);
+            DrawNoteCursor(text, fontSize, x, y, w, editCursorPos, wrap: wrap, sketchy: false, hAlign, maxH: h, paragraphAlignment: vAlign);
         if (block.IsSelected)
             DrawGenericResizeHandle(outer, stroke, block.IsLocked);
     }
+
+    private static DWriteParagraphAlignment ToParagraphAlignment(string? v) =>
+        v?.Trim().ToLowerInvariant() switch
+        {
+            "top" => DWriteParagraphAlignment.Near,
+            "bottom" => DWriteParagraphAlignment.Far,
+            _ => DWriteParagraphAlignment.Center
+        };
 
     private void DrawImageBlock(
         SceneBlockVisual blockVis,
@@ -1204,22 +1264,42 @@ internal sealed class BlockRenderer
         && _ctx.Zoom > UltraCompactZoom
         && block.Kind is not (BlockKind.Note or BlockKind.Shape);
 
-    private void DrawNoteCursor(string text, float fontSize, float textX, float textY, float maxW, int cursorPos, bool wrap = false, bool sketchy = false)
+    private void DrawNoteCursor(string text, float fontSize, float textX, float textY, float maxW, int cursorPos, bool wrap = false, bool sketchy = false, DWriteTextAlignment alignment = DWriteTextAlignment.Leading, float maxH = 9999f, DWriteParagraphAlignment paragraphAlignment = DWriteParagraphAlignment.Near)
     {
         IDWriteTextFormat fmt = _ctx.GetTextFormat(fontSize, sketchy);
+        var oldTextAlign = fmt.TextAlignment;
+        var oldParagraph = fmt.ParagraphAlignment;
+        fmt.TextAlignment = alignment;
+        fmt.ParagraphAlignment = paragraphAlignment;
+
         string layoutText = text.Length == 0 ? " " : text;
         int safePos = Math.Clamp(cursorPos, 0, text.Length);
-        using var layout = _ctx.DWriteFactory.CreateTextLayout(layoutText, fmt, maxW, 9999f);
+        using var layout = _ctx.DWriteFactory.CreateTextLayout(layoutText, fmt, maxW, maxH);
         if (wrap) layout.WordWrapping = WordWrapping.Wrap;
         layout.HitTestTextPosition((uint)safePos, false, out float cx, out float cy, out _);
+
+        // HitTestTextPosition returns the position relative to the layout origin,
+        // but ignores ParagraphAlignment. Compensate by offsetting with the gap
+        // between the actual layout metrics and the layout box.
+        float vOffset = 0f;
+        if (paragraphAlignment != DWriteParagraphAlignment.Near)
+        {
+            var metrics = layout.Metrics;
+            float gap = Math.Max(0, maxH - metrics.Height);
+            vOffset = paragraphAlignment == DWriteParagraphAlignment.Center ? gap * 0.5f : gap;
+        }
+
+        fmt.TextAlignment = oldTextAlign;
+        fmt.ParagraphAlignment = oldParagraph;
+
         float lineH = fontSize * 1.35f;
         _ctx.RenderTarget.DrawLine(
-            new Vector2(textX + cx, textY + cy),
-            new Vector2(textX + cx, textY + cy + lineH),
+            new Vector2(textX + cx, textY + cy + vOffset),
+            new Vector2(textX + cx, textY + cy + vOffset + lineH),
             _ctx.GetBrush(WpfColor.FromArgb(210, 38, 33, 8)), _ctx.InvStroke(1.5f));
     }
 
-    private void DrawEditSelection(string text, float fontSize, float textX, float textY, float maxW, bool wrap = false, bool sketchy = false, int cursorPos = 0, int selectionAnchor = -1)
+    private void DrawEditSelection(string text, float fontSize, float textX, float textY, float maxW, bool wrap = false, bool sketchy = false, int cursorPos = 0, int selectionAnchor = -1, DWriteTextAlignment alignment = DWriteTextAlignment.Leading)
     {
         if (selectionAnchor < 0 || selectionAnchor == cursorPos) return;
         int start = Math.Min(selectionAnchor, cursorPos);
@@ -1228,10 +1308,16 @@ internal sealed class BlockRenderer
         end = Math.Clamp(end, 0, text.Length);
         if (end <= start) return;
         IDWriteTextFormat fmt = _ctx.GetTextFormat(fontSize, sketchy);
+        var oldTextAlign = fmt.TextAlignment;
+        fmt.TextAlignment = alignment;
+        
         string layoutText = text.Length == 0 ? " " : text;
         using var layout = _ctx.DWriteFactory.CreateTextLayout(layoutText, fmt, maxW, 9999f);
         if (wrap) layout.WordWrapping = WordWrapping.Wrap;
         var metrics = layout.HitTestTextRange((uint)start, (uint)(end - start), 0f, 0f);
+        
+        fmt.TextAlignment = oldTextAlign;
+        
         var brush = _ctx.GetBrush(WpfColor.FromArgb(110, 70, 130, 220));
         foreach (var m in metrics)
             _ctx.RenderTarget.FillRectangle(new RectangleF(textX + m.Left, textY + m.Top, m.Width, m.Height), brush);
