@@ -143,7 +143,7 @@ public sealed partial class CanvasViewport
                 _editingTitle = IsNoteTitleHit(editVis, world);
                 var metrics = GetEditTextMetrics(editVis, _editingTitle);
                 string editText = _editingTitle ? _editTitle : _editBody;
-                int newPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap, alignment: metrics.Alignment, maxH: metrics.Height, paragraphAlignment: metrics.ParagraphAlignment);
+                int newPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap, alignment: metrics.Alignment, maxH: metrics.Height, paragraphAlignment: metrics.ParagraphAlignment, fontFamily: metrics.FontFamily, bold: metrics.Bold, italic: metrics.Italic);
                 if (modifiers.HasFlag(ModifierKeys.Shift)) { if (_editSelectionAnchor < 0) _editSelectionAnchor = _editCursorPos; }
                 else _editSelectionAnchor = newPos;
                 _editCursorPos = newPos;
@@ -258,7 +258,7 @@ public sealed partial class CanvasViewport
             {
                 var metrics = GetEditTextMetrics(ev, _editingTitle);
                 string editText = _editingTitle ? _editTitle : _editBody;
-                _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap, alignment: metrics.Alignment, maxH: metrics.Height, paragraphAlignment: metrics.ParagraphAlignment);
+                _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap, alignment: metrics.Alignment, maxH: metrics.Height, paragraphAlignment: metrics.ParagraphAlignment, fontFamily: metrics.FontFamily, bold: metrics.Bold, italic: metrics.Italic);
                 _editCursorVisible = true;
                 RenderNative();
             }
@@ -556,7 +556,7 @@ public sealed partial class CanvasViewport
             _editingTitle = IsNoteTitleHit(vis, cw);
             var metrics = GetEditTextMetrics(vis, _editingTitle);
             string editText = _editingTitle ? _editTitle : _editBody;
-            _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, cw, wrap: metrics.Wrap, alignment: metrics.Alignment, maxH: metrics.Height, paragraphAlignment: metrics.ParagraphAlignment);
+            _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, cw, wrap: metrics.Wrap, alignment: metrics.Alignment, maxH: metrics.Height, paragraphAlignment: metrics.ParagraphAlignment, fontFamily: metrics.FontFamily, bold: metrics.Bold, italic: metrics.Italic);
         }
         else _editCursorPos = _editBody.Length;
         _editCursorVisible = true; _cursorBlinkTimer?.Dispose();
@@ -572,13 +572,13 @@ public sealed partial class CanvasViewport
             _ => Vortice.DirectWrite.TextAlignment.Center
         };
 
-    private static (float X, float Y, float Width, float FontSize, bool Wrap, Vortice.DirectWrite.TextAlignment Alignment, float Height, Vortice.DirectWrite.ParagraphAlignment ParagraphAlignment) GetEditTextMetrics(SceneBlockVisual visual, bool title = false)
+    private static (float X, float Y, float Width, float FontSize, bool Wrap, Vortice.DirectWrite.TextAlignment Alignment, float Height, Vortice.DirectWrite.ParagraphAlignment ParagraphAlignment, string? FontFamily, bool Bold, bool Italic) GetEditTextMetrics(SceneBlockVisual visual, bool title = false)
     {
         Rect bounds = visual.Bounds;
         if (visual.Block.Kind == BlockKind.Note && title)
-            return ((float)bounds.X + 24, (float)bounds.Y + 12, (float)bounds.Width - 48, 14f, false, Vortice.DirectWrite.TextAlignment.Leading, 22f, Vortice.DirectWrite.ParagraphAlignment.Near);
+            return ((float)bounds.X + 24, (float)bounds.Y + 12, (float)bounds.Width - 48, 14f, false, Vortice.DirectWrite.TextAlignment.Leading, 22f, Vortice.DirectWrite.ParagraphAlignment.Near, null, false, false);
         if (visual.Block.Kind == BlockKind.Note)
-            return ((float)bounds.X + 14, (float)bounds.Y + 42, (float)bounds.Width - 28, 12.5f, true, Vortice.DirectWrite.TextAlignment.Leading, Math.Max(20f, (float)bounds.Height - 50f), Vortice.DirectWrite.ParagraphAlignment.Near);
+            return ((float)bounds.X + 14, (float)bounds.Y + 42, (float)bounds.Width - 28, 12.5f, true, Vortice.DirectWrite.TextAlignment.Leading, Math.Max(20f, (float)bounds.Height - 50f), Vortice.DirectWrite.ParagraphAlignment.Near, null, false, false);
         if (visual.Block.Kind == BlockKind.Text)
         {
             var style = visual.Block.Style;
@@ -591,9 +591,10 @@ public sealed partial class CanvasViewport
             float w = Math.Max(4f, (float)bounds.Width - padL - padR);
             float h = Math.Max(4f, (float)bounds.Height - padT - padB);
             var vAlign = ToDWriteParagraphAlignment(style?.VerticalAlign);
-            return ((float)bounds.X + padL, (float)bounds.Y + padT, w, fs, true, align, h, vAlign);
+            string fam = string.IsNullOrWhiteSpace(style?.FontFamily) ? "Segoe UI" : style!.FontFamily!;
+            return ((float)bounds.X + padL, (float)bounds.Y + padT, w, fs, true, align, h, vAlign, fam, style?.Bold ?? false, style?.Italic ?? false);
         }
-        return ((float)bounds.X + 14, (float)(bounds.Y + bounds.Height / 2 - 8), (float)bounds.Width - 28, 13f, false, Vortice.DirectWrite.TextAlignment.Leading, 18f, Vortice.DirectWrite.ParagraphAlignment.Near);
+        return ((float)bounds.X + 14, (float)(bounds.Y + bounds.Height / 2 - 8), (float)bounds.Width - 28, 13f, false, Vortice.DirectWrite.TextAlignment.Leading, 18f, Vortice.DirectWrite.ParagraphAlignment.Near, null, false, false);
     }
 
     private static Vortice.DirectWrite.ParagraphAlignment ToDWriteParagraphAlignment(string? v) =>
@@ -725,10 +726,12 @@ public sealed partial class CanvasViewport
         else { int curEnd = LineEnd(text, pos); if (curEnd >= text.Length) return pos; int nextStart = curEnd + 1; int nextEnd = LineEnd(text, nextStart); int nextLen = nextEnd - nextStart; return nextStart + Math.Min(col, nextLen); }
     }
 
-    private int HitTestCursorPos(string text, float fontSize, float textX, float textY, float maxW, WpfPoint world, bool wrap = false, Vortice.DirectWrite.TextAlignment alignment = Vortice.DirectWrite.TextAlignment.Leading, float maxH = 9999f, Vortice.DirectWrite.ParagraphAlignment paragraphAlignment = Vortice.DirectWrite.ParagraphAlignment.Near)
+    private int HitTestCursorPos(string text, float fontSize, float textX, float textY, float maxW, WpfPoint world, bool wrap = false, Vortice.DirectWrite.TextAlignment alignment = Vortice.DirectWrite.TextAlignment.Leading, float maxH = 9999f, Vortice.DirectWrite.ParagraphAlignment paragraphAlignment = Vortice.DirectWrite.ParagraphAlignment.Near, string? fontFamily = null, bool bold = false, bool italic = false)
     {
         if (_dwrite is null) return 0; string layoutText = text.Length == 0 ? " " : text;
-        Vortice.DirectWrite.IDWriteTextFormat fmt = GetTextFormat(fontSize);
+        Vortice.DirectWrite.IDWriteTextFormat fmt = fontFamily is null
+            ? GetTextFormat(fontSize)
+            : GetRichTextFormat(fontFamily, fontSize, bold, italic);
         var oldTextAlign = fmt.TextAlignment;
         var oldParagraph = fmt.ParagraphAlignment;
         fmt.TextAlignment = alignment;

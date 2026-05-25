@@ -12,6 +12,9 @@ namespace ReviewScope.Canvas;
  * - Drag: hold + drag = single segment from drag-start to drag-end.
  * - Click (no drag): each click drops a polyline vertex. Shift+click marks the
  *   vertex as curved (spline). Click on a block or double-click to commit.
+ * Holding Ctrl constrains the cursor position to one of 8 cardinal directions
+ * (multiples of 45°) measured from the previous vertex — useful for clean
+ * orthogonal / diagonal elbow connectors.
  * Hovering near a block snaps endpoints to the block's connection anchor and stores
  * the block key so the shape attaches and follows the block at render time.
  */
@@ -28,7 +31,8 @@ internal sealed class ShapeTool : CanvasToolBase
     {
         Viewport.ApplySceneChange(CanvasViewport.ClearSelection(Viewport.Scene));
 
-        Point snapped = SnapPoint(world, out string? attachKey, out WpfPoint? relativeOffset, commit: true);
+        Point constrained = ApplyAxisConstraint(world, modifiers);
+        Point snapped = SnapPoint(constrained, out string? attachKey, out WpfPoint? relativeOffset, commit: true);
 
         // Already in polyline mode → add a vertex, attach to block, or commit on double-click
         if (IsLinear && Viewport._shapeDraftPolyline is { Count: >= 1 } verts)
@@ -83,7 +87,8 @@ internal sealed class ShapeTool : CanvasToolBase
             if (Math.Abs(d.X) >= 4 || Math.Abs(d.Y) >= 4) Viewport._didMove = true;
         }
 
-        Point current = SnapPoint(world, out string? attachEnd, out WpfPoint? relativeEndOffset);
+        Point constrained = ApplyAxisConstraint(world, modifiers);
+        Point current = SnapPoint(constrained, out string? attachEnd, out WpfPoint? relativeEndOffset);
         Viewport._shapeDraftCurrentWorld = current;
         Viewport._shapeDraftAttachEndKey = attachEnd;
         Viewport._shapeDraftEndOffset = relativeEndOffset;
@@ -95,7 +100,8 @@ internal sealed class ShapeTool : CanvasToolBase
         if (Viewport._activeShapeTool is null) return;
         if (Viewport._shapeDraftStartWorld is null) return;
 
-        Point endWorld = SnapPoint(world, out string? attachEndKey, out WpfPoint? relativeEndOffset, commit: true);
+        Point constrainedEnd = ApplyAxisConstraint(world, modifiers);
+        Point endWorld = SnapPoint(constrainedEnd, out string? attachEndKey, out WpfPoint? relativeEndOffset, commit: true);
 
         // Non-linear: always commit as single shape on mouse-up
         if (!IsLinear)
@@ -267,6 +273,34 @@ internal sealed class ShapeTool : CanvasToolBase
         Viewport._shapeDraftStartOffset = null;
         Viewport._shapeDraftEndOffset = null;
         Viewport.ResetInteraction();
+    }
+
+    /// <summary>
+    /// When Ctrl is held during linear-shape drawing, snaps <paramref name="world"/> onto
+    /// the nearest of 8 rays (multiples of 45°) emanating from the previous vertex —
+    /// the last polyline point or the drag start. Outside linear mode, or without Ctrl,
+    /// or before any reference vertex exists, the point is returned unchanged.
+    /// </summary>
+    private Point ApplyAxisConstraint(Point world, ModifierKeys modifiers)
+    {
+        if (!IsLinear) return world;
+        if (!modifiers.HasFlag(ModifierKeys.Control)) return world;
+
+        Point reference;
+        if (Viewport._shapeDraftPolyline is { Count: >= 1 } verts) reference = verts[^1];
+        else if (Viewport._shapeDraftStartWorld is { } start) reference = start;
+        else return world;
+
+        double dx = world.X - reference.X;
+        double dy = world.Y - reference.Y;
+        if (dx == 0 && dy == 0) return world;
+
+        double step = Math.PI / 4;
+        double snapped = Math.Round(Math.Atan2(dy, dx) / step) * step;
+        double cos = Math.Cos(snapped);
+        double sin = Math.Sin(snapped);
+        double proj = Math.Max(0, dx * cos + dy * sin);
+        return new Point(reference.X + cos * proj, reference.Y + sin * proj);
     }
 
     /// <summary>

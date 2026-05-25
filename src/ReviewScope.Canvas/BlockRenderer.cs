@@ -740,17 +740,19 @@ internal sealed class BlockRenderer
         var vAlign = ToParagraphAlignment(style.VerticalAlign);
         bool wrap = style.WordWrap;
 
-        // Editing overlays (selection + caret) still use the wrapped-text helper which
-        // is good enough for the caret position; they ignore B/I/U/strikethrough.
+        string editFontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily;
+
+        // Editing overlays (selection + caret) measure with the same font as the rendered
+        // text so the caret aligns with the visible glyphs.
         if (isEditing)
-            DrawEditSelection(text, fontSize, x, y, w, wrap: wrap, sketchy: false, editCursorPos, editSelectionAnchor, hAlign, maxH: h, paragraphAlignment: vAlign);
+            DrawEditSelection(text, fontSize, x, y, w, wrap: wrap, sketchy: false, editCursorPos, editSelectionAnchor, hAlign, maxH: h, paragraphAlignment: vAlign, fontFamily: editFontFamily, bold: style.Bold, italic: style.Italic);
 
         var renderColor = WpfColor.FromArgb((byte)(textColor.A * style.Opacity), textColor.R, textColor.G, textColor.B);
 
         _ctx.DrawRichText(
             text,
             x, y, w, h,
-            string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily,
+            editFontFamily,
             fontSize,
             style.Bold,
             style.Italic,
@@ -763,7 +765,7 @@ internal sealed class BlockRenderer
             style.ShadowEnabled);
 
         if (isEditing && editCursorVisible)
-            DrawNoteCursor(text, fontSize, x, y, w, editCursorPos, wrap: wrap, sketchy: false, hAlign, maxH: h, paragraphAlignment: vAlign);
+            DrawNoteCursor(text, fontSize, x, y, w, editCursorPos, wrap: wrap, sketchy: false, hAlign, maxH: h, paragraphAlignment: vAlign, fontFamily: editFontFamily, bold: style.Bold, italic: style.Italic);
         if (block.IsSelected)
             DrawGenericResizeHandle(outer, stroke, block.IsLocked);
     }
@@ -1265,9 +1267,11 @@ internal sealed class BlockRenderer
         && _ctx.Zoom > UltraCompactZoom
         && block.Kind is not (BlockKind.Note or BlockKind.Shape);
 
-    private void DrawNoteCursor(string text, float fontSize, float textX, float textY, float maxW, int cursorPos, bool wrap = false, bool sketchy = false, DWriteTextAlignment alignment = DWriteTextAlignment.Leading, float maxH = 9999f, DWriteParagraphAlignment paragraphAlignment = DWriteParagraphAlignment.Near)
+    private void DrawNoteCursor(string text, float fontSize, float textX, float textY, float maxW, int cursorPos, bool wrap = false, bool sketchy = false, DWriteTextAlignment alignment = DWriteTextAlignment.Leading, float maxH = 9999f, DWriteParagraphAlignment paragraphAlignment = DWriteParagraphAlignment.Near, string? fontFamily = null, bool bold = false, bool italic = false)
     {
-        IDWriteTextFormat fmt = _ctx.GetTextFormat(fontSize, sketchy);
+        IDWriteTextFormat fmt = fontFamily is null
+            ? _ctx.GetTextFormat(fontSize, sketchy)
+            : _ctx.GetRichFormat(fontFamily, fontSize, bold, italic);
         var oldTextAlign = fmt.TextAlignment;
         var oldParagraph = fmt.ParagraphAlignment;
         fmt.TextAlignment = alignment;
@@ -1301,7 +1305,7 @@ internal sealed class BlockRenderer
             _ctx.GetBrush(WpfColor.FromArgb(210, 38, 33, 8)), _ctx.InvStroke(1.5f));
     }
 
-    private void DrawEditSelection(string text, float fontSize, float textX, float textY, float maxW, bool wrap = false, bool sketchy = false, int cursorPos = 0, int selectionAnchor = -1, DWriteTextAlignment alignment = DWriteTextAlignment.Leading, float maxH = 9999f, DWriteParagraphAlignment paragraphAlignment = DWriteParagraphAlignment.Near)
+    private void DrawEditSelection(string text, float fontSize, float textX, float textY, float maxW, bool wrap = false, bool sketchy = false, int cursorPos = 0, int selectionAnchor = -1, DWriteTextAlignment alignment = DWriteTextAlignment.Leading, float maxH = 9999f, DWriteParagraphAlignment paragraphAlignment = DWriteParagraphAlignment.Near, string? fontFamily = null, bool bold = false, bool italic = false)
     {
         if (selectionAnchor < 0 || selectionAnchor == cursorPos) return;
         int start = Math.Min(selectionAnchor, cursorPos);
@@ -1309,7 +1313,9 @@ internal sealed class BlockRenderer
         start = Math.Clamp(start, 0, text.Length);
         end = Math.Clamp(end, 0, text.Length);
         if (end <= start) return;
-        IDWriteTextFormat fmt = _ctx.GetTextFormat(fontSize, sketchy);
+        IDWriteTextFormat fmt = fontFamily is null
+            ? _ctx.GetTextFormat(fontSize, sketchy)
+            : _ctx.GetRichFormat(fontFamily, fontSize, bold, italic);
         var oldTextAlign = fmt.TextAlignment;
         var oldParagraph = fmt.ParagraphAlignment;
         fmt.TextAlignment = alignment;

@@ -16,8 +16,10 @@ public static class SketchyDrawer
         float len = MathF.Sqrt(dx * dx + dy * dy);
         if (len < 1f) return;
 
-        // Draw two overlapping slightly perturbed paths
-        for (int pathIdx = 0; pathIdx < 2; pathIdx++)
+        // Dashed strokes only get one path — two perturbed dashed paths produce a visible
+        // double-stripe pattern because the dashes start at different positions.
+        int passes = strokeStyle is null ? 2 : 1;
+        for (int pathIdx = 0; pathIdx < passes; pathIdx++)
         {
             // Random overshoot at both ends
             float overshootStart = (float)(rand.NextDouble() * 3.5 - 1.5);

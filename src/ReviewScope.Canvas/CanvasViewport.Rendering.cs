@@ -305,6 +305,20 @@ public sealed partial class CanvasViewport
         _uiComponentRenderer = null;
     }
 
+    private IDWriteTextFormat GetRichTextFormat(string fontFamily, float size, bool bold, bool italic)
+    {
+        string key = $"Rich:{fontFamily}:{size:F1}:{(bold ? 'B' : 'n')}:{(italic ? 'I' : 'n')}";
+        if (_textFormats.TryGetValue(key, out var cached)) return cached;
+        var weight = bold ? DWriteFontWeight.Bold : DWriteFontWeight.Normal;
+        var style = italic ? DWriteFontStyle.Italic : DWriteFontStyle.Normal;
+        IDWriteTextFormat fmt;
+        try { fmt = _dwrite!.CreateTextFormat(fontFamily, weight, style, DWriteFontStretch.Normal, size); }
+        catch { fmt = _dwrite!.CreateTextFormat("Segoe UI", weight, style, DWriteFontStretch.Normal, size); }
+        fmt.WordWrapping = WordWrapping.Wrap;
+        _textFormats[key] = fmt;
+        return fmt;
+    }
+
     private IDWriteTextFormat GetTextFormat(float size)
     {
         string key = $"JetBrainsMono:{size:F1}";

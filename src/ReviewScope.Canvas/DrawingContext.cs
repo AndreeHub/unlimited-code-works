@@ -87,7 +87,7 @@ internal sealed class DrawingContext
 
     private readonly Dictionary<string, IDWriteTextFormat> _richFormats = new();
 
-    private IDWriteTextFormat GetRichFormat(string fontFamily, float size, bool bold, bool italic)
+    public IDWriteTextFormat GetRichFormat(string fontFamily, float size, bool bold, bool italic)
     {
         string key = $"{fontFamily}|{size:F1}|{(bold ? 'B' : 'n')}|{(italic ? 'I' : 'n')}";
         if (_richFormats.TryGetValue(key, out var cached)) return cached;
