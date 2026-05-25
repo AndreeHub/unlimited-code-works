@@ -28,7 +28,7 @@ internal sealed class ShapeTool : CanvasToolBase
     {
         Viewport.ApplySceneChange(CanvasViewport.ClearSelection(Viewport.Scene));
 
-        Point snapped = SnapPoint(world, out string? attachKey, out WpfPoint? relativeOffset);
+        Point snapped = SnapPoint(world, out string? attachKey, out WpfPoint? relativeOffset, commit: true);
 
         // Already in polyline mode → add a vertex, attach to block, or commit on double-click
         if (IsLinear && Viewport._shapeDraftPolyline is { Count: >= 1 } verts)
@@ -95,7 +95,7 @@ internal sealed class ShapeTool : CanvasToolBase
         if (Viewport._activeShapeTool is null) return;
         if (Viewport._shapeDraftStartWorld is null) return;
 
-        Point endWorld = SnapPoint(world, out string? attachEndKey, out WpfPoint? relativeEndOffset);
+        Point endWorld = SnapPoint(world, out string? attachEndKey, out WpfPoint? relativeEndOffset, commit: true);
 
         // Non-linear: always commit as single shape on mouse-up
         if (!IsLinear)
@@ -256,6 +256,7 @@ internal sealed class ShapeTool : CanvasToolBase
         if (deactivateTool)
         {
             Viewport._activeShapeTool = null;
+            Viewport.SyncActiveShapeToolDp();
         }
         Viewport._shapeDraftStartWorld = null;
         Viewport._shapeDraftCurrentWorld = null;
@@ -269,17 +270,20 @@ internal sealed class ShapeTool : CanvasToolBase
     }
 
     /// <summary>
-    /// Snaps a world point to the nearest connection anchor if hovering one, or to the block's
-    /// center-toward-outline point if hovering anywhere over a block (for linear shapes).
-    /// Returns the attach key if the point was snapped to a block.
+    /// Resolves the world position for a draft vertex. While the user is still dragging
+    /// (<paramref name="commit"/> = false) the raw mouse position is used so the line follows
+    /// the cursor freely, even passing behind a target shape. On commit, if the cursor is
+    /// inside a shape we project the segment (previous-vertex → cursor) onto that shape's
+    /// outline and return the entry point nearest the previous vertex — guaranteeing the
+    /// final line stops at the near edge instead of crossing the shape. Discrete connection
+    /// anchors (outside the bounds) still snap immediately in both modes.
     /// </summary>
-    private Point SnapPoint(Point world, out string? attachKey, out WpfPoint? relativeOffset)
+    private Point SnapPoint(Point world, out string? attachKey, out WpfPoint? relativeOffset, bool commit = false)
     {
         attachKey = null;
         relativeOffset = null;
         if (!IsLinear) return world;
 
-        // 1. If mouse is inside any block's bounds, immediately attach and project to outline (bypass discrete anchors)
         SceneBlockVisual? hit = null;
         foreach (var block in Viewport._snapshot.Blocks.Reverse<SceneBlockVisual>())
         {
@@ -295,17 +299,36 @@ internal sealed class ShapeTool : CanvasToolBase
         {
             attachKey = hit.Block.Key;
             var bounds = hit.Bounds;
-            
-            // Project the exact world position onto the shape's outline
-            Point outlinePoint = CanvasDrawingUtils.GetBlockOutlinePoint(hit.Block, bounds, world);
-            
+
+            if (!commit)
+            {
+                // Drag preview: don't snap. Record the attach key (so the shape will commit
+                // to that block when released) but leave the endpoint at the raw cursor.
+                relativeOffset = new WpfPoint(
+                    Math.Clamp((world.X - bounds.X) / Math.Max(1, bounds.Width), 0, 1),
+                    Math.Clamp((world.Y - bounds.Y) / Math.Max(1, bounds.Height), 0, 1));
+                return world;
+            }
+
+            // Commit: find the previous vertex (last polyline point, or segment start). For
+            // the very first click of a fresh draft there is no prior reference, so fall
+            // back to the mouse-based projection.
+            Point reference = world;
+            if (Viewport._shapeDraftPolyline is { Count: >= 1 } verts)
+                reference = verts[^1];
+            else if (Viewport._shapeDraftStartWorld is { } start)
+                reference = start;
+
+            Point toward = bounds.Contains(reference) ? world : reference;
+            Point outlinePoint = CanvasDrawingUtils.GetBlockOutlinePoint(hit.Block, bounds, toward);
+
             relativeOffset = new WpfPoint(
                 Math.Clamp((outlinePoint.X - bounds.X) / Math.Max(1, bounds.Width), 0, 1),
                 Math.Clamp((outlinePoint.Y - bounds.Y) / Math.Max(1, bounds.Height), 0, 1));
             return outlinePoint;
         }
 
-        // 2. Otherwise (mouse is outside), check for tight connection anchor snaps (discrete anchors)
+        // Outside any block: snap to discrete connection anchors when close.
         var anchor = Viewport.HitConnectionAnchor(world);
         if (anchor is not null)
         {

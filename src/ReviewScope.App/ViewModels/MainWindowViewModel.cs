@@ -51,6 +51,26 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private RenderConnection? _selectedConnection;
     [ObservableProperty] private RenderSwimLane? _selectedSwimLane;
     [ObservableProperty] private InspectorViewModelBase? _activeInspector;
+    [ObservableProperty] private bool _isTextBlockInspectorSelected;
+    [ObservableProperty] private bool _isShapeInspectorSelected;
+    [ObservableProperty] private bool _isStickyNoteInspectorSelected;
+    [ObservableProperty] private bool _isConnectionInspectorSelected;
+    [ObservableProperty] private bool _isSwimLaneInspectorSelected;
+    [ObservableProperty] private bool _isDefaultBlockInspectorSelected;
+    [ObservableProperty] private bool _isToolboxFloating = true;
+    [ObservableProperty] private string? _activeCanvasShapeTool;
+    [ObservableProperty] private string? _pendingCanvasItemPlacement;
+
+    partial void OnActiveInspectorChanged(InspectorViewModelBase? value)
+    {
+        IsTextBlockInspectorSelected = value is TextBlockInspectorViewModel;
+        IsShapeInspectorSelected = value is ShapeInspectorViewModel;
+        IsStickyNoteInspectorSelected = value is StickyNoteInspectorViewModel;
+        IsConnectionInspectorSelected = value is ConnectionInspectorViewModel;
+        IsSwimLaneInspectorSelected = value is SwimLaneInspectorViewModel;
+        IsDefaultBlockInspectorSelected = value is DefaultBlockInspectorViewModel;
+    }
+
     [ObservableProperty] private string _selectedObjectTitle = "Canvas";
     [ObservableProperty] private string _selectedObjectKind = "Review canvas";
     [ObservableProperty] private string _selectedObjectPath = string.Empty;
@@ -98,6 +118,7 @@ public partial class MainWindowViewModel : ObservableObject
     private int _loadVersion;
     private bool _syncingStyleTarget;
     private bool _isUpdatingSelection;
+    private string? _lastSelectionKey;
 
     [RelayCommand]
     public void ToggleBackground()
@@ -188,8 +209,12 @@ public partial class MainWindowViewModel : ObservableObject
             SelectionIsConnection = SelectedConnection is not null;
             SelectionSupportsStyle = SelectionIsBlock || SelectionIsConnection;
             HasBoardSelection = SelectionIsBlock || SelectionIsConnection || SelectedSwimLane is not null;
-            if (HasBoardSelection)
+            string? currentSelectionKey = SelectedBlock?.Key
+                ?? SelectedConnection?.Id.ToString()
+                ?? SelectedSwimLane?.Key;
+            if (HasBoardSelection && !string.Equals(_lastSelectionKey, currentSelectionKey, StringComparison.Ordinal))
                 SelectedRightTabIndex = 0;
+            _lastSelectionKey = currentSelectionKey;
 
             Type? targetInspectorType = null;
             if (SelectedBlock is not null)

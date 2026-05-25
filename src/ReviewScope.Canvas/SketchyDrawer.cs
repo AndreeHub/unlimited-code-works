@@ -66,7 +66,7 @@ public static class SketchyDrawer
         DrawSketchyLine(rt, rand, start, end, brush, strokeWidth, strokeStyle);
     }
 
-    public static void DrawRectangle(ID2D1RenderTarget rt, RectangleF rect, ID2D1Brush? fillBrush, ID2D1Brush strokeBrush, float strokeWidth, string seedKey, ID2D1StrokeStyle? strokeStyle = null, string fillStyle = "hatch")
+    public static void DrawRectangle(ID2D1RenderTarget rt, RectangleF rect, ID2D1Brush? fillBrush, ID2D1Brush strokeBrush, float strokeWidth, string seedKey, ID2D1StrokeStyle? strokeStyle = null, string fillStyle = "hatch", float hatchOpacity = 1f)
     {
         var rand = new Random(seedKey.GetHashCode());
         Vector2[] pts =
@@ -81,7 +81,7 @@ public static class SketchyDrawer
         {
             rt.FillRectangle(rect, fillBrush);
             if (fillStyle != "solid")
-                DrawSketchyHatching(rt, rand, pts, strokeBrush, strokeWidth);
+                DrawSketchyHatching(rt, rand, pts, strokeBrush, strokeWidth, hatchOpacity);
         }
 
         // Draw boundaries
@@ -91,7 +91,7 @@ public static class SketchyDrawer
         }
     }
 
-    public static void DrawPolygon(ID2D1RenderTarget rt, Vector2[] pts, ID2D1Brush? fillBrush, ID2D1Brush strokeBrush, float strokeWidth, string seedKey, bool close = true, ID2D1StrokeStyle? strokeStyle = null, string fillStyle = "hatch")
+    public static void DrawPolygon(ID2D1RenderTarget rt, Vector2[] pts, ID2D1Brush? fillBrush, ID2D1Brush strokeBrush, float strokeWidth, string seedKey, bool close = true, ID2D1StrokeStyle? strokeStyle = null, string fillStyle = "hatch", float hatchOpacity = 1f)
     {
         if (pts.Length < 2) return;
         var rand = new Random(seedKey.GetHashCode());
@@ -108,7 +108,7 @@ public static class SketchyDrawer
             rt.FillGeometry(path, fillBrush);
 
             if (fillStyle != "solid")
-                DrawSketchyHatching(rt, rand, pts, strokeBrush, strokeWidth);
+                DrawSketchyHatching(rt, rand, pts, strokeBrush, strokeWidth, hatchOpacity);
         }
 
         int count = close ? pts.Length : pts.Length - 1;
@@ -118,7 +118,7 @@ public static class SketchyDrawer
         }
     }
 
-    public static void DrawEllipse(ID2D1RenderTarget rt, RectangleF rect, ID2D1Brush? fillBrush, ID2D1Brush strokeBrush, float strokeWidth, string seedKey, ID2D1StrokeStyle? strokeStyle = null, string fillStyle = "hatch")
+    public static void DrawEllipse(ID2D1RenderTarget rt, RectangleF rect, ID2D1Brush? fillBrush, ID2D1Brush strokeBrush, float strokeWidth, string seedKey, ID2D1StrokeStyle? strokeStyle = null, string fillStyle = "hatch", float hatchOpacity = 1f)
     {
         var rand = new Random(seedKey.GetHashCode());
         var pts = BuildEllipsePointsArray(rect, 24);
@@ -131,7 +131,7 @@ public static class SketchyDrawer
                 rect.Height / 2f);
             rt.FillEllipse(ellipse, fillBrush);
             if (fillStyle != "solid")
-                DrawSketchyHatching(rt, rand, pts, strokeBrush, strokeWidth);
+                DrawSketchyHatching(rt, rand, pts, strokeBrush, strokeWidth, hatchOpacity);
         }
 
         // Approximate ellipse drawing using two full sketchy overlapping loops
@@ -183,7 +183,26 @@ public static class SketchyDrawer
         return pts;
     }
 
-    private static void DrawSketchyHatching(ID2D1RenderTarget rt, Random rand, Vector2[] polygonPoints, ID2D1Brush brush, float strokeWidth)
+    private static void DrawSketchyHatching(ID2D1RenderTarget rt, Random rand, Vector2[] polygonPoints, ID2D1Brush brush, float strokeWidth, float hatchOpacity = 1f)
+    {
+        if (polygonPoints.Length < 3) return;
+        // Temporarily adjust brush opacity for hatching lines only (caller will see brush restored).
+        float prevOpacity = brush.Opacity;
+        float effective = Math.Clamp(hatchOpacity, 0f, 1f);
+        if (Math.Abs(prevOpacity - effective) > 0.001f)
+            brush.Opacity = effective;
+        try
+        {
+            DrawSketchyHatchingCore(rt, rand, polygonPoints, brush, strokeWidth);
+        }
+        finally
+        {
+            if (Math.Abs(prevOpacity - effective) > 0.001f)
+                brush.Opacity = prevOpacity;
+        }
+    }
+
+    private static void DrawSketchyHatchingCore(ID2D1RenderTarget rt, Random rand, Vector2[] polygonPoints, ID2D1Brush brush, float strokeWidth)
     {
         if (polygonPoints.Length < 3) return;
 
@@ -293,10 +312,10 @@ public static class SketchyDrawer
         return pts.ToArray();
     }
 
-    public static void DrawRoundedRectangle(ID2D1RenderTarget rt, RectangleF rect, float radius, ID2D1Brush? fillBrush, ID2D1Brush strokeBrush, float strokeWidth, string seedKey, ID2D1StrokeStyle? strokeStyle = null, string fillStyle = "hatch")
+    public static void DrawRoundedRectangle(ID2D1RenderTarget rt, RectangleF rect, float radius, ID2D1Brush? fillBrush, ID2D1Brush strokeBrush, float strokeWidth, string seedKey, ID2D1StrokeStyle? strokeStyle = null, string fillStyle = "hatch", float hatchOpacity = 1f)
     {
         var pts = BuildRoundedRectPoints(rect, radius);
-        DrawPolygon(rt, pts, fillBrush, strokeBrush, strokeWidth, seedKey, close: true, strokeStyle: strokeStyle, fillStyle: fillStyle);
+        DrawPolygon(rt, pts, fillBrush, strokeBrush, strokeWidth, seedKey, close: true, strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOpacity);
     }
 }
 

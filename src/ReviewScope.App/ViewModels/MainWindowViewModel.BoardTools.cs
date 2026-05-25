@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
+using ReviewScope.Canvas;
 using ReviewScope.Domain;
 using System.IO;
 using System.Text;
@@ -26,11 +27,22 @@ public sealed partial class MainWindowViewModel
     [RelayCommand]
     public async Task AddNoteCardAsync()
     {
+        await AddNoteCardAtAsync(null, null);
+    }
+
+    public async Task AddNoteCardAtAsync(double? worldX, double? worldY)
+    {
         var id = Guid.NewGuid();
+        double defaultX = 160 + Scene.Blocks.Count * 24;
+        double defaultY = 140 + Scene.Blocks.Count * 18;
+        double x = worldX ?? defaultX;
+        double y = worldY ?? defaultY;
+        if (worldX.HasValue) x -= 140; // center on click
+        if (worldY.HasValue) y -= 65;
         var note = new RenderBlock(
             id, $"note::{id:N}", BlockKind.Note,
             "New note", string.Empty,
-            160 + Scene.Blocks.Count * 24, 140 + Scene.Blocks.Count * 18, 280, 130,
+            x, y, 280, 130,
             Body: "New note...",
             ZIndex: NextBlockZIndex(),
             LayerKey: "layer::notes",
@@ -43,16 +55,42 @@ public sealed partial class MainWindowViewModel
     [RelayCommand]
     public async Task AddTextCardAsync()
     {
+        await AddTextCardAtAsync(null, null);
+    }
+
+    public async Task AddTextCardAtAsync(double? worldX, double? worldY)
+    {
         var id = Guid.NewGuid();
+        double defaultX = 180 + Scene.Blocks.Count * 22;
+        double defaultY = 120 + Scene.Blocks.Count * 18;
+        double x = worldX ?? defaultX;
+        double y = worldY ?? defaultY;
+        if (worldX.HasValue) x -= 120; // center on click
+        if (worldY.HasValue) y -= 40;
         var text = new RenderBlock(
             id, $"text::{id:N}", BlockKind.Text,
             "Text", string.Empty,
-            180 + Scene.Blocks.Count * 22, 120 + Scene.Blocks.Count * 18, 240, 80,
+            x, y, 240, 80,
             Body: "Double-click to edit text",
             LayerKey: "layer::architecture",
             Style: new BoardItemStyle(Fill: "#00000000", Stroke: "#00000000", Text: "#111827", TextAlign: "Center", FontSize: 14));
         SetSceneFromUserAction(Scene with { Blocks = Scene.Blocks.Append(text).ToList() }, "Added text");
         await PersistSessionAsync();
+    }
+
+    [RelayCommand]
+    public async Task PlaceCanvasItemAsync(ItemPlacementArgs? args)
+    {
+        if (args is null) return;
+        switch (args.Kind?.ToLowerInvariant())
+        {
+            case "text":
+                await AddTextCardAtAsync(args.WorldX, args.WorldY);
+                break;
+            case "note":
+                await AddNoteCardAtAsync(args.WorldX, args.WorldY);
+                break;
+        }
     }
 
     [RelayCommand]

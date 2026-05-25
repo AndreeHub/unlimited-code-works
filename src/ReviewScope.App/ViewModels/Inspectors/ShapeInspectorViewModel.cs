@@ -14,6 +14,7 @@ public sealed partial class ShapeInspectorViewModel : InspectorViewModelBase
     [ObservableProperty] private bool _dashed;
     [ObservableProperty] private double _cornerRadius = 3;
     [ObservableProperty] private double _opacity = 1.0;
+    [ObservableProperty] private double _hatchOpacity = 0.6;
     [ObservableProperty] private double _x;
     [ObservableProperty] private double _y;
     [ObservableProperty] private double _width;
@@ -49,6 +50,7 @@ public sealed partial class ShapeInspectorViewModel : InspectorViewModelBase
             Dashed = style.Dashed;
             CornerRadius = style.CornerRadius;
             Opacity = style.Opacity;
+            HatchOpacity = style.HatchOpacity;
         }
         finally
         {
@@ -70,7 +72,8 @@ public sealed partial class ShapeInspectorViewModel : InspectorViewModelBase
             StrokeWidth = StrokeWidth,
             Dashed = Dashed,
             CornerRadius = CornerRadius,
-            Opacity = Opacity
+            Opacity = Opacity,
+            HatchOpacity = HatchOpacity
         };
 
         var nextBlock = block with

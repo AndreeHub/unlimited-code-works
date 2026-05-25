@@ -98,7 +98,8 @@ public sealed record BoardItemStyle(
     double SpacingTop = 4,
     double SpacingRight = 4,
     double SpacingBottom = 4,
-    double SpacingLeft = 4);
+    double SpacingLeft = 4,
+    double HatchOpacity = 0.6);
 
 public sealed record BoardSourceBinding(
     string? AssetPath = null,

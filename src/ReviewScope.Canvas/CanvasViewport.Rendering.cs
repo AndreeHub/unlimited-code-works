@@ -84,6 +84,12 @@ public sealed partial class CanvasViewport
                     DrawInProgressConnection();
             }
 
+            // Draft preview goes BEFORE blocks so any shape the endpoint is being dragged
+            // toward (or through) renders on top of the draft line — that way the user sees
+            // the line tucking behind the target instead of striping across it.
+            if (_blockRenderer is not null)
+                DrawShapeDraft();
+
             // Draw blocks
             if (_blockRenderer is not null)
             {
@@ -98,16 +104,14 @@ public sealed partial class CanvasViewport
                         _connectionHoverTargetKey, _connectionHoverTargetAnchorIndex,
                         ConnectorsEnabled, _codeScrollLines, GetOrLoadImageBitmap);
                 }
-
-                // Live draft preview while user is dragging out a new shape
-                DrawShapeDraft();
             }
 
             _rt.Transform = Matrix3x2.Identity;
             _uiComponentRenderer?.DrawMarquee(_isMarquee, _marqueeStart, _marqueeEnd);
         }
 
-        _uiComponentRenderer?.DrawShapeToolPalette(viewSize, ShapeToolIds, _activeShapeTool, _hoverShapeTool);
+        if (ShowShapeToolPalette)
+            _uiComponentRenderer?.DrawShapeToolPalette(viewSize, ShapeToolIds, _activeShapeTool, _hoverShapeTool);
 
         try { _rt.EndDraw(); }
         catch { DisposeRenderTarget(); EnsureRT(); }

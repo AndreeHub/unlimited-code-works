@@ -433,14 +433,223 @@
             </GridSplitter>
 
             <Grid Grid.Column="2" Background="{StaticResource CanvasBg}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 <canvas:CanvasViewport x:Name="CanvasViewport"
+                                       Grid.Row="0"
                                        Scene="{Binding Scene, Mode=TwoWay}"
                                        BackgroundMode="{Binding BackgroundMode, Mode=TwoWay}"
                                        SnapToGrid="{Binding SnapToGrid}"
                                        ConnectorsEnabled="{Binding ConnectorsEnabled}"
+                                       ActiveShapeTool="{Binding ActiveCanvasShapeTool, Mode=TwoWay}"
+                                       PendingItemPlacement="{Binding PendingCanvasItemPlacement, Mode=TwoWay}"
+                                       ItemPlacementRequestedCommand="{Binding PlaceCanvasItemCommand}"
+                                       ShowShapeToolPalette="False"
                                        AllowDrop="True"
                                        Drop="OnCanvasDrop"
                                        DragOver="OnCanvasDragOver"/>
+
+                <!-- ================ Floating Toolbox panel (draw.io shape picker style) ================ -->
+                <!-- Toggle button (always visible, top-left of the canvas) -->
+                <Button x:Name="ToolboxToggleButton"
+                        Style="{StaticResource ToolButton}"
+                        Click="OnToggleToolbox"
+                        HorizontalAlignment="Left" VerticalAlignment="Top"
+                        Margin="14,14,0,0" Padding="10,6"
+                        Background="{StaticResource PanelBg}">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Data="M4,6 H20 M4,12 H20 M4,18 H20" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.6"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="14" Height="14" Stretch="Uniform" Margin="0,0,6,0"/>
+                        <TextBlock Text="Toolbox" FontSize="11" Foreground="{StaticResource ForegroundBrush}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+
+                <!-- Floating panel -->
+                <Border x:Name="FloatingToolbox"
+                        HorizontalAlignment="Left" VerticalAlignment="Top"
+                        Margin="14,54,0,0"
+                        Width="240" MaxHeight="520"
+                        Background="{StaticResource PanelBg}"
+                        BorderBrush="{StaticResource PanelBorder}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Visibility="{Binding IsToolboxFloating, Converter={StaticResource BoolVis}}">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.18" Color="#0F172A"/>
+                    </Border.Effect>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <!-- Drag header -->
+                        <Border Grid.Row="0" Background="{StaticResource HoverBg}" CornerRadius="8,8,0,0" Padding="10,8"
+                                MouseLeftButtonDown="OnToolboxHeaderMouseDown"
+                                MouseMove="OnToolboxHeaderMouseMove"
+                                MouseLeftButtonUp="OnToolboxHeaderMouseUp"
+                                Cursor="SizeAll">
+                            <Grid>
+                                <TextBlock Text="Toolbox" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                <Button HorizontalAlignment="Right" Style="{StaticResource GhostButton}" Click="OnToggleToolbox" Padding="4,0" Content="✕" FontSize="11"/>
+                            </Grid>
+                        </Border>
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="10,8,10,12">
+                            <StackPanel>
+                                <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddNoteCardCommand}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="34"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="28" Height="28" CornerRadius="6" Background="#FFF7ED" VerticalAlignment="Top">
+                                            <Path Data="M7,5 H21 V17 L17,21 H7 Z M17,21 V17 H21" Stroke="#C2410C" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="Sticky Note" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                            <TextBlock Text="Quick architectural notes." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Button>
+                                <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddContainerCardCommand}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="34"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="28" Height="28" CornerRadius="6" Background="#F8FAFC" VerticalAlignment="Top">
+                                            <Path Data="M4,5 H20 V19 H4 Z M7,8 H17" Stroke="#64748B" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="Architecture Area" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                            <TextBlock Text="Group related components." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Button>
+                                <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddShapeCommand}" CommandParameter="database">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="34"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="28" Height="28" CornerRadius="6" Background="#CCFBF1" VerticalAlignment="Top">
+                                            <Path Data="M6,8 C6,6.3 8.7,5 12,5 C15.3,5 18,6.3 18,8 C18,9.7 15.3,11 12,11 C8.7,11 6,9.7 6,8 Z M6,8 V16 C6,17.7 8.7,19 12,19 C15.3,19 18,17.7 18,16 V8 M6,12 C6,13.7 8.7,15 12,15 C15.3,15 18,13.7 18,12" Stroke="#0F766E" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="Database Shape" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                            <TextBlock Text="Services / data layers." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Button>
+                                <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddSwimLaneCommand}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="34"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="28" Height="28" CornerRadius="6" Background="#DBEAFE" VerticalAlignment="Top">
+                                            <Path Data="M5,6 H19 V18 H5 Z M5,10 H19 M12,6 V18" Stroke="#2E7DD7" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="Frame Layer" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                            <TextBlock Text="Horizontal / vertical lanes." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Button>
+                                <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddTextCardCommand}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="34"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="28" Height="28" CornerRadius="6" Background="#EDE9FE" VerticalAlignment="Top">
+                                            <Path Data="M5,7 H19 M12,7 V19 M8,19 H16" Stroke="#7C3AED" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="Text Card" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                            <TextBlock Text="Rich text / markdown." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Button>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
+
+                <!-- ================ Bottom Shape Toolbar (icon strip) ================ -->
+                <Border Grid.Row="1"
+                        HorizontalAlignment="Center"
+                        Margin="0,6,0,8"
+                        Background="{StaticResource PanelBg}"
+                        BorderBrush="{StaticResource PanelBorder}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Padding="6,5">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.18" Color="#0F172A"/>
+                    </Border.Effect>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="" Click="OnShapeToolbarClick" ToolTip="Select / move (Esc)">
+                            <Path Data="M5,3 L5,17 L9,13 L11.5,18 L13.5,17 L11,12 L17,12 Z"
+                                  Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"
+                                  StrokeLineJoin="Round" Width="16" Height="16" Stretch="Uniform"/>
+                        </Button>
+                        <Rectangle Width="1" Margin="4,4" Fill="{StaticResource SoftBorder}"/>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="rectangle" Click="OnShapeToolbarClick" ToolTip="Rectangle">
+                            <Rectangle Width="16" Height="11" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"/>
+                        </Button>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="square" Click="OnShapeToolbarClick" ToolTip="Square">
+                            <Rectangle Width="13" Height="13" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"/>
+                        </Button>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="oval" Click="OnShapeToolbarClick" ToolTip="Ellipse">
+                            <Ellipse Width="16" Height="11" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"/>
+                        </Button>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="circle" Click="OnShapeToolbarClick" ToolTip="Circle">
+                            <Ellipse Width="13" Height="13" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"/>
+                        </Button>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="triangle" Click="OnShapeToolbarClick" ToolTip="Triangle">
+                            <Path Data="M10,2 L18,17 L2,17 Z" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"
+                                  StrokeLineJoin="Round" Width="16" Height="14" Stretch="Uniform"/>
+                        </Button>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="diamond" Click="OnShapeToolbarClick" ToolTip="Diamond">
+                            <Path Data="M10,2 L18,10 L10,18 L2,10 Z" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"
+                                  StrokeLineJoin="Round" Width="16" Height="16" Stretch="Uniform"/>
+                        </Button>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="hexagon" Click="OnShapeToolbarClick" ToolTip="Hexagon">
+                            <Path Data="M6,2 L14,2 L18,10 L14,18 L6,18 L2,10 Z" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"
+                                  StrokeLineJoin="Round" Width="16" Height="16" Stretch="Uniform"/>
+                        </Button>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="star" Click="OnShapeToolbarClick" ToolTip="Star">
+                            <Path Data="M10,2 L12.5,7.5 L18,8 L14,12 L15,18 L10,15 L5,18 L6,12 L2,8 L7.5,7.5 Z"
+                                  Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"
+                                  StrokeLineJoin="Round" Width="16" Height="16" Stretch="Uniform"/>
+                        </Button>
+                        <Rectangle Width="1" Margin="4,4" Fill="{StaticResource SoftBorder}"/>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="line" Click="OnShapeToolbarClick" ToolTip="Line">
+                            <Path Data="M2,16 L18,4" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.6"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="16" Height="16" Stretch="Uniform"/>
+                        </Button>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="arrow" Click="OnShapeToolbarClick" ToolTip="Arrow">
+                            <Path Data="M2,16 L17,4 M17,4 L12,5 M17,4 L16,9" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.6"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="16" Height="16" Stretch="Uniform"/>
+                        </Button>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="polyline" Click="OnShapeToolbarClick" ToolTip="Polyline / curve">
+                            <Path Data="M2,16 Q6,4 10,10 T18,4" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.6" Fill="Transparent"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="16" Height="16" Stretch="Uniform"/>
+                        </Button>
+                        <Rectangle Width="1" Margin="4,4" Fill="{StaticResource SoftBorder}"/>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Click="OnShapeToolbarAddText" ToolTip="Add Text Card">
+                            <Path Data="M3,4 H17 M10,4 V16 M7,16 H13" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.6"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="16" Height="16" Stretch="Uniform"/>
+                        </Button>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Click="OnShapeToolbarAddNote" ToolTip="Add Sticky Note">
+                            <Path Data="M3,3 H15 V13 L13,17 H3 Z M13,17 V13 H15"
+                                  Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"
+                                  StrokeLineJoin="Round" Width="16" Height="16" Stretch="Uniform"/>
+                        </Button>
+                    </StackPanel>
+                </Border>
             </Grid>
 
             <GridSplitter Grid.Column="3" HorizontalAlignment="Stretch" Cursor="SizeWE"

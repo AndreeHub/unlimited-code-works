@@ -491,6 +491,69 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    // -------- Floating toolbox: toggle + drag --------
+    private void OnToggleToolbox(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is ViewModels.MainWindowViewModel vm)
+            vm.IsToolboxFloating = !vm.IsToolboxFloating;
+    }
+
+    private Point _toolboxDragStart;
+    private Thickness _toolboxDragOriginalMargin;
+    private bool _toolboxDragging;
+
+    private void OnToolboxHeaderMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement header) return;
+        _toolboxDragging = true;
+        _toolboxDragStart = e.GetPosition(this);
+        _toolboxDragOriginalMargin = FloatingToolbox.Margin;
+        header.CaptureMouse();
+    }
+
+    private void OnToolboxHeaderMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (!_toolboxDragging) return;
+        var cur = e.GetPosition(this);
+        var dx = cur.X - _toolboxDragStart.X;
+        var dy = cur.Y - _toolboxDragStart.Y;
+        FloatingToolbox.Margin = new Thickness(
+            Math.Max(0, _toolboxDragOriginalMargin.Left + dx),
+            Math.Max(0, _toolboxDragOriginalMargin.Top + dy),
+            0, 0);
+    }
+
+    private void OnToolboxHeaderMouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement header) header.ReleaseMouseCapture();
+        _toolboxDragging = false;
+    }
+
+    private void OnShapeToolbarClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not ViewModels.MainWindowViewModel vm) return;
+        if (sender is not FrameworkElement fe) return;
+        string? tag = fe.Tag as string;
+        string? next = string.IsNullOrEmpty(tag) ? null : tag;
+        vm.PendingCanvasItemPlacement = null;
+        vm.ActiveCanvasShapeTool = string.Equals(vm.ActiveCanvasShapeTool, next, System.StringComparison.OrdinalIgnoreCase) ? null : next;
+    }
+
+    private void OnShapeToolbarAddText(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not ViewModels.MainWindowViewModel vm) return;
+        // Toggle pending placement: click "text" once → next canvas click drops a text card
+        vm.ActiveCanvasShapeTool = null;
+        vm.PendingCanvasItemPlacement = string.Equals(vm.PendingCanvasItemPlacement, "text", System.StringComparison.OrdinalIgnoreCase) ? null : "text";
+    }
+
+    private void OnShapeToolbarAddNote(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not ViewModels.MainWindowViewModel vm) return;
+        vm.ActiveCanvasShapeTool = null;
+        vm.PendingCanvasItemPlacement = string.Equals(vm.PendingCanvasItemPlacement, "note", System.StringComparison.OrdinalIgnoreCase) ? null : "note";
+    }
+
     private async void OnCanvasDrop(object sender, DragEventArgs e)
     {
         if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;

@@ -392,12 +392,55 @@
     </Style>
 
     <!-- 1. Text Block Inspector -->
+    <!-- ============================================================ -->
+    <!-- Text Inspector: Default (Inspector tab — "details of the object") -->
+    <!-- ============================================================ -->
     <DataTemplate DataType="{x:Type inspectors:TextBlockInspectorViewModel}">
         <StackPanel Margin="0,0,0,12">
             <!-- Header Block -->
             <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" TextWrapping="Wrap"/>
             <TextBlock Text="Text Card" FontSize="11" Foreground="{StaticResource SubtleForeground}" Margin="0,4,0,12"/>
 
+            <!-- Quick info: type + key facts -->
+            <Border Background="{StaticResource HoverBg}" BorderBrush="{StaticResource SoftBorder}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,12">
+                <StackPanel>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Size" FontSize="10" Foreground="{StaticResource SubtleForeground}"/>
+                            <TextBlock FontSize="11" Foreground="{StaticResource ForegroundBrush}">
+                                <Run Text="{Binding Width, StringFormat={}{0:0}}"/><Run Text=" x "/><Run Text="{Binding Height, StringFormat={}{0:0}}"/>
+                            </TextBlock>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Position" FontSize="10" Foreground="{StaticResource SubtleForeground}"/>
+                            <TextBlock FontSize="11" Foreground="{StaticResource ForegroundBrush}">
+                                <Run Text="("/><Run Text="{Binding X, StringFormat={}{0:0}}"/><Run Text=", "/><Run Text="{Binding Y, StringFormat={}{0:0}}"/><Run Text=")"/>
+                            </TextBlock>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Inline title rename -->
+            <Expander Header="Identity" IsExpanded="True" Margin="0,0,0,8">
+                <StackPanel Margin="0,8,0,0">
+                    <TextBlock Text="Name" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBox Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="5,4" Margin="0,0,0,4"/>
+                    <CheckBox Content="Locked" IsChecked="{Binding IsLocked}" Margin="0,6,0,0"/>
+                </StackPanel>
+            </Expander>
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================ -->
+    <!-- Text Inspector: Style tab — presets, colors, fill & stroke, effects -->
+    <!-- ============================================================ -->
+    <DataTemplate x:Key="TextInspector.Style">
+        <StackPanel Margin="0,0,0,12">
             <!-- ===== Style Presets (draw.io's preset swatch row) ===== -->
             <Expander Header="Style Presets" IsExpanded="True" Margin="0,0,0,8">
                 <WrapPanel Margin="0,8,0,0">
@@ -421,6 +464,128 @@
                 </WrapPanel>
             </Expander>
 
+            <!-- ===== Colors ===== -->
+            <Expander Header="Colors" IsExpanded="True" Margin="0,0,0,8">
+                <StackPanel Margin="0,8,0,0">
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <CheckBox Grid.Column="0" IsChecked="{Binding FontColorEnabled}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="Font Color" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                        <Button Grid.Column="2" Style="{StaticResource ColorSwatchButtonStyle}" Background="{Binding TextColor}" Tag="TextColor" Click="OnPickColorForActiveInspector" ToolTip="Pick font color"/>
+                        <Button Grid.Column="3" Width="22" Height="22" Margin="4,0,0,0" Padding="0" Tag="TextColor" Click="OnPickColorForActiveInspector" Style="{StaticResource ToolButton}" Content="..."/>
+                    </Grid>
+                    <Grid Margin="0,2,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <CheckBox Grid.Column="0" IsChecked="{Binding BackgroundColorEnabled}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="Background Color" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                        <Button Grid.Column="2" Style="{StaticResource ColorSwatchButtonStyle}" Background="{Binding Fill}" Tag="Fill" Click="OnPickColorForActiveInspector" ToolTip="Pick background color"/>
+                        <Button Grid.Column="3" Width="22" Height="22" Margin="4,0,0,0" Padding="0" Tag="Fill" Click="OnPickColorForActiveInspector" Style="{StaticResource ToolButton}" Content="..."/>
+                    </Grid>
+                    <Grid Margin="0,2,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <CheckBox Grid.Column="0" IsChecked="{Binding BorderColorEnabled}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="Border Color" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                        <Button Grid.Column="2" Style="{StaticResource ColorSwatchButtonStyle}" Background="{Binding Stroke}" Tag="Stroke" Click="OnPickColorForActiveInspector" ToolTip="Pick border color"/>
+                        <Button Grid.Column="3" Width="22" Height="22" Margin="4,0,0,0" Padding="0" Tag="Stroke" Click="OnPickColorForActiveInspector" Style="{StaticResource ToolButton}" Content="..."/>
+                    </Grid>
+                </StackPanel>
+            </Expander>
+
+            <!-- ===== Fill & Stroke ===== -->
+            <Expander Header="Fill &amp; Stroke" IsExpanded="True" Margin="0,0,0,8">
+                <StackPanel Margin="0,8,0,0">
+                    <TextBlock Text="Fill Style" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <ListBox Style="{StaticResource FillSwatchListBoxStyle}" SelectedValue="{Binding FillStyle, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,0,0,6">
+                        <ListBoxItem Tag="solid" ToolTip="Solid fill">
+                            <Border Width="48" Height="20" CornerRadius="3" Background="{Binding Fill}"/>
+                        </ListBoxItem>
+                        <ListBoxItem Tag="hatch" ToolTip="Hatched fill (diagonal lines)">
+                            <Grid Width="48" Height="20">
+                                <Border CornerRadius="3" Background="{Binding Fill}" Opacity="0.35"/>
+                                <Border CornerRadius="3" ClipToBounds="True">
+                                    <Canvas>
+                                        <Line X1="-4"  Y1="20" X2="20"  Y2="-4" Stroke="{Binding Stroke}" StrokeThickness="1"/>
+                                        <Line X1="4"   Y1="20" X2="28"  Y2="-4" Stroke="{Binding Stroke}" StrokeThickness="1"/>
+                                        <Line X1="12"  Y1="20" X2="36"  Y2="-4" Stroke="{Binding Stroke}" StrokeThickness="1"/>
+                                        <Line X1="20"  Y1="20" X2="44"  Y2="-4" Stroke="{Binding Stroke}" StrokeThickness="1"/>
+                                        <Line X1="28"  Y1="20" X2="52"  Y2="-4" Stroke="{Binding Stroke}" StrokeThickness="1"/>
+                                        <Line X1="36"  Y1="20" X2="60"  Y2="-4" Stroke="{Binding Stroke}" StrokeThickness="1"/>
+                                    </Canvas>
+                                </Border>
+                            </Grid>
+                        </ListBoxItem>
+                    </ListBox>
+
+                    <TextBlock Text="Line Style" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                    <ListBox Style="{StaticResource StrokeSwatchListBoxStyle}" SelectedValue="{Binding Dashed, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,0,0,6">
+                        <ListBoxItem Tag="{StaticResource BoolFalse}" ToolTip="Solid line">
+                            <Line X1="0" Y1="0" X2="50" Y2="0" Stroke="{Binding Stroke}" StrokeThickness="2"/>
+                        </ListBoxItem>
+                        <ListBoxItem Tag="{StaticResource BoolTrue}" ToolTip="Dashed line">
+                            <Line X1="0" Y1="0" X2="50" Y2="0" Stroke="{Binding Stroke}" StrokeThickness="2" StrokeDashArray="3,2"/>
+                        </ListBoxItem>
+                    </ListBox>
+
+                    <Grid Margin="0,4,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,4,0">
+                            <TextBlock Text="Stroke" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <ComboBox Style="{StaticResource InspectorComboBox}" SelectedValue="{Binding StrokeWidth, Mode=TwoWay}" SelectedValuePath="Tag">
+                                <ComboBoxItem Content="Thin" Tag="{StaticResource DoubleThin}"/>
+                                <ComboBoxItem Content="Medium" Tag="{StaticResource DoubleMedium}"/>
+                                <ComboBoxItem Content="Thick" Tag="{StaticResource DoubleThick}"/>
+                            </ComboBox>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="4,0,0,0">
+                            <TextBlock Text="Corners" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <ComboBox Style="{StaticResource InspectorComboBox}" SelectedValue="{Binding CornerRadius, Mode=TwoWay}" SelectedValuePath="Tag">
+                                <ComboBoxItem Content="Sharp" Tag="{StaticResource DoubleRadiusSharp}"/>
+                                <ComboBoxItem Content="Small" Tag="{StaticResource DoubleRadiusSm}"/>
+                                <ComboBoxItem Content="Medium" Tag="{StaticResource DoubleRadiusMd}"/>
+                                <ComboBoxItem Content="Large" Tag="{StaticResource DoubleRadiusLg}"/>
+                            </ComboBox>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Expander>
+
+            <!-- ===== Effects ===== -->
+            <Expander Header="Effects" IsExpanded="True" Margin="0,0,0,8">
+                <StackPanel Margin="0,8,0,0">
+                    <CheckBox Content="Shadow" IsChecked="{Binding ShadowEnabled}" FontSize="11" FontWeight="SemiBold" Margin="0,2,0,4"/>
+                    <TextBlock Text="Opacity" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                    <DockPanel Margin="0,0,0,4">
+                        <TextBlock Text="{Binding Opacity, StringFormat={}{0:P0}}" DockPanel.Dock="Right" FontSize="11" Foreground="{StaticResource SubtleForeground}" Margin="8,0,0,0" VerticalAlignment="Center" Width="38" TextAlignment="Right"/>
+                        <Slider Minimum="0" Maximum="1" Value="{Binding Opacity, Mode=TwoWay}" SmallChange="0.05" LargeChange="0.1" TickFrequency="0.05" IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
+                    </DockPanel>
+                </StackPanel>
+            </Expander>
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================ -->
+    <!-- Text Inspector: Text tab — typography, layout, spacing, style actions -->
+    <!-- ============================================================ -->
+    <DataTemplate x:Key="TextInspector.Text">
+        <StackPanel Margin="0,0,0,12">
             <!-- ===== Typography ===== -->
             <Expander Header="Typography" IsExpanded="True" Margin="0,0,0,8">
                 <StackPanel Margin="0,8,0,0">
@@ -505,131 +670,13 @@
                 </StackPanel>
             </Expander>
 
-            <!-- ===== Colors ===== -->
-            <Expander Header="Colors" IsExpanded="True" Margin="0,0,0,8">
+            <!-- Text-rendering toggles (live with Typography) -->
+            <Expander Header="Text Behavior" IsExpanded="False" Margin="0,0,0,8">
                 <StackPanel Margin="0,8,0,0">
-                    <!-- Color enable rows -->
-                    <Grid Margin="0,0,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <CheckBox Grid.Column="0" IsChecked="{Binding FontColorEnabled}" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1" Text="Font Color" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
-                        <Button Grid.Column="2" Style="{StaticResource ColorSwatchButtonStyle}" Background="{Binding TextColor}" Tag="TextColor" Click="OnPickColorForActiveInspector" ToolTip="Pick font color"/>
-                        <Button Grid.Column="3" Width="22" Height="22" Margin="4,0,0,0" Padding="0" Tag="TextColor" Click="OnPickColorForActiveInspector" ToolTip="Pick font color" Style="{StaticResource ToolButton}" Content="..."/>
-                    </Grid>
-
-                    <Grid Margin="0,2,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <CheckBox Grid.Column="0" IsChecked="{Binding BackgroundColorEnabled}" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1" Text="Background Color" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
-                        <Button Grid.Column="2" Style="{StaticResource ColorSwatchButtonStyle}" Background="{Binding Fill}" Tag="Fill" Click="OnPickColorForActiveInspector" ToolTip="Pick background color"/>
-                        <Button Grid.Column="3" Width="22" Height="22" Margin="4,0,0,0" Padding="0" Tag="Fill" Click="OnPickColorForActiveInspector" Style="{StaticResource ToolButton}" Content="..."/>
-                    </Grid>
-
-                    <Grid Margin="0,2,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <CheckBox Grid.Column="0" IsChecked="{Binding BorderColorEnabled}" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1" Text="Border Color" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
-                        <Button Grid.Column="2" Style="{StaticResource ColorSwatchButtonStyle}" Background="{Binding Stroke}" Tag="Stroke" Click="OnPickColorForActiveInspector" ToolTip="Pick border color"/>
-                        <Button Grid.Column="3" Width="22" Height="22" Margin="4,0,0,0" Padding="0" Tag="Stroke" Click="OnPickColorForActiveInspector" Style="{StaticResource ToolButton}" Content="..."/>
-                    </Grid>
-
-                </StackPanel>
-            </Expander>
-
-            <!-- ===== Fill & Stroke (draw.io Fill/Line cards combined) ===== -->
-            <Expander Header="Fill &amp; Stroke" IsExpanded="True" Margin="0,0,0,8">
-                <StackPanel Margin="0,8,0,0">
-
-                    <!-- Fill Style swatch (Solid / Hatch) -->
-                    <TextBlock Text="Fill Style" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <ListBox Style="{StaticResource FillSwatchListBoxStyle}" SelectedValue="{Binding FillStyle, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,0,0,6">
-                        <ListBoxItem Tag="solid" ToolTip="Solid fill">
-                            <Border Width="48" Height="20" CornerRadius="3" Background="{Binding Fill}"/>
-                        </ListBoxItem>
-                        <ListBoxItem Tag="hatch" ToolTip="Hatched fill (diagonal lines)">
-                            <Grid Width="48" Height="20">
-                                <Border CornerRadius="3" Background="{Binding Fill}" Opacity="0.35"/>
-                                <Border CornerRadius="3" ClipToBounds="True">
-                                    <Canvas>
-                                        <Line X1="-4"  Y1="20" X2="20"  Y2="-4" Stroke="{Binding Stroke}" StrokeThickness="1"/>
-                                        <Line X1="4"   Y1="20" X2="28"  Y2="-4" Stroke="{Binding Stroke}" StrokeThickness="1"/>
-                                        <Line X1="12"  Y1="20" X2="36"  Y2="-4" Stroke="{Binding Stroke}" StrokeThickness="1"/>
-                                        <Line X1="20"  Y1="20" X2="44"  Y2="-4" Stroke="{Binding Stroke}" StrokeThickness="1"/>
-                                        <Line X1="28"  Y1="20" X2="52"  Y2="-4" Stroke="{Binding Stroke}" StrokeThickness="1"/>
-                                        <Line X1="36"  Y1="20" X2="60"  Y2="-4" Stroke="{Binding Stroke}" StrokeThickness="1"/>
-                                    </Canvas>
-                                </Border>
-                            </Grid>
-                        </ListBoxItem>
-                    </ListBox>
-
-                    <!-- Stroke Style swatch (Solid / Dashed) -->
-                    <TextBlock Text="Line Style" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                    <ListBox Style="{StaticResource StrokeSwatchListBoxStyle}" SelectedValue="{Binding Dashed, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,0,0,6">
-                        <ListBoxItem Tag="{StaticResource BoolFalse}" ToolTip="Solid line">
-                            <Line X1="0" Y1="0" X2="50" Y2="0" Stroke="{Binding Stroke}" StrokeThickness="2"/>
-                        </ListBoxItem>
-                        <ListBoxItem Tag="{StaticResource BoolTrue}" ToolTip="Dashed line">
-                            <Line X1="0" Y1="0" X2="50" Y2="0" Stroke="{Binding Stroke}" StrokeThickness="2" StrokeDashArray="3,2"/>
-                        </ListBoxItem>
-                    </ListBox>
-
-                    <!-- Stroke Width + Corner radius row -->
-                    <Grid Margin="0,4,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Margin="0,0,4,0">
-                            <TextBlock Text="Stroke" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                            <ComboBox Style="{StaticResource InspectorComboBox}" SelectedValue="{Binding StrokeWidth, Mode=TwoWay}" SelectedValuePath="Tag">
-                                <ComboBoxItem Content="Thin" Tag="{StaticResource DoubleThin}"/>
-                                <ComboBoxItem Content="Medium" Tag="{StaticResource DoubleMedium}"/>
-                                <ComboBoxItem Content="Thick" Tag="{StaticResource DoubleThick}"/>
-                            </ComboBox>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Margin="4,0,0,0">
-                            <TextBlock Text="Corners" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                            <ComboBox Style="{StaticResource InspectorComboBox}" SelectedValue="{Binding CornerRadius, Mode=TwoWay}" SelectedValuePath="Tag">
-                                <ComboBoxItem Content="Sharp" Tag="{StaticResource DoubleRadiusSharp}"/>
-                                <ComboBoxItem Content="Small" Tag="{StaticResource DoubleRadiusSm}"/>
-                                <ComboBoxItem Content="Medium" Tag="{StaticResource DoubleRadiusMd}"/>
-                                <ComboBoxItem Content="Large" Tag="{StaticResource DoubleRadiusLg}"/>
-                            </ComboBox>
-                        </StackPanel>
-                    </Grid>
-                </StackPanel>
-            </Expander>
-
-            <!-- ===== Effects ===== -->
-            <Expander Header="Effects" IsExpanded="True" Margin="0,0,0,8">
-                <StackPanel Margin="0,8,0,0">
-                    <CheckBox Content="Shadow" IsChecked="{Binding ShadowEnabled}" FontSize="11" FontWeight="SemiBold" Margin="0,2,0,4"/>
                     <CheckBox Content="Word Wrap" IsChecked="{Binding WordWrap}" FontSize="11" FontWeight="SemiBold" Margin="0,2,0,4"/>
                     <CheckBox Content="Formatted Text" IsChecked="{Binding FormattedText}" FontSize="11" FontWeight="SemiBold" Margin="0,2,0,4"/>
                     <CheckBox Content="Convert Labels to SVG" IsChecked="{Binding ConvertLabelsToSvg}" FontSize="11" FontWeight="SemiBold" Margin="0,2,0,4"/>
-                    <CheckBox Content="Automatic Font Size" IsChecked="{Binding AutomaticFontSize}" FontSize="11" FontWeight="SemiBold" Margin="0,2,0,8"/>
-
-                    <TextBlock Text="Opacity" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,4"/>
-                    <DockPanel Margin="0,0,0,4">
-                        <TextBlock Text="{Binding Opacity, StringFormat={}{0:P0}}" DockPanel.Dock="Right" FontSize="11" Foreground="{StaticResource SubtleForeground}" Margin="8,0,0,0" VerticalAlignment="Center" Width="38" TextAlignment="Right"/>
-                        <Slider Minimum="0" Maximum="1" Value="{Binding Opacity, Mode=TwoWay}" SmallChange="0.05" LargeChange="0.1" TickFrequency="0.05" IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
-                    </DockPanel>
+                    <CheckBox Content="Automatic Font Size" IsChecked="{Binding AutomaticFontSize}" FontSize="11" FontWeight="SemiBold" Margin="0,2,0,4"/>
                 </StackPanel>
             </Expander>
 
@@ -664,38 +711,65 @@
                 </StackPanel>
             </Expander>
 
-            <!-- Geometry Options -->
-            <Expander Header="Geometry" IsExpanded="True" Margin="0,0,0,8">
-                <UniformGrid Columns="4" Margin="0,8,0,0">
-                    <StackPanel Margin="0,0,8,0">
-                        <TextBlock Text="X" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
-                        <TextBox Text="{Binding X, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
-                    </StackPanel>
-                    <StackPanel Margin="0,0,8,0">
-                        <TextBlock Text="Y" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
-                        <TextBox Text="{Binding Y, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
-                    </StackPanel>
-                    <StackPanel Margin="0,0,8,0">
-                        <TextBlock Text="W" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
-                        <TextBox Text="{Binding Width, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
-                    </StackPanel>
-                    <StackPanel>
-                        <TextBlock Text="H" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
-                        <TextBox Text="{Binding Height, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
-                    </StackPanel>
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================ -->
+    <!-- Text Inspector: Arrange tab — z-order, geometry, lock         -->
+    <!-- ============================================================ -->
+    <DataTemplate x:Key="TextInspector.Arrange">
+        <StackPanel Margin="0,0,0,12">
+            <!-- Z-order quad (draw.io Arrange card) -->
+            <Expander Header="Z-Order" IsExpanded="True" Margin="0,0,0,8">
+                <UniformGrid Columns="2" Margin="0,8,0,0">
+                    <Button Style="{StaticResource ToolButton}" Tag="front" Click="OnZOrder" Content="To Front" Margin="0,0,3,3"/>
+                    <Button Style="{StaticResource ToolButton}" Tag="back" Click="OnZOrder" Content="To Back" Margin="3,0,0,3"/>
+                    <Button Style="{StaticResource ToolButton}" Tag="forward" Click="OnZOrder" Content="Bring Forward" Margin="0,3,3,0"/>
+                    <Button Style="{StaticResource ToolButton}" Tag="backward" Click="OnZOrder" Content="Send Backward" Margin="3,3,0,0"/>
                 </UniformGrid>
             </Expander>
 
-            <!-- ===== Arrange (z-order, lock) — modeled on draw.io Arrange card ===== -->
-            <Expander Header="Arrange" IsExpanded="True" Margin="0,0,0,8">
+            <!-- Size / Position (draw.io Arrange card) -->
+            <Expander Header="Size / Position" IsExpanded="True" Margin="0,0,0,8">
                 <StackPanel Margin="0,8,0,0">
-                    <UniformGrid Columns="2" Margin="0,0,0,4">
-                        <Button Style="{StaticResource ToolButton}" Tag="front" Click="OnZOrder" Content="To Front" Margin="0,0,3,3"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="back" Click="OnZOrder" Content="To Back" Margin="3,0,0,3"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="forward" Click="OnZOrder" Content="Bring Forward" Margin="0,3,3,0"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="backward" Click="OnZOrder" Content="Send Backward" Margin="3,3,0,0"/>
-                    </UniformGrid>
-                    <CheckBox Content="Locked" IsChecked="{Binding IsLocked}" Margin="0,8,12,0"/>
+                    <TextBlock Text="Size" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,4,0">
+                            <TextBox Text="{Binding Width, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="6,4"/>
+                            <TextBlock Text="Width" FontSize="9" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="4,0,0,0">
+                            <TextBox Text="{Binding Height, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="6,4"/>
+                            <TextBlock Text="Height" FontSize="9" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock Text="Position" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,4,0">
+                            <TextBox Text="{Binding X, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="6,4"/>
+                            <TextBlock Text="Left" FontSize="9" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="4,0,0,0">
+                            <TextBox Text="{Binding Y, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="6,4"/>
+                            <TextBlock Text="Top" FontSize="9" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Expander>
+
+            <!-- Lock -->
+            <Expander Header="Lock" IsExpanded="True" Margin="0,0,0,8">
+                <StackPanel Margin="0,8,0,0">
+                    <CheckBox Content="Locked" IsChecked="{Binding IsLocked}" Margin="0,2,0,0"/>
                 </StackPanel>
             </Expander>
         </StackPanel>
@@ -809,20 +883,45 @@
     </DataTemplate>
 
     <!-- 3. Shape Inspector -->
+    <!-- ============================================================ -->
+    <!-- Shape Inspector: Default (Inspector tab — identity / shape options) -->
+    <!-- ============================================================ -->
     <DataTemplate DataType="{x:Type inspectors:ShapeInspectorViewModel}">
         <StackPanel Margin="0,0,0,12">
             <!-- Header Block -->
             <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" TextWrapping="Wrap"/>
             <TextBlock Text="Diagram Shape" FontSize="11" Foreground="{StaticResource SubtleForeground}" Margin="0,4,0,12"/>
 
-            <!-- Content Options -->
+            <!-- Quick info: size + position summary -->
+            <Border Background="{StaticResource HoverBg}" BorderBrush="{StaticResource SoftBorder}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Size" FontSize="10" Foreground="{StaticResource SubtleForeground}"/>
+                        <TextBlock FontSize="11" Foreground="{StaticResource ForegroundBrush}">
+                            <Run Text="{Binding Width, StringFormat={}{0:0}}"/><Run Text=" x "/><Run Text="{Binding Height, StringFormat={}{0:0}}"/>
+                        </TextBlock>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="Position" FontSize="10" Foreground="{StaticResource SubtleForeground}"/>
+                        <TextBlock FontSize="11" Foreground="{StaticResource ForegroundBrush}">
+                            <Run Text="("/><Run Text="{Binding X, StringFormat={}{0:0}}"/><Run Text=", "/><Run Text="{Binding Y, StringFormat={}{0:0}}"/><Run Text=")"/>
+                        </TextBlock>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Identity + Shape Type -->
             <Expander Header="Shape Options" IsExpanded="True" Margin="0,0,0,8">
                 <StackPanel Margin="0,8,0,0">
                     <TextBlock Text="Title" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <TextBox Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="5,4" Margin="0,0,0,8"/>
 
                     <TextBlock Text="Shape Type" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <ComboBox SelectedValue="{Binding ShapeType, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,0,0,8" Height="26" Padding="6,2">
+                    <ComboBox Style="{StaticResource InspectorComboBox}" SelectedValue="{Binding ShapeType, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,0,0,4">
                         <ComboBoxItem Content="Rectangle" Tag="rectangle"/>
                         <ComboBoxItem Content="Ellipse" Tag="ellipse"/>
                         <ComboBoxItem Content="Database" Tag="database"/>
@@ -830,8 +929,14 @@
                     </ComboBox>
                 </StackPanel>
             </Expander>
+        </StackPanel>
+    </DataTemplate>
 
-            <!-- Style Options -->
+    <!-- ============================================================ -->
+    <!-- Shape Inspector: Style tab — fill, stroke, colors, corners, opacity -->
+    <!-- ============================================================ -->
+    <DataTemplate x:Key="ShapeInspector.Style">
+        <StackPanel Margin="0,0,0,12">
             <Expander Header="Style" IsExpanded="True" Margin="0,0,0,8">
                 <StackPanel Margin="0,8,0,0">
                     <!-- Fill Style -->
@@ -908,35 +1013,90 @@
                         <TextBlock Text="{Binding Opacity, StringFormat={}{0:P0}}" DockPanel.Dock="Right" FontSize="11" Foreground="{StaticResource SubtleForeground}" Margin="8,0,0,0" VerticalAlignment="Center" Width="38" TextAlignment="Right"/>
                         <Slider Minimum="0" Maximum="1" Value="{Binding Opacity, Mode=TwoWay}" SmallChange="0.05" LargeChange="0.1" TickFrequency="0.05" IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
                     </DockPanel>
+
+                    <!-- Hatch Opacity (only meaningful when Fill Style = Hatched) -->
+                    <TextBlock Text="Hatch Opacity" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,4"/>
+                    <DockPanel Margin="0,0,0,8">
+                        <TextBlock Text="{Binding HatchOpacity, StringFormat={}{0:P0}}" DockPanel.Dock="Right" FontSize="11" Foreground="{StaticResource SubtleForeground}" Margin="8,0,0,0" VerticalAlignment="Center" Width="38" TextAlignment="Right"/>
+                        <Slider Minimum="0" Maximum="1" Value="{Binding HatchOpacity, Mode=TwoWay}" SmallChange="0.05" LargeChange="0.1" TickFrequency="0.05" IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                                ToolTip="Opacity of diagonal hatching lines (applies to hatched fill style)."/>
+                    </DockPanel>
                 </StackPanel>
             </Expander>
+        </StackPanel>
+    </DataTemplate>
 
-            <!-- Geometry Options -->
-            <Expander Header="Geometry" IsExpanded="True" Margin="0,0,0,8">
-                <UniformGrid Columns="4" Margin="0,8,0,0">
-                    <StackPanel Margin="0,0,8,0">
-                        <TextBlock Text="X" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
-                        <TextBox Text="{Binding X, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
-                    </StackPanel>
-                    <StackPanel Margin="0,0,8,0">
-                        <TextBlock Text="Y" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
-                        <TextBox Text="{Binding Y, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
-                    </StackPanel>
-                    <StackPanel Margin="0,0,8,0">
-                        <TextBlock Text="W" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
-                        <TextBox Text="{Binding Width, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
-                    </StackPanel>
-                    <StackPanel>
-                        <TextBlock Text="H" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
-                        <TextBox Text="{Binding Height, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
-                    </StackPanel>
+    <!-- ============================================================ -->
+    <!-- Shape Inspector: Text tab — label text controls                -->
+    <!-- ============================================================ -->
+    <DataTemplate x:Key="ShapeInspector.Text">
+        <StackPanel Margin="0,0,0,12">
+            <Expander Header="Label" IsExpanded="True" Margin="0,0,0,8">
+                <StackPanel Margin="0,8,0,0">
+                    <TextBlock Text="Label Text" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBox Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="5,4" Margin="0,0,0,4"/>
+                    <TextBlock Text="Edit the shape title shown inside the block."
+                               FontSize="10.5" Foreground="{StaticResource MutedForeground}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Expander>
+            <TextBlock Text="Detailed typography options will appear here for shapes that support rich labels."
+                       FontSize="10.5" Foreground="{StaticResource MutedForeground}" TextWrapping="Wrap" Margin="2,8,0,0"/>
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================ -->
+    <!-- Shape Inspector: Arrange tab — geometry, z-order, lock         -->
+    <!-- ============================================================ -->
+    <DataTemplate x:Key="ShapeInspector.Arrange">
+        <StackPanel Margin="0,0,0,12">
+            <Expander Header="Z-Order" IsExpanded="True" Margin="0,0,0,8">
+                <UniformGrid Columns="2" Margin="0,8,0,0">
+                    <Button Style="{StaticResource ToolButton}" Tag="front" Click="OnZOrder" Content="To Front" Margin="0,0,3,3"/>
+                    <Button Style="{StaticResource ToolButton}" Tag="back" Click="OnZOrder" Content="To Back" Margin="3,0,0,3"/>
+                    <Button Style="{StaticResource ToolButton}" Tag="forward" Click="OnZOrder" Content="Bring Forward" Margin="0,3,3,0"/>
+                    <Button Style="{StaticResource ToolButton}" Tag="backward" Click="OnZOrder" Content="Send Backward" Margin="3,3,0,0"/>
                 </UniformGrid>
             </Expander>
 
-            <!-- Arrange Options -->
-            <Expander Header="Arrange" IsExpanded="True" Margin="0,0,0,8">
+            <Expander Header="Size / Position" IsExpanded="True" Margin="0,0,0,8">
                 <StackPanel Margin="0,8,0,0">
-                    <CheckBox Content="Locked" IsChecked="{Binding IsLocked}" Margin="0,0,12,0"/>
+                    <TextBlock Text="Size" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,4,0">
+                            <TextBox Text="{Binding Width, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="6,4"/>
+                            <TextBlock Text="Width" FontSize="9" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="4,0,0,0">
+                            <TextBox Text="{Binding Height, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="6,4"/>
+                            <TextBlock Text="Height" FontSize="9" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock Text="Position" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,4,0">
+                            <TextBox Text="{Binding X, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="6,4"/>
+                            <TextBlock Text="Left" FontSize="9" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="4,0,0,0">
+                            <TextBox Text="{Binding Y, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="6,4"/>
+                            <TextBlock Text="Top" FontSize="9" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Expander>
+
+            <Expander Header="Lock" IsExpanded="True" Margin="0,0,0,8">
+                <StackPanel Margin="0,8,0,0">
+                    <CheckBox Content="Locked" IsChecked="{Binding IsLocked}" Margin="0,2,0,0"/>
                 </StackPanel>
             </Expander>
         </StackPanel>

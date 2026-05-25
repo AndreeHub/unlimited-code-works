@@ -32,6 +32,7 @@ public sealed record BlockActivatedArgs(RenderBlock Block);
 public sealed record PasteRequestedArgs(double WorldX, double WorldY);
 public sealed record ConnectionDrawnArgs(string SourceKey, string TargetKey, int? SourceAnchorIndex, int? TargetAnchorIndex, double? MidControlX, double? MidControlY, bool MidControlBends);
 public sealed record AnnotationRequestedArgs(double WorldX, double WorldY, string? AttachedBlockKey = null);
+public sealed record ItemPlacementArgs(string Kind, double WorldX, double WorldY);
 public sealed record CanvasSceneChangedArgs(RenderScene Before, RenderScene After, bool IsContentChange);
 
 public sealed partial class CanvasViewport : HwndHost
@@ -94,12 +95,63 @@ public sealed partial class CanvasViewport : HwndHost
         DependencyProperty.Register(nameof(GridSize), typeof(double), typeof(CanvasViewport),
             new FrameworkPropertyMetadata(24.0));
 
+    public static readonly DependencyProperty ActiveShapeToolProperty =
+        DependencyProperty.Register(nameof(ActiveShapeTool), typeof(string), typeof(CanvasViewport),
+            new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, OnActiveShapeToolChanged));
+
+    public static readonly DependencyProperty ShowShapeToolPaletteProperty =
+        DependencyProperty.Register(nameof(ShowShapeToolPalette), typeof(bool), typeof(CanvasViewport),
+            new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    public static readonly DependencyProperty PendingItemPlacementProperty =
+        DependencyProperty.Register(nameof(PendingItemPlacement), typeof(string), typeof(CanvasViewport),
+            new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, OnPendingItemPlacementChanged));
+
+    public static readonly DependencyProperty ItemPlacementRequestedCommandProperty =
+        DependencyProperty.Register(nameof(ItemPlacementRequestedCommand), typeof(ICommand), typeof(CanvasViewport),
+            new FrameworkPropertyMetadata(null));
+
     public RenderScene Scene { get => (RenderScene)GetValue(SceneProperty); set => SetValue(SceneProperty, value); }
     public CameraState Camera { get => (CameraState)GetValue(CameraProperty); set => SetValue(CameraProperty, value); }
     public bool ConnectorsEnabled { get => (bool)GetValue(ConnectorsEnabledProperty); set => SetValue(ConnectorsEnabledProperty, value); }
     public CanvasBackgroundMode BackgroundMode { get => (CanvasBackgroundMode)GetValue(BackgroundModeProperty); set => SetValue(BackgroundModeProperty, value); }
     public bool SnapToGrid { get => (bool)GetValue(SnapToGridProperty); set => SetValue(SnapToGridProperty, value); }
     public double GridSize { get => (double)GetValue(GridSizeProperty); set => SetValue(GridSizeProperty, value); }
+    public string? ActiveShapeTool { get => (string?)GetValue(ActiveShapeToolProperty); set => SetValue(ActiveShapeToolProperty, value); }
+    public bool ShowShapeToolPalette { get => (bool)GetValue(ShowShapeToolPaletteProperty); set => SetValue(ShowShapeToolPaletteProperty, value); }
+    public string? PendingItemPlacement { get => (string?)GetValue(PendingItemPlacementProperty); set => SetValue(PendingItemPlacementProperty, value); }
+    public ICommand? ItemPlacementRequestedCommand { get => (ICommand?)GetValue(ItemPlacementRequestedCommandProperty); set => SetValue(ItemPlacementRequestedCommandProperty, value); }
+
+    private static void OnPendingItemPlacementChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is CanvasViewport vp)
+            vp.Cursor = string.IsNullOrEmpty(e.NewValue as string) ? Cursors.Arrow : Cursors.Cross;
+    }
+
+    internal void SyncActiveShapeToolDp()
+    {
+        var current = (string?)GetValue(ActiveShapeToolProperty);
+        if (!string.Equals(current, _activeShapeTool, StringComparison.OrdinalIgnoreCase))
+            SetValue(ActiveShapeToolProperty, _activeShapeTool);
+    }
+
+    private static void OnActiveShapeToolChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is not CanvasViewport vp) return;
+        var requested = e.NewValue as string;
+        if (string.Equals(vp._activeShapeTool, requested, StringComparison.OrdinalIgnoreCase)) return;
+        vp._activeShapeTool = string.IsNullOrEmpty(requested) ? null : requested;
+        vp._shapeDraftStartWorld = null;
+        vp._shapeDraftCurrentWorld = null;
+        vp._shapeDraftPolyline = null;
+        vp._shapeDraftAttachStartKey = null;
+        vp._shapeDraftAttachEndKey = null;
+        vp._shapeDraftStartOffset = null;
+        vp._shapeDraftEndOffset = null;
+        vp._shapeDraftCurvedFlags = null;
+        vp.Cursor = vp._activeShapeTool is null ? Cursors.Arrow : Cursors.Cross;
+        vp.RenderNative();
+    }
 
     public bool IsReady { get; internal set; }
 

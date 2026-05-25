@@ -75,6 +75,8 @@ public sealed partial class CanvasViewport
         {
             ClearConnectionDrawingState();
             _activeShapeTool = null;
+            SyncActiveShapeToolDp();
+            PendingItemPlacement = null;
             _shapeDraftStartWorld = null;
             _shapeDraftCurrentWorld = null;
             _shapeDraftPolyline = null;
@@ -99,11 +101,24 @@ public sealed partial class CanvasViewport
 
         Focus(); SetFocus(_hwnd);
 
-        if (HitShapeTool(screen) is { } shapeTool)
+        // Pending item placement: a click drops the item at that point. The tool stays armed so
+        // the user can drop several — click the toolbar icon again, or press Esc, to disarm.
+        if (!string.IsNullOrEmpty(PendingItemPlacement))
+        {
+            var kind = PendingItemPlacement!;
+            var args = new ItemPlacementArgs(kind, world.X, world.Y);
+            if (ItemPlacementRequestedCommand?.CanExecute(args) == true)
+                ItemPlacementRequestedCommand.Execute(args);
+            Cursor = Cursors.Cross;
+            return;
+        }
+
+        if (ShowShapeToolPalette && HitShapeTool(screen) is { } shapeTool)
         {
             if (_editingNoteKey is not null) CommitNoteEdit(save: true);
             if (_editingGroupKey is not null) CommitGroupTitleEdit(save: true);
             _activeShapeTool = string.Equals(_activeShapeTool, shapeTool, StringComparison.OrdinalIgnoreCase) ? null : shapeTool;
+            SyncActiveShapeToolDp();
             _shapeDraftStartWorld = null;
             _shapeDraftCurrentWorld = null;
             _shapeDraftPolyline = null;
@@ -128,7 +143,7 @@ public sealed partial class CanvasViewport
                 _editingTitle = IsNoteTitleHit(editVis, world);
                 var metrics = GetEditTextMetrics(editVis, _editingTitle);
                 string editText = _editingTitle ? _editTitle : _editBody;
-                int newPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap, alignment: metrics.Alignment);
+                int newPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap, alignment: metrics.Alignment, maxH: metrics.Height, paragraphAlignment: metrics.ParagraphAlignment);
                 if (modifiers.HasFlag(ModifierKeys.Shift)) { if (_editSelectionAnchor < 0) _editSelectionAnchor = _editCursorPos; }
                 else _editSelectionAnchor = newPos;
                 _editCursorPos = newPos;
@@ -243,7 +258,7 @@ public sealed partial class CanvasViewport
             {
                 var metrics = GetEditTextMetrics(ev, _editingTitle);
                 string editText = _editingTitle ? _editTitle : _editBody;
-                _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap, alignment: metrics.Alignment);
+                _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap, alignment: metrics.Alignment, maxH: metrics.Height, paragraphAlignment: metrics.ParagraphAlignment);
                 _editCursorVisible = true;
                 RenderNative();
             }
@@ -541,7 +556,7 @@ public sealed partial class CanvasViewport
             _editingTitle = IsNoteTitleHit(vis, cw);
             var metrics = GetEditTextMetrics(vis, _editingTitle);
             string editText = _editingTitle ? _editTitle : _editBody;
-            _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, cw, wrap: metrics.Wrap, alignment: metrics.Alignment);
+            _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, cw, wrap: metrics.Wrap, alignment: metrics.Alignment, maxH: metrics.Height, paragraphAlignment: metrics.ParagraphAlignment);
         }
         else _editCursorPos = _editBody.Length;
         _editCursorVisible = true; _cursorBlinkTimer?.Dispose();
@@ -557,21 +572,37 @@ public sealed partial class CanvasViewport
             _ => Vortice.DirectWrite.TextAlignment.Center
         };
 
-    private static (float X, float Y, float Width, float FontSize, bool Wrap, Vortice.DirectWrite.TextAlignment Alignment) GetEditTextMetrics(SceneBlockVisual visual, bool title = false)
+    private static (float X, float Y, float Width, float FontSize, bool Wrap, Vortice.DirectWrite.TextAlignment Alignment, float Height, Vortice.DirectWrite.ParagraphAlignment ParagraphAlignment) GetEditTextMetrics(SceneBlockVisual visual, bool title = false)
     {
         Rect bounds = visual.Bounds;
-        if (visual.Block.Kind == BlockKind.Note && title) 
-            return ((float)bounds.X + 24, (float)bounds.Y + 12, (float)bounds.Width - 48, 14f, false, Vortice.DirectWrite.TextAlignment.Leading);
-        if (visual.Block.Kind == BlockKind.Note) 
-            return ((float)bounds.X + 14, (float)bounds.Y + 42, (float)bounds.Width - 28, 12.5f, true, Vortice.DirectWrite.TextAlignment.Leading);
+        if (visual.Block.Kind == BlockKind.Note && title)
+            return ((float)bounds.X + 24, (float)bounds.Y + 12, (float)bounds.Width - 48, 14f, false, Vortice.DirectWrite.TextAlignment.Leading, 22f, Vortice.DirectWrite.ParagraphAlignment.Near);
+        if (visual.Block.Kind == BlockKind.Note)
+            return ((float)bounds.X + 14, (float)bounds.Y + 42, (float)bounds.Width - 28, 12.5f, true, Vortice.DirectWrite.TextAlignment.Leading, Math.Max(20f, (float)bounds.Height - 50f), Vortice.DirectWrite.ParagraphAlignment.Near);
         if (visual.Block.Kind == BlockKind.Text)
         {
-            float fs = visual.Block.Style is not null ? Math.Clamp((float)visual.Block.Style.FontSize, 8f, 48f) : 14f;
-            var align = ToDWriteTextAlignment(visual.Block.Style?.TextAlign);
-            return ((float)bounds.X + 12, (float)bounds.Y + 12, (float)bounds.Width - 24, fs, true, align);
+            var style = visual.Block.Style;
+            float fs = style is not null ? Math.Clamp((float)style.FontSize, 8f, 48f) : 14f;
+            var align = ToDWriteTextAlignment(style?.TextAlign);
+            float padL = (float)Math.Max(0, style?.SpacingLeft ?? 4);
+            float padR = (float)Math.Max(0, style?.SpacingRight ?? 4);
+            float padT = (float)Math.Max(0, style?.SpacingTop ?? 4);
+            float padB = (float)Math.Max(0, style?.SpacingBottom ?? 4);
+            float w = Math.Max(4f, (float)bounds.Width - padL - padR);
+            float h = Math.Max(4f, (float)bounds.Height - padT - padB);
+            var vAlign = ToDWriteParagraphAlignment(style?.VerticalAlign);
+            return ((float)bounds.X + padL, (float)bounds.Y + padT, w, fs, true, align, h, vAlign);
         }
-        return ((float)bounds.X + 14, (float)(bounds.Y + bounds.Height / 2 - 8), (float)bounds.Width - 28, 13f, false, Vortice.DirectWrite.TextAlignment.Leading);
+        return ((float)bounds.X + 14, (float)(bounds.Y + bounds.Height / 2 - 8), (float)bounds.Width - 28, 13f, false, Vortice.DirectWrite.TextAlignment.Leading, 18f, Vortice.DirectWrite.ParagraphAlignment.Near);
     }
+
+    private static Vortice.DirectWrite.ParagraphAlignment ToDWriteParagraphAlignment(string? v) =>
+        v?.Trim().ToLowerInvariant() switch
+        {
+            "top" => Vortice.DirectWrite.ParagraphAlignment.Near,
+            "bottom" => Vortice.DirectWrite.ParagraphAlignment.Far,
+            _ => Vortice.DirectWrite.ParagraphAlignment.Center
+        };
 
     private static bool IsNoteTitleHit(SceneBlockVisual visual, WpfPoint world)
     {
@@ -694,20 +725,34 @@ public sealed partial class CanvasViewport
         else { int curEnd = LineEnd(text, pos); if (curEnd >= text.Length) return pos; int nextStart = curEnd + 1; int nextEnd = LineEnd(text, nextStart); int nextLen = nextEnd - nextStart; return nextStart + Math.Min(col, nextLen); }
     }
 
-    private int HitTestCursorPos(string text, float fontSize, float textX, float textY, float maxW, WpfPoint world, bool wrap = false, Vortice.DirectWrite.TextAlignment alignment = Vortice.DirectWrite.TextAlignment.Leading)
+    private int HitTestCursorPos(string text, float fontSize, float textX, float textY, float maxW, WpfPoint world, bool wrap = false, Vortice.DirectWrite.TextAlignment alignment = Vortice.DirectWrite.TextAlignment.Leading, float maxH = 9999f, Vortice.DirectWrite.ParagraphAlignment paragraphAlignment = Vortice.DirectWrite.ParagraphAlignment.Near)
     {
         if (_dwrite is null) return 0; string layoutText = text.Length == 0 ? " " : text;
         Vortice.DirectWrite.IDWriteTextFormat fmt = GetTextFormat(fontSize);
         var oldTextAlign = fmt.TextAlignment;
+        var oldParagraph = fmt.ParagraphAlignment;
         fmt.TextAlignment = alignment;
-        
-        using var layout = _dwrite.CreateTextLayout(layoutText, fmt, maxW, 9999f);
+        // Use top alignment on the measurement layout so HitTestPoint works in raw text
+        // coordinates; we shift the input click point by vOffset to compensate.
+        fmt.ParagraphAlignment = Vortice.DirectWrite.ParagraphAlignment.Near;
+
+        using var layout = _dwrite.CreateTextLayout(layoutText, fmt, maxW, maxH);
         if (wrap) layout.WordWrapping = Vortice.DirectWrite.WordWrapping.Wrap;
+
+        float vOffset = 0f;
+        if (paragraphAlignment != Vortice.DirectWrite.ParagraphAlignment.Near)
+        {
+            var lm = layout.Metrics;
+            float gap = Math.Max(0, maxH - lm.Height);
+            vOffset = paragraphAlignment == Vortice.DirectWrite.ParagraphAlignment.Center ? gap * 0.5f : gap;
+        }
+
         SharpGen.Runtime.RawBool isTrailing = false; SharpGen.Runtime.RawBool isInside = false;
-        var metrics = layout.HitTestPoint((float)(world.X - textX), (float)(world.Y - textY), out isTrailing, out isInside);
-        
+        var metrics = layout.HitTestPoint((float)(world.X - textX), (float)(world.Y - textY - vOffset), out isTrailing, out isInside);
+
         fmt.TextAlignment = oldTextAlign;
-        
+        fmt.ParagraphAlignment = oldParagraph;
+
         return Math.Clamp((int)metrics.TextPosition + (isTrailing ? 1 : 0), 0, text.Length);
     }
 

@@ -13,171 +13,221 @@
     </UserControl.Resources>
 
     <Border Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1,0,0,0">
-                <Grid>
-                    <TabControl SelectedIndex="{Binding SelectedRightTabIndex, Mode=TwoWay}" Margin="12,10,12,12">
-                        <TabItem Header="Inspector">
-                            <Grid Margin="0,10,0,0">
-                                <!-- Dynamic Context Inspector Control -->
-                                <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding HasBoardSelection, Converter={StaticResource BoolVis}}">
-                                    <ContentControl Content="{Binding ActiveInspector}"/>
-                                </ScrollViewer>
+        <Grid Margin="12,10,12,12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
 
-                                <!-- No Selection Placeholder -->
-                                <Grid Margin="20">
-                                    <Grid.Style>
-                                        <Style TargetType="Grid">
+            <!-- ===================== Tabbed Inspector ===================== -->
+            <Grid Grid.Row="0">
+                <TabControl x:Name="InspectorTabs"
+                            SelectedIndex="{Binding SelectedRightTabIndex, Mode=TwoWay}"
+                            Visibility="{Binding HasBoardSelection, Converter={StaticResource BoolVis}}">
+
+                    <!-- 1. Inspector - identity / details (per-type DataTemplate) -->
+                    <TabItem Header="Inspector">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                            <ContentControl Content="{Binding ActiveInspector}"/>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <!-- 2. Style - colors, fill, stroke, effects -->
+                    <TabItem Header="Style">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                            <Grid>
+                                <ContentControl Content="{Binding ActiveInspector}">
+                                    <ContentControl.Style>
+                                        <Style TargetType="ContentControl">
                                             <Setter Property="Visibility" Value="Collapsed"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding HasBoardSelection}" Value="False">
+                                                <DataTrigger Binding="{Binding IsTextBlockInspectorSelected}" Value="True">
+                                                    <Setter Property="ContentTemplate" Value="{StaticResource TextInspector.Style}"/>
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsShapeInspectorSelected}" Value="True">
+                                                    <Setter Property="ContentTemplate" Value="{StaticResource ShapeInspector.Style}"/>
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
-                                    </Grid.Style>
-                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                        <TextBlock Text="No Selection" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center" Margin="0,0,0,8"/>
-                                        <TextBlock Text="Select a canvas item to inspect it." TextWrapping="Wrap" TextAlignment="Center" FontSize="11" Foreground="{StaticResource MutedForeground}"/>
-                                    </StackPanel>
-                                </Grid>
+                                    </ContentControl.Style>
+                                </ContentControl>
+                                <TextBlock Text="Style options are not available for this selection."
+                                           TextWrapping="Wrap" TextAlignment="Center"
+                                           FontSize="11" Foreground="{StaticResource MutedForeground}"
+                                           VerticalAlignment="Center" HorizontalAlignment="Center"
+                                           Margin="20,40,20,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsTextBlockInspectorSelected}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsShapeInspectorSelected}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                             </Grid>
-                        </TabItem>
+                        </ScrollViewer>
+                    </TabItem>
 
-                        <TabItem Header="Toolbox">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
-                                <StackPanel>
-                                    <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddNoteCardCommand}">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="34"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Border Width="28" Height="28" CornerRadius="6" Background="#FFF7ED" VerticalAlignment="Top">
-                                                <Path Data="M7,5 H21 V17 L17,21 H7 Z M17,21 V17 H21" Stroke="#C2410C" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
-                                            </Border>
-                                            <StackPanel Grid.Column="1">
-                                                <TextBlock Text="Sticky Note" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
-                                                <TextBlock Text="Write down architectural concerns or rapid notes." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Button>
-
-                                    <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddContainerCardCommand}">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="34"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Border Width="28" Height="28" CornerRadius="6" Background="#F8FAFC" VerticalAlignment="Top">
-                                                <Path Data="M4,5 H20 V19 H4 Z M7,8 H17" Stroke="#64748B" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
-                                            </Border>
-                                            <StackPanel Grid.Column="1">
-                                                <TextBlock Text="Architecture Area" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
-                                                <TextBlock Text="Group related components in a clean, dashed container." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Button>
-
-                                    <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddShapeCommand}" CommandParameter="database">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="34"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Border Width="28" Height="28" CornerRadius="6" Background="#CCFBF1" VerticalAlignment="Top">
-                                                <Path Data="M6,8 C6,6.3 8.7,5 12,5 C15.3,5 18,6.3 18,8 C18,9.7 15.3,11 12,11 C8.7,11 6,9.7 6,8 Z M6,8 V16 C6,17.7 8.7,19 12,19 C15.3,19 18,17.7 18,16 V8 M6,12 C6,13.7 8.7,15 12,15 C15.3,15 18,13.7 18,12" Stroke="#0F766E" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
-                                            </Border>
-                                            <StackPanel Grid.Column="1">
-                                                <TextBlock Text="Database Shape" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
-                                                <TextBlock Text="Represent services, microservices, or data layers." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Button>
-
-                                    <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddSwimLaneCommand}">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="34"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Border Width="28" Height="28" CornerRadius="6" Background="#DBEAFE" VerticalAlignment="Top">
-                                                <Path Data="M5,6 H19 V18 H5 Z M5,10 H19 M12,6 V18" Stroke="#2E7DD7" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
-                                            </Border>
-                                            <StackPanel Grid.Column="1">
-                                                <TextBlock Text="Frame Layer" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
-                                                <TextBlock Text="Define horizontal or vertical lanes to outline components." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Button>
-
-                                    <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding AddTextCardCommand}">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="34"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Border Width="28" Height="28" CornerRadius="6" Background="#EDE9FE" VerticalAlignment="Top">
-                                                <Path Data="M5,7 H19 M12,7 V19 M8,19 H16" Stroke="#7C3AED" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
-                                            </Border>
-                                            <StackPanel Grid.Column="1">
-                                                <TextBlock Text="Text Card" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
-                                                <TextBlock Text="Add rich floating headers or detailed markdown descriptions." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Button>
-                                </StackPanel>
-                            </ScrollViewer>
-                        </TabItem>
-
-                        <TabItem Header="Overview">
-                            <Grid Margin="0,10,0,0">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="2*"/>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="10" MinHeight="260">
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="*"/>
-                                        </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Text="Mini Map" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" Margin="0,0,0,8"/>
-                                        <Border Grid.Row="1" BorderBrush="#E2E8F0" BorderThickness="1" Background="#FFFFFF" CornerRadius="4" ClipToBounds="True">
-                                            <controls:SceneMiniMap
-                                                Scene="{Binding Scene}"
-                                                Camera="{Binding Camera, ElementName=Root, Mode=TwoWay}"
-                                                ViewportWidth="{Binding ViewportWidth, ElementName=Root}"
-                                                ViewportHeight="{Binding ViewportHeight, ElementName=Root}"
-                                                ClipToBounds="True"
-                                                HorizontalAlignment="Stretch"
-                                                VerticalAlignment="Stretch"/>
-                                        </Border>
-                                    </Grid>
-                                </Border>
-                                <UniformGrid Grid.Row="1" Columns="2" Margin="0,12,0,0">
-                                    <Border Background="{StaticResource HoverBg}" BorderBrush="{StaticResource SoftBorder}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,6,0">
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding Scene.Blocks.Count}" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
-                                            <TextBlock Text="Blocks" FontSize="10.5" Foreground="{StaticResource SubtleForeground}"/>
-                                        </StackPanel>
-                                    </Border>
-                                    <Border Background="{StaticResource HoverBg}" BorderBrush="{StaticResource SoftBorder}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="6,0,0,0">
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding Scene.Connections.Count}" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
-                                            <TextBlock Text="Connections" FontSize="10.5" Foreground="{StaticResource SubtleForeground}"/>
-                                        </StackPanel>
-                                    </Border>
-                                </UniformGrid>
-                                <Border Grid.Row="2" Background="{StaticResource SuccessSoft}" BorderBrush="#CFEBDD" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,12,0,0" VerticalAlignment="Top">
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding Scene.Annotations.Count, StringFormat=Notes: {0}}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource SuccessBrush}"/>
-                                        <TextBlock Text="{Binding BackgroundMode, StringFormat=Canvas: {0}}" FontSize="10.5" Foreground="{StaticResource SubtleForeground}" Margin="0,4,0,0"/>
-                                    </StackPanel>
-                                </Border>
+                    <!-- 3. Text - typography, layout, spacing -->
+                    <TabItem Header="Text">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                            <Grid>
+                                <ContentControl Content="{Binding ActiveInspector}">
+                                    <ContentControl.Style>
+                                        <Style TargetType="ContentControl">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsTextBlockInspectorSelected}" Value="True">
+                                                    <Setter Property="ContentTemplate" Value="{StaticResource TextInspector.Text}"/>
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsShapeInspectorSelected}" Value="True">
+                                                    <Setter Property="ContentTemplate" Value="{StaticResource ShapeInspector.Text}"/>
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ContentControl.Style>
+                                </ContentControl>
+                                <TextBlock Text="Text options are not available for this selection."
+                                           TextWrapping="Wrap" TextAlignment="Center"
+                                           FontSize="11" Foreground="{StaticResource MutedForeground}"
+                                           VerticalAlignment="Center" HorizontalAlignment="Center"
+                                           Margin="20,40,20,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsTextBlockInspectorSelected}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsShapeInspectorSelected}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                             </Grid>
-                        </TabItem>
-                    </TabControl>
+                        </ScrollViewer>
+                    </TabItem>
 
+                    <!-- 4. Arrange - z-order, size, position, lock -->
+                    <TabItem Header="Arrange">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                            <Grid>
+                                <ContentControl Content="{Binding ActiveInspector}">
+                                    <ContentControl.Style>
+                                        <Style TargetType="ContentControl">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsTextBlockInspectorSelected}" Value="True">
+                                                    <Setter Property="ContentTemplate" Value="{StaticResource TextInspector.Arrange}"/>
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsShapeInspectorSelected}" Value="True">
+                                                    <Setter Property="ContentTemplate" Value="{StaticResource ShapeInspector.Arrange}"/>
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ContentControl.Style>
+                                </ContentControl>
+                                <TextBlock Text="Arrange options are not available for this selection."
+                                           TextWrapping="Wrap" TextAlignment="Center"
+                                           FontSize="11" Foreground="{StaticResource MutedForeground}"
+                                           VerticalAlignment="Center" HorizontalAlignment="Center"
+                                           Margin="20,40,20,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsTextBlockInspectorSelected}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsShapeInspectorSelected}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </ScrollViewer>
+                    </TabItem>
+                </TabControl>
+
+                <!-- No-selection placeholder -->
+                <Grid Margin="20" VerticalAlignment="Center">
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasBoardSelection}" Value="False">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
+                    <StackPanel HorizontalAlignment="Center">
+                        <TextBlock Text="No Selection" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                        <TextBlock Text="Select a canvas item to inspect it." TextWrapping="Wrap" TextAlignment="Center" FontSize="11" Foreground="{StaticResource MutedForeground}"/>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <!-- ===================== Overview (always pinned to bottom) ===================== -->
+            <Border Grid.Row="1" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource SoftBorder}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,8,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="Overview" FontSize="11" FontWeight="SemiBold"
+                               Foreground="{StaticResource SubtleForeground}" Margin="0,0,0,6"/>
+
+                    <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Height="140" ClipToBounds="True">
+                        <controls:SceneMiniMap
+                            Scene="{Binding Scene}"
+                            Camera="{Binding Camera, ElementName=Root, Mode=TwoWay}"
+                            ViewportWidth="{Binding ViewportWidth, ElementName=Root}"
+                            ViewportHeight="{Binding ViewportHeight, ElementName=Root}"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch"/>
+                    </Border>
+
+                    <UniformGrid Grid.Row="2" Columns="3" Margin="0,8,0,0">
+                        <Border Background="{StaticResource HoverBg}" BorderBrush="{StaticResource SoftBorder}" BorderThickness="1" CornerRadius="6" Padding="6" Margin="0,0,3,0">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Scene.Blocks.Count}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                <TextBlock Text="Blocks" FontSize="9.5" Foreground="{StaticResource SubtleForeground}"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{StaticResource HoverBg}" BorderBrush="{StaticResource SoftBorder}" BorderThickness="1" CornerRadius="6" Padding="6" Margin="3,0,3,0">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Scene.Connections.Count}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                <TextBlock Text="Links" FontSize="9.5" Foreground="{StaticResource SubtleForeground}"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{StaticResource HoverBg}" BorderBrush="{StaticResource SoftBorder}" BorderThickness="1" CornerRadius="6" Padding="6" Margin="3,0,0,0">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Scene.Annotations.Count}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                <TextBlock Text="Notes" FontSize="9.5" Foreground="{StaticResource SubtleForeground}"/>
+                            </StackPanel>
+                        </Border>
+                    </UniformGrid>
                 </Grid>
             </Border>
+        </Grid>
+    </Border>
 </UserControl>

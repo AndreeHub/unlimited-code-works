@@ -353,7 +353,7 @@ internal sealed class BlockRenderer
         var style = block.Style ?? new BoardItemStyle();
         WpfColor stroke = CanvasDrawingUtils.ParseColor(style.Stroke);
         WpfColor fill = CanvasDrawingUtils.ParseColor(style.Fill);
-        DrawCardShell(outer, block.IsSelected, stroke, (float)style.CornerRadius, block.Key.ToString(), fill, style.FillStyle ?? "hatch", style.Opacity);
+        DrawCardShell(outer, block.IsSelected, stroke, (float)style.CornerRadius, block.Key.ToString(), fill, style.FillStyle ?? "hatch", style.Opacity, (float)style.HatchOpacity);
         _ctx.RenderTarget.FillRectangle(new RectangleF(x, y, w, 46), _ctx.GetBrush(WpfColor.FromRgb(248, 250, 252)));
         _ctx.DrawText(block.Title, x + 16, y + 12, w - 32, 15, WpfColor.FromRgb(17, 24, 39));
         _ctx.DrawText(block.Subtitle, x + 16, y + 30, w - 32, 9.5f, WpfColor.FromRgb(100, 116, 139));
@@ -439,6 +439,7 @@ internal sealed class BlockRenderer
         var strokeBrush = _ctx.GetBrush(opacityStroke);
         var strokeStyle = dashed ? _ctx.DashedStroke : null;
         string fillStyle = style.FillStyle ?? "hatch";
+        float hatchOp = (float)style.HatchOpacity;
 
         if (IsLinearShapeTool(shape))
         {
@@ -447,13 +448,13 @@ internal sealed class BlockRenderer
         }
         else if (shape is "database" or "cache" or "queue")
         {
-            SketchyDrawer.DrawEllipse(_ctx.RenderTarget, new RectangleF(x, y, w, Math.Min(h, 24f)), fillBrush, strokeBrush, strokeWidth, block.Key.ToString() + "_db_top", strokeStyle: strokeStyle, fillStyle: fillStyle);
-            SketchyDrawer.DrawRectangle(_ctx.RenderTarget, new RectangleF(x, y + 12f, w, h - 12f), fillBrush, strokeBrush, strokeWidth, block.Key.ToString() + "_db_body", strokeStyle: strokeStyle, fillStyle: fillStyle);
+            SketchyDrawer.DrawEllipse(_ctx.RenderTarget, new RectangleF(x, y, w, Math.Min(h, 24f)), fillBrush, strokeBrush, strokeWidth, block.Key.ToString() + "_db_top", strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
+            SketchyDrawer.DrawRectangle(_ctx.RenderTarget, new RectangleF(x, y + 12f, w, h - 12f), fillBrush, strokeBrush, strokeWidth, block.Key.ToString() + "_db_body", strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
         }
         else if (shape is "circle" or "oval")
         {
             Rect ellipseBounds = shape == "circle" ? CanvasDrawingUtils.CenteredSquare(outer) : outer;
-            SketchyDrawer.DrawEllipse(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(ellipseBounds), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle);
+            SketchyDrawer.DrawEllipse(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(ellipseBounds), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
         }
         else if (shape is "triangle")
         {
@@ -462,7 +463,7 @@ internal sealed class BlockRenderer
                 new Vector2(x + w / 2f, y),
                 new Vector2(x + w, y + h),
                 new Vector2(x, y + h)
-            }, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), close: true, strokeStyle: strokeStyle, fillStyle: fillStyle);
+            }, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), close: true, strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
         }
         else if (shape is "risk" or "decision" or "diamond")
         {
@@ -472,36 +473,36 @@ internal sealed class BlockRenderer
                 new Vector2(x + w, y + h / 2f),
                 new Vector2(x + w / 2f, y + h),
                 new Vector2(x, y + h / 2f)
-            }, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), close: true, strokeStyle: strokeStyle, fillStyle: fillStyle);
+            }, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), close: true, strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
         }
         else if (shape is "star")
         {
-            SketchyDrawer.DrawPolygon(_ctx.RenderTarget, BuildStarPoints(outer).ToArray(), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), close: true, strokeStyle: strokeStyle, fillStyle: fillStyle);
+            SketchyDrawer.DrawPolygon(_ctx.RenderTarget, BuildStarPoints(outer).ToArray(), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), close: true, strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
         }
         else if (shape is "hexagon")
         {
-            SketchyDrawer.DrawPolygon(_ctx.RenderTarget, BuildRegularPolygonPoints(outer, 6, -MathF.PI / 6).ToArray(), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), close: true, strokeStyle: strokeStyle, fillStyle: fillStyle);
+            SketchyDrawer.DrawPolygon(_ctx.RenderTarget, BuildRegularPolygonPoints(outer, 6, -MathF.PI / 6).ToArray(), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), close: true, strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
         }
         else if (shape is "square")
         {
             Rect square = CanvasDrawingUtils.CenteredSquare(outer);
             float radius = (float)style.CornerRadius;
             if (radius > 0)
-                SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(square), radius, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle);
+                SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(square), radius, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
             else
-                SketchyDrawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(square), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle);
+                SketchyDrawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(square), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
         }
         else if (shape is "rectangle")
         {
             float radius = (float)style.CornerRadius;
             if (radius > 0)
-                SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), radius, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle);
+                SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), radius, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
             else
-                SketchyDrawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle);
+                SketchyDrawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
         }
         else
         {
-            SketchyDrawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle);
+            SketchyDrawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
         }
 
         bool isEditing = editingNoteKey == block.Key;
@@ -742,7 +743,7 @@ internal sealed class BlockRenderer
         // Editing overlays (selection + caret) still use the wrapped-text helper which
         // is good enough for the caret position; they ignore B/I/U/strikethrough.
         if (isEditing)
-            DrawEditSelection(text, fontSize, x, y, w, wrap: wrap, sketchy: false, editCursorPos, editSelectionAnchor, hAlign);
+            DrawEditSelection(text, fontSize, x, y, w, wrap: wrap, sketchy: false, editCursorPos, editSelectionAnchor, hAlign, maxH: h, paragraphAlignment: vAlign);
 
         var renderColor = WpfColor.FromArgb((byte)(textColor.A * style.Opacity), textColor.R, textColor.G, textColor.B);
 
@@ -793,7 +794,7 @@ internal sealed class BlockRenderer
         var style = block.Style ?? new BoardItemStyle();
         WpfColor stroke = CanvasDrawingUtils.ParseColor(style.Stroke);
         WpfColor fill = CanvasDrawingUtils.ParseColor(style.Fill);
-        DrawCardShell(outer, block.IsSelected, stroke, (float)style.CornerRadius, block.Key.ToString(), fill, style.FillStyle ?? "hatch", style.Opacity);
+        DrawCardShell(outer, block.IsSelected, stroke, (float)style.CornerRadius, block.Key.ToString(), fill, style.FillStyle ?? "hatch", style.Opacity, (float)style.HatchOpacity);
         _ctx.DrawText(block.Title, x + 14, y + 12, w - 28, 12, WpfColor.FromRgb(30, 41, 59), sketchy: true);
 
         var imageArea = new Rect(outer.X + 12, outer.Y + 38, Math.Max(1, outer.Width - 24), Math.Max(1, outer.Height - 56));
@@ -909,7 +910,7 @@ internal sealed class BlockRenderer
         }
     }
 
-    private void DrawCardShell(Rect outer, bool selected, WpfColor stroke, float radius, string seedKey, WpfColor? fill = null, string fillStyle = "hatch", double opacity = 1.0)
+    private void DrawCardShell(Rect outer, bool selected, WpfColor stroke, float radius, string seedKey, WpfColor? fill = null, string fillStyle = "hatch", double opacity = 1.0, float hatchOpacity = 1f)
     {
         float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
 
@@ -927,7 +928,7 @@ internal sealed class BlockRenderer
                 WpfColor selectedStroke = WpfColor.FromRgb(46, 125, 215);
                 var selStrokeBrush = _ctx.GetBrush(selectedStroke);
                 float selSw = _ctx.InvStroke(2.0f);
-                SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, new RectangleF(x, y, w, h), radius, null, selStrokeBrush, selSw, seedKey, strokeStyle: _ctx.DashedStroke, fillStyle: fillStyle);
+                SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, new RectangleF(x, y, w, h), radius, null, selStrokeBrush, selSw, seedKey, strokeStyle: _ctx.DashedStroke, fillStyle: fillStyle, hatchOpacity: hatchOpacity);
             }
             return;
         }
@@ -945,7 +946,7 @@ internal sealed class BlockRenderer
         var strokeBrush = _ctx.GetBrush(borderColor);
         float sw = selected ? _ctx.InvStroke(2.0f) : _ctx.InvStroke(1.1f);
 
-        SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, new RectangleF(x, y, w, h), radius, fillBrush, strokeBrush, sw, seedKey, fillStyle: fillStyle);
+        SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, new RectangleF(x, y, w, h), radius, fillBrush, strokeBrush, sw, seedKey, fillStyle: fillStyle, hatchOpacity: hatchOpacity);
     }
 
     private void DrawGenericResizeHandle(Rect outer, WpfColor color, bool isLocked)
@@ -1270,7 +1271,9 @@ internal sealed class BlockRenderer
         var oldTextAlign = fmt.TextAlignment;
         var oldParagraph = fmt.ParagraphAlignment;
         fmt.TextAlignment = alignment;
-        fmt.ParagraphAlignment = paragraphAlignment;
+        // Keep paragraph alignment at Near for the hit-test pass so cy is in raw
+        // (top-of-text) coordinates regardless of how the visible text is aligned.
+        fmt.ParagraphAlignment = DWriteParagraphAlignment.Near;
 
         string layoutText = text.Length == 0 ? " " : text;
         int safePos = Math.Clamp(cursorPos, 0, text.Length);
@@ -1278,9 +1281,8 @@ internal sealed class BlockRenderer
         if (wrap) layout.WordWrapping = WordWrapping.Wrap;
         layout.HitTestTextPosition((uint)safePos, false, out float cx, out float cy, out _);
 
-        // HitTestTextPosition returns the position relative to the layout origin,
-        // but ignores ParagraphAlignment. Compensate by offsetting with the gap
-        // between the actual layout metrics and the layout box.
+        // Apply the paragraph-alignment offset manually so the caret lines up with
+        // the rendered (potentially centered or bottom-aligned) text.
         float vOffset = 0f;
         if (paragraphAlignment != DWriteParagraphAlignment.Near)
         {
@@ -1299,7 +1301,7 @@ internal sealed class BlockRenderer
             _ctx.GetBrush(WpfColor.FromArgb(210, 38, 33, 8)), _ctx.InvStroke(1.5f));
     }
 
-    private void DrawEditSelection(string text, float fontSize, float textX, float textY, float maxW, bool wrap = false, bool sketchy = false, int cursorPos = 0, int selectionAnchor = -1, DWriteTextAlignment alignment = DWriteTextAlignment.Leading)
+    private void DrawEditSelection(string text, float fontSize, float textX, float textY, float maxW, bool wrap = false, bool sketchy = false, int cursorPos = 0, int selectionAnchor = -1, DWriteTextAlignment alignment = DWriteTextAlignment.Leading, float maxH = 9999f, DWriteParagraphAlignment paragraphAlignment = DWriteParagraphAlignment.Near)
     {
         if (selectionAnchor < 0 || selectionAnchor == cursorPos) return;
         int start = Math.Min(selectionAnchor, cursorPos);
@@ -1309,18 +1311,31 @@ internal sealed class BlockRenderer
         if (end <= start) return;
         IDWriteTextFormat fmt = _ctx.GetTextFormat(fontSize, sketchy);
         var oldTextAlign = fmt.TextAlignment;
+        var oldParagraph = fmt.ParagraphAlignment;
         fmt.TextAlignment = alignment;
-        
+        // Force top alignment for the measurement layout so the returned rects are
+        // in raw text coordinates; we apply the vertical offset ourselves below.
+        fmt.ParagraphAlignment = DWriteParagraphAlignment.Near;
+
         string layoutText = text.Length == 0 ? " " : text;
-        using var layout = _ctx.DWriteFactory.CreateTextLayout(layoutText, fmt, maxW, 9999f);
+        using var layout = _ctx.DWriteFactory.CreateTextLayout(layoutText, fmt, maxW, maxH);
         if (wrap) layout.WordWrapping = WordWrapping.Wrap;
         var metrics = layout.HitTestTextRange((uint)start, (uint)(end - start), 0f, 0f);
-        
+
+        float vOffset = 0f;
+        if (paragraphAlignment != DWriteParagraphAlignment.Near)
+        {
+            var lm = layout.Metrics;
+            float gap = Math.Max(0, maxH - lm.Height);
+            vOffset = paragraphAlignment == DWriteParagraphAlignment.Center ? gap * 0.5f : gap;
+        }
+
         fmt.TextAlignment = oldTextAlign;
-        
+        fmt.ParagraphAlignment = oldParagraph;
+
         var brush = _ctx.GetBrush(WpfColor.FromArgb(110, 70, 130, 220));
         foreach (var m in metrics)
-            _ctx.RenderTarget.FillRectangle(new RectangleF(textX + m.Left, textY + m.Top, m.Width, m.Height), brush);
+            _ctx.RenderTarget.FillRectangle(new RectangleF(textX + m.Left, textY + m.Top + vOffset, m.Width, m.Height), brush);
     }
 
     private static bool IsColorGroup(RenderBlock block) =>
