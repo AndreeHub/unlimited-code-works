@@ -8,6 +8,52 @@
     <styles:StringEqConverter x:Key="StringEqConverter"/>
 
     <!-- Styled ComboBox for inspector (replaces dull default WPF chrome) -->
+    <!-- Row style for items inside InspectorComboBox dropdowns. The default WPF ComboBoxItem
+         paints a heavy system-blue band over the selected entry that drowns out the hover
+         highlight; this style replaces it with a soft accent strip for "selected" and a
+         distinct hover background so the focused row is always visible. -->
+    <Style x:Key="InspectorComboBoxItem" TargetType="ComboBoxItem">
+        <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Padding" Value="10,5"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Grid>
+                        <Border x:Name="Chrome"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="2"
+                                SnapsToDevicePixels="True"/>
+                        <Border x:Name="SelStrip"
+                                HorizontalAlignment="Left"
+                                Width="3"
+                                Background="{StaticResource AccentBrush}"
+                                Visibility="Collapsed"/>
+                        <ContentPresenter Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="#E8F1FC"/>
+                            <Setter TargetName="SelStrip" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBg}"/>
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsSelected" Value="True"/>
+                                <Condition Property="IsMouseOver" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Chrome" Property="Background" Value="#D6E7F8"/>
+                        </MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="InspectorComboBox" TargetType="ComboBox">
         <Setter Property="Background" Value="{StaticResource PanelBg}"/>
         <Setter Property="BorderBrush" Value="{StaticResource PanelBorder}"/>
@@ -20,6 +66,7 @@
         <Setter Property="MinHeight" Value="0"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="ItemContainerStyle" Value="{StaticResource InspectorComboBoxItem}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBox">
@@ -425,12 +472,11 @@
                 </StackPanel>
             </Border>
 
-            <!-- Inline title rename -->
+            <!-- Inline title rename (Locked toggle lives in the Arrange tab to avoid duplicates) -->
             <Expander Header="Identity" IsExpanded="True" Margin="0,0,0,8">
                 <StackPanel Margin="0,8,0,0">
                     <TextBlock Text="Name" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <TextBox Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="5,4" Margin="0,0,0,4"/>
-                    <CheckBox Content="Locked" IsChecked="{Binding IsLocked}" Margin="0,6,0,0"/>
                 </StackPanel>
             </Expander>
         </StackPanel>
@@ -776,107 +822,46 @@
     </DataTemplate>
 
     <!-- 2. Sticky Note Inspector -->
+    <!--
+        Identity-only on this tab. Style/Text/Arrange tabs own colors, typography,
+        geometry, and lock — keep them in their own tabs to avoid duplicate controls.
+    -->
     <DataTemplate DataType="{x:Type inspectors:StickyNoteInspectorViewModel}">
         <StackPanel Margin="0,0,0,12">
             <!-- Header Block -->
             <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}" TextWrapping="Wrap"/>
             <TextBlock Text="Sticky Note" FontSize="11" Foreground="{StaticResource SubtleForeground}" Margin="0,4,0,12"/>
 
-            <!-- Content Options -->
+            <!-- Quick info: size + position (read-only summary; editable inputs live in Arrange) -->
+            <Border Background="{StaticResource HoverBg}" BorderBrush="{StaticResource SoftBorder}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Size" FontSize="10" Foreground="{StaticResource SubtleForeground}"/>
+                        <TextBlock FontSize="11" Foreground="{StaticResource ForegroundBrush}">
+                            <Run Text="{Binding Width, StringFormat={}{0:0}}"/><Run Text=" x "/><Run Text="{Binding Height, StringFormat={}{0:0}}"/>
+                        </TextBlock>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="Position" FontSize="10" Foreground="{StaticResource SubtleForeground}"/>
+                        <TextBlock FontSize="11" Foreground="{StaticResource ForegroundBrush}">
+                            <Run Text="("/><Run Text="{Binding X, StringFormat={}{0:0}}"/><Run Text=", "/><Run Text="{Binding Y, StringFormat={}{0:0}}"/><Run Text=")"/>
+                        </TextBlock>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Content Options (Note-specific: title + body editor) -->
             <Expander Header="Content" IsExpanded="True" Margin="0,0,0,8">
                 <StackPanel Margin="0,8,0,0">
                     <TextBlock Text="Title" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <TextBox Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="5,4" Margin="0,0,0,8"/>
 
                     <TextBlock Text="Body Text" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBox Text="{Binding Body, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="5,4" MinLines="3" MaxLines="8" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                </StackPanel>
-            </Expander>
-
-            <!-- Color Options -->
-            <Expander Header="Style" IsExpanded="True" Margin="0,0,0,8">
-                <StackPanel Margin="0,8,0,0">
-                    <!-- Font Size -->
-                    <TextBlock Text="Text Size" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <ComboBox SelectedValue="{Binding FontSize, Mode=TwoWay}" SelectedValuePath="Tag" Width="80" HorizontalAlignment="Left" Margin="0,0,0,8" Height="26" Padding="6,2">
-                        <ComboBoxItem Content="8 px" Tag="{StaticResource DoubleFont8}"/>
-                        <ComboBoxItem Content="10 px" Tag="{StaticResource DoubleFont10}"/>
-                        <ComboBoxItem Content="12 px" Tag="{StaticResource DoubleFont12}"/>
-                        <ComboBoxItem Content="14 px" Tag="{StaticResource DoubleFont14}"/>
-                        <ComboBoxItem Content="16 px" Tag="{StaticResource DoubleFont16}"/>
-                        <ComboBoxItem Content="18 px" Tag="{StaticResource DoubleFont18}"/>
-                        <ComboBoxItem Content="20 px" Tag="{StaticResource DoubleFont20}"/>
-                        <ComboBoxItem Content="24 px" Tag="{StaticResource DoubleFont24}"/>
-                        <ComboBoxItem Content="28 px" Tag="{StaticResource DoubleFont28}"/>
-                        <ComboBoxItem Content="32 px" Tag="{StaticResource DoubleFont32}"/>
-                        <ComboBoxItem Content="36 px" Tag="{StaticResource DoubleFont36}"/>
-                        <ComboBoxItem Content="48 px" Tag="{StaticResource DoubleFont48}"/>
-                    </ComboBox>
-
-                    <!-- Background Fill -->
-                    <TextBlock Text="Background Color" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <ListBox SelectedValue="{Binding Fill, Mode=TwoWay}" Style="{StaticResource SwatchListBoxStyle}" SelectedValuePath="Tag" Margin="0,0,0,6">
-                        <ListBoxItem Tag="#00000000" Background="Transparent" ToolTip="Transparent">
-                            <Grid Width="20" Height="20">
-                                <Line X1="2" Y1="18" X2="18" Y2="2" Stroke="#EF4444" StrokeThickness="1.5"/>
-                            </Grid>
-                        </ListBoxItem>
-                        <ListBoxItem Tag="#FFFFFF" Background="#FFFFFF" ToolTip="White"/>
-                        <ListBoxItem Tag="#F8FAFC" Background="#F8FAFC" ToolTip="Mist"/>
-                        <ListBoxItem Tag="#E2E8F0" Background="#E2E8F0" ToolTip="Cloud"/>
-                        <ListBoxItem Tag="#FFF7ED" Background="#FFF7ED" ToolTip="Warm"/>
-                        <ListBoxItem Tag="#FFE4E6" Background="#FFE4E6" ToolTip="Rose"/>
-                        <ListBoxItem Tag="#FEF3C7" Background="#FEF3C7" ToolTip="Amber"/>
-                        <ListBoxItem Tag="#DCFCE7" Background="#DCFCE7" ToolTip="Mint"/>
-                        <ListBoxItem Tag="#CCFBF1" Background="#CCFBF1" ToolTip="Teal"/>
-                        <ListBoxItem Tag="#DBEAFE" Background="#DBEAFE" ToolTip="Blue"/>
-                        <ListBoxItem Tag="#EDE9FE" Background="#EDE9FE" ToolTip="Violet"/>
-                        <ListBoxItem Tag="#1E293B" Background="#1E293B" ToolTip="Slate"/>
-                        <ListBoxItem Tag="#0F766E" Background="#0F766E" ToolTip="Deep teal"/>
-                        <ListBoxItem Tag="#2E7DD7" Background="#2E7DD7" ToolTip="Accent"/>
-                        <ListBoxItem Tag="#C2410C" Background="#C2410C" ToolTip="Rust"/>
-                    </ListBox>
-                    <Button Style="{StaticResource ToolButton}" Content="Custom..." Tag="Fill" Click="OnPickColorForActiveInspector" Height="28" Padding="8,2" Margin="0,0,0,8" HorizontalAlignment="Left"/>
-
-                    <!-- Text Color -->
-                    <TextBlock Text="Text Color" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <ListBox SelectedValue="{Binding TextColor, Mode=TwoWay}" Style="{StaticResource SwatchListBoxStyle}" SelectedValuePath="Tag" Margin="0,0,0,6">
-                        <ListBoxItem Tag="#FFFFFF" Background="#FFFFFF" ToolTip="White"/>
-                        <ListBoxItem Tag="#1E293B" Background="#1E293B" ToolTip="Slate"/>
-                        <ListBoxItem Tag="#0F766E" Background="#0F766E" ToolTip="Deep teal"/>
-                        <ListBoxItem Tag="#C2410C" Background="#C2410C" ToolTip="Rust"/>
-                        <ListBoxItem Tag="#3C3412" Background="#3C3412" ToolTip="Dark yellow"/>
-                    </ListBox>
-                    <Button Style="{StaticResource ToolButton}" Content="Custom..." Tag="TextColor" Click="OnPickColorForActiveInspector" Height="28" Padding="8,2" Margin="0,0,0,4" HorizontalAlignment="Left"/>
-                </StackPanel>
-            </Expander>
-
-            <!-- Geometry Options -->
-            <Expander Header="Geometry" IsExpanded="True" Margin="0,0,0,8">
-                <UniformGrid Columns="4" Margin="0,8,0,0">
-                    <StackPanel Margin="0,0,8,0">
-                        <TextBlock Text="X" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
-                        <TextBox Text="{Binding X, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
-                    </StackPanel>
-                    <StackPanel Margin="0,0,8,0">
-                        <TextBlock Text="Y" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
-                        <TextBox Text="{Binding Y, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
-                    </StackPanel>
-                    <StackPanel Margin="0,0,8,0">
-                        <TextBlock Text="W" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
-                        <TextBox Text="{Binding Width, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
-                    </StackPanel>
-                    <StackPanel>
-                        <TextBlock Text="H" Foreground="{StaticResource SubtleForeground}" FontSize="10"/>
-                        <TextBox Text="{Binding Height, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="4,3"/>
-                    </StackPanel>
-                </UniformGrid>
-            </Expander>
-
-            <!-- Arrange Options -->
-            <Expander Header="Arrange" IsExpanded="True" Margin="0,0,0,8">
-                <StackPanel Margin="0,8,0,0">
-                    <CheckBox Content="Locked" IsChecked="{Binding IsLocked}" Margin="0,0,12,0"/>
+                    <TextBox Text="{Binding Body, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="5,4" MinLines="3" MaxLines="8" AcceptsReturn="True" TextWrapping="Wrap"/>
                 </StackPanel>
             </Expander>
         </StackPanel>
@@ -923,9 +908,13 @@
                     <TextBlock Text="Shape Type" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <ComboBox Style="{StaticResource InspectorComboBox}" SelectedValue="{Binding ShapeType, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,0,0,4">
                         <ComboBoxItem Content="Rectangle" Tag="rectangle"/>
-                        <ComboBoxItem Content="Ellipse" Tag="ellipse"/>
-                        <ComboBoxItem Content="Database" Tag="database"/>
-                        <ComboBoxItem Content="Risk symbol" Tag="risk"/>
+                        <ComboBoxItem Content="Square" Tag="square"/>
+                        <ComboBoxItem Content="Ellipse" Tag="oval"/>
+                        <ComboBoxItem Content="Circle" Tag="circle"/>
+                        <ComboBoxItem Content="Triangle" Tag="triangle"/>
+                        <ComboBoxItem Content="Diamond" Tag="diamond"/>
+                        <ComboBoxItem Content="Hexagon" Tag="hexagon"/>
+                        <ComboBoxItem Content="Star" Tag="star"/>
                     </ComboBox>
                 </StackPanel>
             </Expander>

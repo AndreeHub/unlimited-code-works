@@ -45,6 +45,10 @@
                                                     <Setter Property="ContentTemplate" Value="{StaticResource TextInspector.Style}"/>
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsStickyNoteInspectorSelected}" Value="True">
+                                                    <Setter Property="ContentTemplate" Value="{StaticResource TextInspector.Style}"/>
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
                                                 <DataTrigger Binding="{Binding IsShapeInspectorSelected}" Value="True">
                                                     <Setter Property="ContentTemplate" Value="{StaticResource ShapeInspector.Style}"/>
                                                     <Setter Property="Visibility" Value="Visible"/>
@@ -63,6 +67,9 @@
                                             <Setter Property="Visibility" Value="Visible"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsTextBlockInspectorSelected}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsStickyNoteInspectorSelected}" Value="True">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding IsShapeInspectorSelected}" Value="True">
@@ -89,6 +96,10 @@
                                                     <Setter Property="ContentTemplate" Value="{StaticResource TextInspector.Text}"/>
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsStickyNoteInspectorSelected}" Value="True">
+                                                    <Setter Property="ContentTemplate" Value="{StaticResource TextInspector.Text}"/>
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
                                                 <DataTrigger Binding="{Binding IsShapeInspectorSelected}" Value="True">
                                                     <Setter Property="ContentTemplate" Value="{StaticResource ShapeInspector.Text}"/>
                                                     <Setter Property="Visibility" Value="Visible"/>
@@ -107,6 +118,9 @@
                                             <Setter Property="Visibility" Value="Visible"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsTextBlockInspectorSelected}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsStickyNoteInspectorSelected}" Value="True">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding IsShapeInspectorSelected}" Value="True">
@@ -133,6 +147,10 @@
                                                     <Setter Property="ContentTemplate" Value="{StaticResource TextInspector.Arrange}"/>
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsStickyNoteInspectorSelected}" Value="True">
+                                                    <Setter Property="ContentTemplate" Value="{StaticResource TextInspector.Arrange}"/>
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
                                                 <DataTrigger Binding="{Binding IsShapeInspectorSelected}" Value="True">
                                                     <Setter Property="ContentTemplate" Value="{StaticResource ShapeInspector.Arrange}"/>
                                                     <Setter Property="Visibility" Value="Visible"/>
@@ -151,6 +169,9 @@
                                             <Setter Property="Visibility" Value="Visible"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsTextBlockInspectorSelected}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsStickyNoteInspectorSelected}" Value="True">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding IsShapeInspectorSelected}" Value="True">

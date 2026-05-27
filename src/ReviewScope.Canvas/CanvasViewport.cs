@@ -166,6 +166,7 @@ public sealed partial class CanvasViewport : HwndHost
     public ICommand? AnnotationRequestedCommand { get; set; }
 
     internal static readonly string[] ShapeToolIds = { "rectangle", "square", "oval", "circle", "triangle", "diamond", "hexagon", "star", "line", "arrow", "polyline" };
+    private static readonly string[] ShapeShortcutToolIds = { "rectangle", "square", "oval", "circle", "triangle", "diamond", "hexagon", "star", "polyline" };
 
     // Logic-only snapshot of the scene, rebuilt on changes
     internal SceneSnapshot _snapshot = SceneSnapshot.Empty;
@@ -217,6 +218,7 @@ public sealed partial class CanvasViewport : HwndHost
     internal WpfPoint? _resizeSwimLaneWorldPoint;
     internal WpfPoint? _marqueeStart, _marqueeEnd;
     internal bool _isMarquee, _appendMarquee, _didMove, _isMinimapDrag;
+    internal bool _clickedAlreadySelectedTextEditable;
     internal string? _activeShapeTool;
     internal WpfPoint? _shapeDraftStartWorld;
     internal WpfPoint? _shapeDraftCurrentWorld;
@@ -305,6 +307,113 @@ public sealed partial class CanvasViewport : HwndHost
             _currentTool?.Deactivate();
             _currentTool = tool;
         }
+    }
+
+    public bool ActivateBottomToolShortcut(Key key, ModifierKeys modifiers)
+    {
+        if (modifiers != ModifierKeys.None)
+            return false;
+
+        if (TryGetShapeShortcut(key, out string? shapeTool))
+        {
+            ActivateShapeTool(shapeTool);
+            return true;
+        }
+
+        switch (key)
+        {
+            case Key.Q:
+                ActivateShapeTool("line");
+                return true;
+            case Key.E:
+                ActivateShapeTool("arrow");
+                return true;
+            case Key.T:
+                ActivatePendingItemPlacement("text");
+                return true;
+            case Key.W:
+                ActivatePendingItemPlacement("note");
+                return true;
+            case Key.V:
+                ActivateSelectionTool();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryGetShapeShortcut(Key key, out string shapeTool)
+    {
+        int index = key switch
+        {
+            Key.D1 or Key.NumPad1 => 0,
+            Key.D2 or Key.NumPad2 => 1,
+            Key.D3 or Key.NumPad3 => 2,
+            Key.D4 or Key.NumPad4 => 3,
+            Key.D5 or Key.NumPad5 => 4,
+            Key.D6 or Key.NumPad6 => 5,
+            Key.D7 or Key.NumPad7 => 6,
+            Key.D8 or Key.NumPad8 => 7,
+            Key.D9 or Key.NumPad9 => 8,
+            _ => -1
+        };
+
+        if (index >= 0 && index < ShapeShortcutToolIds.Length)
+        {
+            shapeTool = ShapeShortcutToolIds[index];
+            return true;
+        }
+
+        shapeTool = string.Empty;
+        return false;
+    }
+
+    private void ActivateShapeTool(string shapeTool)
+    {
+        PendingItemPlacement = null;
+        ClearConnectionDrawingState();
+        ClearShapeDraftState();
+        _activeShapeTool = shapeTool;
+        SyncActiveShapeToolDp();
+        SetTool("Shape");
+        Cursor = Cursors.Cross;
+        RenderNative();
+    }
+
+    private void ActivatePendingItemPlacement(string kind)
+    {
+        ClearConnectionDrawingState();
+        ClearShapeDraftState();
+        _activeShapeTool = null;
+        SyncActiveShapeToolDp();
+        PendingItemPlacement = kind;
+        SetTool("Selection");
+        Cursor = Cursors.Cross;
+        RenderNative();
+    }
+
+    private void ActivateSelectionTool()
+    {
+        ClearConnectionDrawingState();
+        ClearShapeDraftState();
+        _activeShapeTool = null;
+        SyncActiveShapeToolDp();
+        PendingItemPlacement = null;
+        SetTool("Selection");
+        UpdateHoverCursor(_lastMouseScreenPoint);
+        RenderNative();
+    }
+
+    private void ClearShapeDraftState()
+    {
+        _shapeDraftStartWorld = null;
+        _shapeDraftCurrentWorld = null;
+        _shapeDraftPolyline = null;
+        _shapeDraftAttachStartKey = null;
+        _shapeDraftAttachEndKey = null;
+        _shapeDraftStartOffset = null;
+        _shapeDraftEndOffset = null;
+        _shapeDraftCurvedFlags = null;
     }
 
     internal void ResetInteraction()
@@ -458,10 +567,33 @@ public sealed partial class CanvasViewport : HwndHost
 
     public void DeleteSelection() => DeleteSelected();
 
+    /// <summary>
+    /// True when a Text/Note/Group title is currently being edited in-canvas. The host
+    /// window uses this to suppress single-letter tool shortcuts (T, W, V, B, ...) so
+    /// they get typed into the card instead of activating tools.
+    /// </summary>
+    public bool IsEditingInCanvas => _editingNoteKey is not null || _editingGroupKey is not null;
+
+    /// <summary>
+    /// Raised when an in-canvas edit begins on a Text or Note block. The host window
+    /// uses this to flip the right-side inspector to the most useful tab for the
+    /// block kind (Text → Text tab; Note → Inspector tab).
+    /// </summary>
+    public event Action<BlockKind>? EditStarted;
+
     public void BeginEditNewNote()
     {
         var note = Scene.Blocks.LastOrDefault(b => b.Kind == BlockKind.Note);
         if (note is not null) BeginNoteEdit(note);
+    }
+
+    public void BeginEditLastBlockOfKind(BlockKind kind)
+    {
+        var block = Scene.Blocks.LastOrDefault(b => b.Kind == kind);
+        if (block is null) return;
+        Focus();
+        SetFocus(_hwnd);
+        BeginNoteEdit(block);
     }
 
     private CameraState _camera = CameraState.Default;

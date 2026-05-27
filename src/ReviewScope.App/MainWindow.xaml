@@ -590,60 +590,60 @@
                         <DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.18" Color="#0F172A"/>
                     </Border.Effect>
                     <StackPanel Orientation="Horizontal">
-                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="" Click="OnShapeToolbarClick" ToolTip="Select / move (Esc)">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="" Click="OnShapeToolbarClick" ToolTip="Select / move (V / Esc)">
                             <Path Data="M5,3 L5,17 L9,13 L11.5,18 L13.5,17 L11,12 L17,12 Z"
                                   Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"
                                   StrokeLineJoin="Round" Width="16" Height="16" Stretch="Uniform"/>
                         </Button>
                         <Rectangle Width="1" Margin="4,4" Fill="{StaticResource SoftBorder}"/>
-                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="rectangle" Click="OnShapeToolbarClick" ToolTip="Rectangle">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="rectangle" Click="OnShapeToolbarClick" ToolTip="Rectangle (1)">
                             <Rectangle Width="16" Height="11" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"/>
                         </Button>
-                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="square" Click="OnShapeToolbarClick" ToolTip="Square">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="square" Click="OnShapeToolbarClick" ToolTip="Square (2)">
                             <Rectangle Width="13" Height="13" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"/>
                         </Button>
-                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="oval" Click="OnShapeToolbarClick" ToolTip="Ellipse">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="oval" Click="OnShapeToolbarClick" ToolTip="Ellipse (3)">
                             <Ellipse Width="16" Height="11" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"/>
                         </Button>
-                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="circle" Click="OnShapeToolbarClick" ToolTip="Circle">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="circle" Click="OnShapeToolbarClick" ToolTip="Circle (4)">
                             <Ellipse Width="13" Height="13" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"/>
                         </Button>
-                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="triangle" Click="OnShapeToolbarClick" ToolTip="Triangle">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="triangle" Click="OnShapeToolbarClick" ToolTip="Triangle (5)">
                             <Path Data="M10,2 L18,17 L2,17 Z" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"
                                   StrokeLineJoin="Round" Width="16" Height="14" Stretch="Uniform"/>
                         </Button>
-                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="diamond" Click="OnShapeToolbarClick" ToolTip="Diamond">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="diamond" Click="OnShapeToolbarClick" ToolTip="Diamond (6)">
                             <Path Data="M10,2 L18,10 L10,18 L2,10 Z" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"
                                   StrokeLineJoin="Round" Width="16" Height="16" Stretch="Uniform"/>
                         </Button>
-                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="hexagon" Click="OnShapeToolbarClick" ToolTip="Hexagon">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="hexagon" Click="OnShapeToolbarClick" ToolTip="Hexagon (7)">
                             <Path Data="M6,2 L14,2 L18,10 L14,18 L6,18 L2,10 Z" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"
                                   StrokeLineJoin="Round" Width="16" Height="16" Stretch="Uniform"/>
                         </Button>
-                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="star" Click="OnShapeToolbarClick" ToolTip="Star">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="star" Click="OnShapeToolbarClick" ToolTip="Star (8)">
                             <Path Data="M10,2 L12.5,7.5 L18,8 L14,12 L15,18 L10,15 L5,18 L6,12 L2,8 L7.5,7.5 Z"
                                   Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"
                                   StrokeLineJoin="Round" Width="16" Height="16" Stretch="Uniform"/>
                         </Button>
                         <Rectangle Width="1" Margin="4,4" Fill="{StaticResource SoftBorder}"/>
-                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="line" Click="OnShapeToolbarClick" ToolTip="Line">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="line" Click="OnShapeToolbarClick" ToolTip="Line (Q)">
                             <Path Data="M2,16 L18,4" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.6"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="16" Height="16" Stretch="Uniform"/>
                         </Button>
-                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="arrow" Click="OnShapeToolbarClick" ToolTip="Arrow">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="arrow" Click="OnShapeToolbarClick" ToolTip="Arrow (E)">
                             <Path Data="M2,16 L17,4 M17,4 L12,5 M17,4 L16,9" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.6"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="16" Height="16" Stretch="Uniform"/>
                         </Button>
-                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="polyline" Click="OnShapeToolbarClick" ToolTip="Polyline / curve">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="polyline" Click="OnShapeToolbarClick" ToolTip="Polyline / curve (9)">
                             <Path Data="M2,16 Q6,4 10,10 T18,4" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.6" Fill="Transparent"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="16" Height="16" Stretch="Uniform"/>
                         </Button>
                         <Rectangle Width="1" Margin="4,4" Fill="{StaticResource SoftBorder}"/>
-                        <Button Style="{StaticResource ShapeToolbarButton}" Click="OnShapeToolbarAddText" ToolTip="Add Text Card">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="text" Click="OnShapeToolbarAddText" ToolTip="Add Text Card (T)">
                             <Path Data="M3,4 H17 M10,4 V16 M7,16 H13" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.6"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="16" Height="16" Stretch="Uniform"/>
                         </Button>
-                        <Button Style="{StaticResource ShapeToolbarButton}" Click="OnShapeToolbarAddNote" ToolTip="Add Sticky Note">
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="note" Click="OnShapeToolbarAddNote" ToolTip="Add Sticky Note (W)">
                             <Path Data="M3,3 H15 V13 L13,17 H3 Z M13,17 V13 H15"
                                   Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"
                                   StrokeLineJoin="Round" Width="16" Height="16" Stretch="Uniform"/>

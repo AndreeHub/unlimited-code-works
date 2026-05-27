@@ -296,10 +296,26 @@ internal sealed class BlockRenderer
             _ctx.RenderTarget.DrawRoundedRectangle(glow, _ctx.GetBrush(WpfColor.FromArgb(55, 230, 175, 40)), _ctx.InvStroke(4.0f));
         }
 
-        // Card fill (warm yellow note color)
+        // Card fill — honor user-picked colors from the inspector while still keeping
+        // the default note look when no override is set.
+        WpfColor fillColor = style.BackgroundColorEnabled
+            ? CanvasDrawingUtils.ParseColor(style.Fill)
+            : WpfColor.FromRgb(255, 249, 219);
+        WpfColor strokeColor = style.BorderColorEnabled
+            ? CanvasDrawingUtils.ParseColor(style.Stroke)
+            : WpfColor.FromArgb(180, 226, 186, 76);
+        WpfColor bodyColor = style.FontColorEnabled
+            ? CanvasDrawingUtils.ParseColor(style.Text)
+            : WpfColor.FromRgb(100, 75, 25);
+        WpfColor titleColor = WpfColor.FromArgb(
+            (byte)Math.Clamp((int)(bodyColor.A * 1.0), 0, 255),
+            (byte)Math.Min(255, bodyColor.R + 40),
+            (byte)Math.Min(255, bodyColor.G + 25),
+            (byte)Math.Max(0, bodyColor.B - 10));
+
         var rr = new RoundedRectangle(CanvasDrawingUtils.ToRF(outer), 6, 6);
-        _ctx.RenderTarget.FillRoundedRectangle(rr, _ctx.GetBrush(WpfColor.FromRgb(255, 249, 219)));
-        _ctx.RenderTarget.DrawRoundedRectangle(rr, _ctx.GetBrush(WpfColor.FromArgb(180, 226, 186, 76)), _ctx.InvStroke(1.1f));
+        _ctx.RenderTarget.FillRoundedRectangle(rr, _ctx.GetBrush(fillColor));
+        _ctx.RenderTarget.DrawRoundedRectangle(rr, _ctx.GetBrush(strokeColor), _ctx.InvStroke(1.1f));
 
         // Pin icon (sketchy)
         SketchyDrawer.DrawLine(_ctx.RenderTarget, new Vector2(x + 12, y + 14), new Vector2(x + 12, y + 24), _ctx.GetBrush(WpfColor.FromRgb(215, 145, 40)), _ctx.InvStroke(1.5f), block.Key + "_pin");
@@ -309,7 +325,7 @@ internal sealed class BlockRenderer
         if (isEditing && editingTitle)
             DrawEditSelection(titleText, titleFontSize, x + 24, y + 12, w - 48, wrap: false, sketchy: false, editCursorPos, editSelectionAnchor);
 
-        _ctx.DrawText(titleText, x + 24, y + 12, w - 48, titleFontSize, WpfColor.FromRgb(140, 100, 30));
+        _ctx.DrawText(titleText, x + 24, y + 12, w - 48, titleFontSize, titleColor);
 
         if (isEditing && editingTitle && editCursorVisible)
             DrawNoteCursor(titleText, titleFontSize, x + 24, y + 12, w - 48, editCursorPos);
@@ -317,13 +333,34 @@ internal sealed class BlockRenderer
         // Body
         _ctx.RenderTarget.PushAxisAlignedClip(new RectangleF(x + 12, y + 42, w - 24, h - 54), AntialiasMode.PerPrimitive);
         float bx = x + 14, by = y + 42, bw = w - 28;
-        if (isEditing && !editingTitle)
-            DrawEditSelection(bodyText, bodyFontSize, bx, by, bw, wrap: true, sketchy: false, editCursorPos, editSelectionAnchor);
+        string noteFontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily;
 
-        _ctx.DrawWrappedText(bodyText, bx, by, bw, h - 54, bodyFontSize, WpfColor.FromRgb(100, 75, 25), wrap: true);
+        if (OutlineDocument.IsOutlineBlock(block))
+        {
+            OutlineDocument.Draw(
+                _ctx,
+                block,
+                new Rect(bx, by, bw, h - 54),
+                bodyText,
+                bodyColor,
+                bodyFontSize,
+                noteFontFamily,
+                bold: style.Bold,
+                italic: style.Italic,
+                editCursorPos: (isEditing && !editingTitle) ? editCursorPos : -1,
+                editSelectionAnchor: (isEditing && !editingTitle) ? editSelectionAnchor : -1,
+                editCursorVisible: isEditing && !editingTitle && editCursorVisible);
+        }
+        else
+        {
+            if (isEditing && !editingTitle)
+                DrawEditSelection(bodyText, bodyFontSize, bx, by, bw, wrap: true, sketchy: false, editCursorPos, editSelectionAnchor);
 
-        if (isEditing && !editingTitle && editCursorVisible)
-            DrawNoteCursor(bodyText, bodyFontSize, bx, by, bw, editCursorPos, wrap: true);
+            _ctx.DrawWrappedText(bodyText, bx, by, bw, h - 54, bodyFontSize, bodyColor, wrap: true);
+
+            if (isEditing && !editingTitle && editCursorVisible)
+                DrawNoteCursor(bodyText, bodyFontSize, bx, by, bw, editCursorPos, wrap: true);
+        }
 
         _ctx.RenderTarget.PopAxisAlignedClip();
 
@@ -742,30 +779,51 @@ internal sealed class BlockRenderer
 
         string editFontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily;
 
-        // Editing overlays (selection + caret) measure with the same font as the rendered
-        // text so the caret aligns with the visible glyphs.
-        if (isEditing)
-            DrawEditSelection(text, fontSize, x, y, w, wrap: wrap, sketchy: false, editCursorPos, editSelectionAnchor, hAlign, maxH: h, paragraphAlignment: vAlign, fontFamily: editFontFamily, bold: style.Bold, italic: style.Italic);
-
         var renderColor = WpfColor.FromArgb((byte)(textColor.A * style.Opacity), textColor.R, textColor.G, textColor.B);
 
-        _ctx.DrawRichText(
-            text,
-            x, y, w, h,
-            editFontFamily,
-            fontSize,
-            style.Bold,
-            style.Italic,
-            style.Underline,
-            style.Strikethrough,
-            renderColor,
-            hAlign,
-            vAlign,
-            wrap,
-            style.ShadowEnabled);
+        if (OutlineDocument.IsOutlineBlock(block))
+        {
+            // Outline draw handles bullets + indent guides + per-line text + caret +
+            // selection together so the cursor lands inside the *visible* content
+            // rather than mid-prefix (Logseq-style).
+            OutlineDocument.Draw(
+                _ctx,
+                block,
+                new Rect(x, y, w, h),
+                text,
+                renderColor,
+                fontSize,
+                editFontFamily,
+                style.Bold,
+                style.Italic,
+                editCursorPos: isEditing ? editCursorPos : -1,
+                editSelectionAnchor: isEditing ? editSelectionAnchor : -1,
+                editCursorVisible: isEditing && editCursorVisible);
+        }
+        else
+        {
+            if (isEditing)
+                DrawEditSelection(text, fontSize, x, y, w, wrap: wrap, sketchy: false, editCursorPos, editSelectionAnchor, hAlign, maxH: h, paragraphAlignment: vAlign, fontFamily: editFontFamily, bold: style.Bold, italic: style.Italic);
 
-        if (isEditing && editCursorVisible)
-            DrawNoteCursor(text, fontSize, x, y, w, editCursorPos, wrap: wrap, sketchy: false, hAlign, maxH: h, paragraphAlignment: vAlign, fontFamily: editFontFamily, bold: style.Bold, italic: style.Italic);
+            _ctx.DrawRichText(
+                text,
+                x, y, w, h,
+                editFontFamily,
+                fontSize,
+                style.Bold,
+                style.Italic,
+                style.Underline,
+                style.Strikethrough,
+                renderColor,
+                hAlign,
+                vAlign,
+                wrap,
+                style.ShadowEnabled);
+
+            if (isEditing && editCursorVisible)
+                DrawNoteCursor(text, fontSize, x, y, w, editCursorPos, wrap: wrap, sketchy: false, hAlign, maxH: h, paragraphAlignment: vAlign, fontFamily: editFontFamily, bold: style.Bold, italic: style.Italic);
+        }
+
         if (block.IsSelected)
             DrawGenericResizeHandle(outer, stroke, block.IsLocked);
     }

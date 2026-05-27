@@ -83,6 +83,15 @@ internal sealed class SelectionTool : CanvasToolBase
                 return;
             }
 
+            // Detect a click on a text-editable block that was already the sole selection
+            // (used by HandleLUp to enter edit mode on second click, Figma-style).
+            int selectedCount = Viewport.Scene.Blocks.Count(b => b.IsSelected);
+            Viewport._clickedAlreadySelectedTextEditable =
+                hit.Block.IsSelected
+                && selectedCount == 1
+                && CanvasViewport.IsTextEditableBlock(hit.Block)
+                && !hit.Block.IsLocked;
+
             // Select the hit block if not already selected
             if (!hit.Block.IsSelected)
             {
@@ -103,7 +112,7 @@ internal sealed class SelectionTool : CanvasToolBase
             // Check corner resize handles (applicable to any selected block except linear shapes)
             if (hit.Block.IsSelected && !CanvasViewport.IsLinearShapeTool(hit.Block.ShapeType))
             {
-                var corner = CanvasViewport.HitNoteCorner(hit.Bounds, world);
+                var corner = CanvasViewport.HitNoteCorner(hit.Bounds, world, Viewport.Camera.Zoom);
                 if (corner != NoteResizeCorner.None)
                 {
                     Viewport._noteResizeKey = hit.Block.Key;
@@ -360,8 +369,9 @@ internal sealed class SelectionTool : CanvasToolBase
             {
                 if (CanvasViewport.IsTextEditableBlock(visual.Block))
                 {
-                    if (Viewport.IsDoubleClick(visual.Block.Key, screen))
+                    if (Viewport.IsDoubleClick(visual.Block.Key, screen) || Viewport._clickedAlreadySelectedTextEditable)
                     {
+                        Viewport._clickedAlreadySelectedTextEditable = false;
                         Viewport.BeginNoteEdit(visual.Block, world);
                         return;
                     }
@@ -372,5 +382,7 @@ internal sealed class SelectionTool : CanvasToolBase
                     Viewport.TrackClick(visual.Block.Key, screen);
             }
         }
+
+        Viewport._clickedAlreadySelectedTextEditable = false;
     }
 }

@@ -19,11 +19,22 @@ namespace ReviewScope.Canvas;
 
 public sealed partial class CanvasViewport
 {
+    /// <summary>
+    /// Called from MainWindow.xaml.cs OnWindowPreviewKeyDown for keys that WPF would
+    /// otherwise eat (Tab as focus traversal, arrows as directional navigation). Routes
+    /// the key into the same edit handler the canvas would use if WPF hadn't intercepted.
+    /// </summary>
+    public void ForwardEditKey(Key key)
+    {
+        if (_editingNoteKey is not null) HandleEditModeKey(key);
+        else if (_editingGroupKey is not null) HandleGroupTitleEditKey(key);
+    }
+
     private void HandleKeyDown(IntPtr wParam)
     {
         Key key = KeyInterop.KeyFromVirtualKey((int)wParam.ToInt64());
         ModifierKeys modifiers = Keyboard.Modifiers;
-        
+
         if (_editingNoteKey is not null) { HandleEditModeKey(key); return; }
         if (_editingGroupKey is not null) { HandleGroupTitleEditKey(key); return; }
         
@@ -42,13 +53,14 @@ public sealed partial class CanvasViewport
                 PasteRequestedCommand.Execute(new PasteRequestedArgs(world.X, world.Y));
             return;
         }
+
+        if (ActivateBottomToolShortcut(key, modifiers))
+            return;
         
         if (key == Key.Delete) { DeleteSelected(); return; }
         if (key == Key.D) { DetachSelectedNotes(); return; }
         if (key == Key.F) { FrameAll(); return; }
         if (key == Key.B) { ToggleBackground(); return; }
-        if (key == Key.E) { AddOrMoveConnectionArrow(ToWorld(_lastMouseScreenPoint)); return; }
-        if (modifiers == ModifierKeys.None && key == Key.W) { RequestNoteAtLastMousePoint(); return; }
         if (key == Key.Space) { ToggleSelectedGroupCollapse(); return; }
         
         if (key == Key.Return)
@@ -109,6 +121,16 @@ public sealed partial class CanvasViewport
             var args = new ItemPlacementArgs(kind, world.X, world.Y);
             if (ItemPlacementRequestedCommand?.CanExecute(args) == true)
                 ItemPlacementRequestedCommand.Execute(args);
+            // Text/Note: disarm the tool so the user can immediately type into the
+            // new card (auto-edit is triggered by the VM PostCreateEditRequested event).
+            // Other kinds stay armed for multi-drop.
+            if (string.Equals(kind, "text", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(kind, "note", StringComparison.OrdinalIgnoreCase))
+            {
+                PendingItemPlacement = null;
+                Cursor = Cursors.Arrow;
+                return;
+            }
             Cursor = Cursors.Cross;
             return;
         }
@@ -140,10 +162,38 @@ public sealed partial class CanvasViewport
             if (editVis is null || !editVis.Bounds.Contains(world)) CommitNoteEdit(save: true);
             else
             {
+                // Outline overlays that respond before cursor positioning: collapse
+                // toggle on parent bullets, and TODO/DONE checkboxes.
+                if (OutlineDocument.TryHitToggle(editVis.Block, editVis.Bounds, world, out string editToggleLineId))
+                {
+                    ToggleOutlineLineCollapseInEdit(editToggleLineId);
+                    return;
+                }
+                int editTodoLine = OutlineDocument.TryHitTodoCheckbox(editVis.Block, editVis.Bounds, world);
+                if (editTodoLine >= 0)
+                {
+                    ToggleTodoLineInEdit(editTodoLine);
+                    return;
+                }
                 _editingTitle = IsNoteTitleHit(editVis, world);
-                var metrics = GetEditTextMetrics(editVis, _editingTitle);
-                string editText = _editingTitle ? _editTitle : _editBody;
-                int newPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap, alignment: metrics.Alignment, maxH: metrics.Height, paragraphAlignment: metrics.ParagraphAlignment, fontFamily: metrics.FontFamily, bold: metrics.Bold, italic: metrics.Italic);
+                int newPos;
+                if (!_editingTitle && OutlineDocument.IsOutlineBlock(editVis.Block) && _dwrite is not null)
+                {
+                    var style = editVis.Block.Style ?? new BoardItemStyle();
+                    var contentRect = OutlineDocument.GetContentRect(editVis.Block, editVis.Bounds);
+                    float fontSize = editVis.Block.Kind == BlockKind.Note
+                        ? 12.5f
+                        : Math.Clamp((float)style.FontSize, 8f, 96f);
+                    string fam = editVis.Block.Kind == BlockKind.Note ? "Segoe UI"
+                        : (string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily!);
+                    newPos = OutlineDocument.HitTestPoint(editVis.Block, contentRect, _editBody, fontSize, fam, style.Bold, style.Italic, world, _dwrite);
+                }
+                else
+                {
+                    var metrics = GetEditTextMetrics(editVis, _editingTitle);
+                    string editText = _editingTitle ? _editTitle : _editBody;
+                    newPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap, alignment: metrics.Alignment, maxH: metrics.Height, paragraphAlignment: metrics.ParagraphAlignment, fontFamily: metrics.FontFamily, bold: metrics.Bold, italic: metrics.Italic);
+                }
                 if (modifiers.HasFlag(ModifierKeys.Shift)) { if (_editSelectionAnchor < 0) _editSelectionAnchor = _editCursorPos; }
                 else _editSelectionAnchor = newPos;
                 _editCursorPos = newPos;
@@ -172,6 +222,22 @@ public sealed partial class CanvasViewport
         { SetTool("Connection"); _currentTool?.HandleLDown(screen, world, modifiers); return; }
 
         if (modifiers.HasFlag(ModifierKeys.Control)) { SetTool("Marquee"); _currentTool?.HandleLDown(screen, world, modifiers); return; }
+
+        var outlineToggleHit = HitBlock(world);
+        if (outlineToggleHit is not null && OutlineDocument.TryHitToggle(outlineToggleHit.Block, outlineToggleHit.Bounds, world, out string outlineLineId))
+        {
+            ToggleOutlineLineCollapse(outlineToggleHit.Block.Key, outlineLineId);
+            return;
+        }
+        if (outlineToggleHit is not null)
+        {
+            int todoLine = OutlineDocument.TryHitTodoCheckbox(outlineToggleHit.Block, outlineToggleHit.Bounds, world);
+            if (todoLine >= 0)
+            {
+                ToggleTodoLine(outlineToggleHit.Block.Key, todoLine);
+                return;
+            }
+        }
 
         SetTool("Selection");
         _currentTool?.HandleLDown(screen, world, modifiers);
@@ -256,9 +322,21 @@ public sealed partial class CanvasViewport
             var ev = _snapshot.Blocks.FirstOrDefault(b => b.Block.Key == _editingNoteKey);
             if (ev is not null)
             {
+                if (!_editingTitle && OutlineDocument.IsOutlineBlock(ev.Block) && _dwrite is not null)
+                {
+                    var style2 = ev.Block.Style ?? new BoardItemStyle();
+                    var contentRect = OutlineDocument.GetContentRect(ev.Block, ev.Bounds);
+                    float fontSize = ev.Block.Kind == BlockKind.Note ? 12.5f : Math.Clamp((float)style2.FontSize, 8f, 96f);
+                    string fam = ev.Block.Kind == BlockKind.Note ? "Segoe UI"
+                        : (string.IsNullOrWhiteSpace(style2.FontFamily) ? "Segoe UI" : style2.FontFamily!);
+                    _editCursorPos = OutlineDocument.HitTestPoint(ev.Block, contentRect, _editBody, fontSize, fam, style2.Bold, style2.Italic, world, _dwrite);
+                }
+                else
+                {
                 var metrics = GetEditTextMetrics(ev, _editingTitle);
                 string editText = _editingTitle ? _editTitle : _editBody;
                 _editCursorPos = HitTestCursorPos(editText, metrics.FontSize, metrics.X, metrics.Y, metrics.Width, world, wrap: metrics.Wrap, alignment: metrics.Alignment, maxH: metrics.Height, paragraphAlignment: metrics.ParagraphAlignment, fontFamily: metrics.FontFamily, bold: metrics.Bold, italic: metrics.Italic);
+                }
                 _editCursorVisible = true;
                 RenderNative();
             }
@@ -371,6 +449,62 @@ public sealed partial class CanvasViewport
     {
         var selectedGroup = Scene.Blocks.FirstOrDefault(b => b.IsSelected && IsColorGroup(b));
         if (selectedGroup is not null) ToggleGroupCollapse(selectedGroup.Key);
+    }
+
+    private void ToggleOutlineLineCollapse(string blockKey, string lineId)
+    {
+        var target = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(blockKey, StringComparison.OrdinalIgnoreCase));
+        if (target is null || target.IsLocked) return;
+        var style = target.Style ?? new BoardItemStyle();
+        var collapsed = OutlineDocument.ParseCollapsedSet(style);
+        if (!collapsed.Add(lineId))
+            collapsed.Remove(lineId);
+
+        var next = target with { Style = style with { OutlineCollapsedItems = OutlineDocument.FormatCollapsedSet(collapsed) } };
+        var blocks = Scene.Blocks.Select(b => b.Key.Equals(blockKey, StringComparison.OrdinalIgnoreCase) ? next : b).ToList();
+        ApplySceneChange(Scene with { Blocks = blocks });
+        RebuildSnapshot();
+        RenderNative();
+    }
+
+    /// <summary>
+    /// Flip TODO ↔ DONE on the given raw line of a block that is NOT currently being
+    /// edited. Mutates the persisted body via the scene-change path so the change is
+    /// undoable.
+    /// </summary>
+    private void ToggleTodoLine(string blockKey, int lineIndex)
+    {
+        var target = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(blockKey, StringComparison.OrdinalIgnoreCase));
+        if (target is null || target.IsLocked) return;
+        string nextBody = OutlineDocument.ToggleTodoLine(target.Body ?? string.Empty, lineIndex);
+        if (ReferenceEquals(nextBody, target.Body)) return;
+        var next = target with { Body = nextBody };
+        var blocks = Scene.Blocks.Select(b => b.Key.Equals(blockKey, StringComparison.OrdinalIgnoreCase) ? next : b).ToList();
+        ApplySceneChange(Scene with { Blocks = blocks });
+        RebuildSnapshot();
+        RenderNative();
+    }
+
+    /// <summary>Same as <see cref="ToggleTodoLine"/> but rewrites the live _editBody
+    /// rather than committing through the scene, so the edit session stays open.</summary>
+    private void ToggleTodoLineInEdit(int lineIndex)
+    {
+        string nextBody = OutlineDocument.ToggleTodoLine(_editBody, lineIndex);
+        if (ReferenceEquals(nextBody, _editBody)) return;
+        // Keep cursor where it was; if the prefix length changed we still keep
+        // raw column intact because TODO and DONE are both 4 chars.
+        _editBody = nextBody;
+        _editSelectionAnchor = -1;
+        _editCursorVisible = true;
+        RenderNative();
+    }
+
+    /// <summary>Same as <see cref="ToggleOutlineLineCollapse"/> but for the block being
+    /// edited — updates the live block's style so the visual reflects immediately.</summary>
+    private void ToggleOutlineLineCollapseInEdit(string lineId)
+    {
+        if (_editingNoteKey is null) return;
+        ToggleOutlineLineCollapse(_editingNoteKey, lineId);
     }
 
     private void UngroupSelectedGroups()
@@ -550,8 +684,19 @@ public sealed partial class CanvasViewport
     internal void BeginNoteEdit(RenderBlock block, WpfPoint? clickWorld = null)
     {
         _editingNoteKey = block.Key; _editTitle = block.Title; _editBody = block.Body ?? string.Empty; _editSelectionAnchor = -1; _editMouseSelecting = false; _editingTitle = false;
+
+        // Outline blocks always need a leading "- " on every line so Tab / Shift+Tab
+        // / Enter (continue bullet) work consistently. Bootstrap an empty body so the
+        // user starts on bullet line 1 with the cursor right after the prefix.
+        bool bootstrappedOutline = false;
+        if (OutlineDocument.IsOutlineBlock(block) && string.IsNullOrEmpty(_editBody))
+        {
+            _editBody = "- ";
+            bootstrappedOutline = true;
+        }
+
         var vis = _snapshot.Blocks.FirstOrDefault(b => b.Block.Key == block.Key);
-        if (clickWorld is WpfPoint cw && vis is not null)
+        if (!bootstrappedOutline && clickWorld is WpfPoint cw && vis is not null)
         {
             _editingTitle = IsNoteTitleHit(vis, cw);
             var metrics = GetEditTextMetrics(vis, _editingTitle);
@@ -562,6 +707,7 @@ public sealed partial class CanvasViewport
         _editCursorVisible = true; _cursorBlinkTimer?.Dispose();
         _cursorBlinkTimer = new System.Threading.Timer(_ => { _editCursorVisible = !_editCursorVisible; Dispatcher.BeginInvoke(new Action(RenderNative)); }, null, 530, 530);
         ApplySceneChange(CanvasViewport.SetSelection(Scene, new[] { block.Key })); RebuildSnapshot(); RenderNative();
+        EditStarted?.Invoke(block.Kind);
     }
 
     private static Vortice.DirectWrite.TextAlignment ToDWriteTextAlignment(string? alignment) =>
@@ -627,8 +773,9 @@ public sealed partial class CanvasViewport
                     title = body.Length > 40 ? body.Substring(0, 37) + "..." : body;
                     if (string.IsNullOrWhiteSpace(title)) title = "Text";
                 }
-                var blocks = Scene.Blocks.Select(b => b.Key.Equals(key, StringComparison.OrdinalIgnoreCase) ? b with { Title = title, Body = _editBody } : b).ToList();
-                var annotations = Scene.Annotations.Select(a => a.Id == noteBlock.Id ? a with { Content = _editBody } : a).ToList();
+                string savedBody = _editBody ?? string.Empty;
+                var blocks = Scene.Blocks.Select(b => b.Key.Equals(key, StringComparison.OrdinalIgnoreCase) ? b with { Title = title, Body = savedBody } : b).ToList();
+                var annotations = Scene.Annotations.Select(a => a.Id == noteBlock.Id ? a with { Content = savedBody } : a).ToList();
                 ApplySceneChange(Scene with { Blocks = blocks, Annotations = annotations }); RebuildSnapshot(); return;
             }
         }
@@ -678,10 +825,56 @@ public sealed partial class CanvasViewport
 
     private void HandleEditModeKey(Key key)
     {
-        bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift); bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control); string text = _editingTitle ? _editTitle : _editBody;
+        bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift); bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control); bool alt = Keyboard.Modifiers.HasFlag(ModifierKeys.Alt); string text = _editingTitle ? _editTitle : _editBody;
         if (ctrl && key == Key.A) { _editSelectionAnchor = 0; _editCursorPos = text.Length; _editCursorVisible = true; RenderNative(); return; }
         if (ctrl && (key == Key.C || key == Key.X)) { var selCx = GetEditSelection(); if (selCx is not null) { int s = selCx.Value.Item1, e = selCx.Value.Item2; try { System.Windows.Clipboard.SetText(text.Substring(s, e - s)); } catch { } if (key == Key.X) DeleteEditSelection(); } _editCursorVisible = true; RenderNative(); return; }
         if (ctrl && key == Key.V) { try { if (System.Windows.Clipboard.ContainsText()) { string clip = System.Windows.Clipboard.GetText(); if (_editingTitle) clip = clip.Replace("\r", "").Replace("\n", " "); else clip = clip.Replace("\r\n", "\n").Replace("\r", "\n"); InsertEditText(clip); } } catch { } _editCursorVisible = true; RenderNative(); return; }
+
+        bool outlineEditing = !_editingTitle && CurrentEditingBlock() is RenderBlock cb && OutlineDocument.IsOutlineBlock(cb);
+        if (outlineEditing)
+        {
+            // Inline-markdown wrap-selection shortcuts. With no selection, they
+            // insert paired markers and park the cursor between them so the user
+            // can type the styled content.
+            if (ctrl && !alt)
+            {
+                if (key == Key.B && !shift) { WrapSelectionWithMarkers("**", "**"); _editCursorVisible = true; RenderNative(); return; }
+                if (key == Key.I && !shift) { WrapSelectionWithMarkers("*", "*"); _editCursorVisible = true; RenderNative(); return; }
+                if (key == Key.E && !shift) { WrapSelectionWithMarkers("`", "`"); _editCursorVisible = true; RenderNative(); return; }
+                if (key == Key.S && shift)  { WrapSelectionWithMarkers("~~", "~~"); _editCursorVisible = true; RenderNative(); return; }
+            }
+
+            if (alt && key is Key.Up or Key.Down)
+            {
+                _editBody = OutlineDocument.MoveSubtree(_editBody, _editCursorPos, key == Key.Up ? -1 : 1, out _editCursorPos);
+                _editSelectionAnchor = -1;
+                _editCursorVisible = true;
+                RenderNative();
+                return;
+            }
+
+            switch (key)
+            {
+                case Key.Return:
+                    InsertOutlineContinuation();
+                    _editCursorVisible = true;
+                    RenderNative();
+                    return;
+                case Key.Tab:
+                    IndentCurrentOutlineSubtree(shift ? -1 : 1);
+                    _editCursorVisible = true;
+                    RenderNative();
+                    return;
+                case Key.Back:
+                    if (TryHandleOutlineBackspace())
+                    {
+                        _editCursorVisible = true;
+                        RenderNative();
+                        return;
+                    }
+                    break;
+            }
+        }
 
         switch (key)
         {
@@ -696,7 +889,102 @@ public sealed partial class CanvasViewport
             case Key.Down: UpdateSelectionAnchor(shift); _editCursorPos = MoveLine(text, _editCursorPos, +1); if (!shift) _editSelectionAnchor = -1; break;
             case Key.Tab: InsertEditText(_editingTitle ? "    " : "\t"); break;
         }
+
+        // Outline blocks: after moving the cursor, snap it out of any bullet prefix
+        // area so the caret lands on something the user can see / type into.
+        if (outlineEditing && key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End)
+        {
+            int dir = key is Key.Left ? -1 : 1;
+            _editCursorPos = OutlineDocument.SnapToVisible(_editBody, CurrentEditingBlock()?.Style, _editCursorPos, dir);
+        }
+
         _editCursorVisible = true; RenderNative();
+    }
+
+    private RenderBlock? CurrentEditingBlock() =>
+        _editingNoteKey is null
+            ? null
+            : Scene.Blocks.FirstOrDefault(b => b.Key.Equals(_editingNoteKey, StringComparison.OrdinalIgnoreCase));
+
+    private void InsertOutlineContinuation()
+    {
+        DeleteEditSelection();
+        var line = OutlineDocument.LineAt(_editBody, _editCursorPos);
+        string beforeCursor = _editBody[line.Start.._editCursorPos];
+        string currentPrefix = OutlineDocument.BulletPrefixForLine(line.Text);
+        string currentContent = line.Text[OutlineDocument.PrefixLengthForLine(line.Text)..].Trim();
+
+        if (currentContent.Length == 0 && _editCursorPos >= line.Start + OutlineDocument.PrefixLengthForLine(line.Text))
+        {
+            int remove = OutlineDocument.PrefixLengthForLine(line.Text);
+            _editBody = _editBody.Remove(line.Start, remove).Insert(line.Start, string.Empty);
+            _editCursorPos = line.Start;
+            InsertEditText("\n");
+            return;
+        }
+
+        string prefix = string.IsNullOrWhiteSpace(beforeCursor) ? "- " : currentPrefix;
+        InsertEditText("\n" + prefix);
+    }
+
+    private bool TryHandleOutlineBackspace()
+    {
+        if (GetEditSelection() is not null) return false;
+        var line = OutlineDocument.LineAt(_editBody, _editCursorPos);
+        int prefixLength = OutlineDocument.PrefixLengthForLine(line.Text);
+        if (prefixLength <= 0) return false;
+        int contentStart = line.Start + prefixLength;
+        if (_editCursorPos != contentStart) return false;
+
+        if (line.Text.StartsWith("  ", StringComparison.Ordinal) || line.Text.StartsWith("\t", StringComparison.Ordinal))
+        {
+            IndentCurrentOutlineSubtree(-1);
+            return true;
+        }
+
+        _editBody = _editBody.Remove(line.Start, prefixLength);
+        _editCursorPos = line.Start;
+        _editSelectionAnchor = -1;
+        return true;
+    }
+
+    private void IndentCurrentOutlineSubtree(int direction)
+    {
+        if (GetEditSelection() is not null) DeleteEditSelection();
+        var lines = _editBody.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n').ToList();
+        if (lines.Count == 0) return;
+        int current = Math.Clamp(OutlineDocument.LineIndexAt(_editBody, _editCursorPos), 0, lines.Count - 1);
+        int currentStartOffset = LineStart(_editBody, _editCursorPos);
+        int column = Math.Max(0, _editCursorPos - currentStartOffset);
+        int currentLevel = LeadingOutlineLevel(lines[current]);
+        int end = current + 1;
+        while (end < lines.Count && LeadingOutlineLevel(lines[end]) > currentLevel) end++;
+
+        int delta = 0;
+        for (int i = current; i < end; i++)
+        {
+            string original = lines[i];
+            string next = direction > 0 ? OutlineDocument.IndentLine(original) : OutlineDocument.OutdentLine(original);
+            lines[i] = next;
+            if (i == current) delta = next.Length - original.Length;
+        }
+
+        _editBody = string.Join('\n', lines);
+        _editCursorPos = Math.Clamp(currentStartOffset + Math.Max(0, column + delta), 0, _editBody.Length);
+        _editSelectionAnchor = -1;
+    }
+
+    private static int LeadingOutlineLevel(string line)
+    {
+        int spaces = 0;
+        int tabs = 0;
+        foreach (char c in line)
+        {
+            if (c == ' ') spaces++;
+            else if (c == '\t') tabs++;
+            else break;
+        }
+        return tabs + spaces / 2;
     }
 
     private void HandleChar(char c)
@@ -705,8 +993,47 @@ public sealed partial class CanvasViewport
         if (c == '\b' || c == 27 || c == '\n' || c == '\t') return;
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return;
         if (_editingGroupKey is not null) { if (c >= 32) InsertEditText(c.ToString()); _editCursorVisible = true; RenderNative(); return; }
+
+        // Outline-edit owns Enter: HandleEditModeKey already ran InsertOutlineContinuation
+        // (which inserts "\n- "). Swallow the WM_CHAR '\r' so we don't get a duplicate newline.
+        if (c == '\r' && !_editingTitle && CurrentEditingBlock() is RenderBlock outlineBlock && OutlineDocument.IsOutlineBlock(outlineBlock))
+            return;
+
         if (c == '\r') { if (!_editingTitle) InsertEditText("\n"); } else if (c >= 32) InsertEditText(c.ToString());
         _editCursorVisible = true; RenderNative();
+    }
+
+    /// <summary>
+    /// Wrap the current selection in <paramref name="open"/>/<paramref name="close"/>
+    /// inline-markdown markers, or — when there is no selection — insert the pair
+    /// at the caret and park the cursor between them. Operates only on the body
+    /// (outline edit invokes this; title editing has no selection model wired here).
+    /// </summary>
+    private void WrapSelectionWithMarkers(string open, string close)
+    {
+        if (_editingTitle) return;
+        var sel = GetEditSelection();
+        if (sel is null)
+        {
+            _editBody = _editBody.Insert(_editCursorPos, open + close);
+            _editCursorPos += open.Length;
+            _editSelectionAnchor = -1;
+            return;
+        }
+        int s = sel.Value.Item1, e = sel.Value.Item2;
+        // Toggle: if the selection is already wrapped, unwrap instead.
+        if (s >= open.Length && e + close.Length <= _editBody.Length
+            && _editBody.Substring(s - open.Length, open.Length) == open
+            && _editBody.Substring(e, close.Length) == close)
+        {
+            _editBody = _editBody.Remove(e, close.Length).Remove(s - open.Length, open.Length);
+            _editSelectionAnchor = s - open.Length;
+            _editCursorPos = e - open.Length;
+            return;
+        }
+        _editBody = _editBody.Insert(e, close).Insert(s, open);
+        _editSelectionAnchor = s + open.Length;
+        _editCursorPos = e + open.Length;
     }
 
     private (int, int)? GetEditSelection() { if (_editSelectionAnchor < 0 || _editSelectionAnchor == _editCursorPos) return null; int a = _editSelectionAnchor, b = _editCursorPos; return a < b ? (a, b) : (b, a); }

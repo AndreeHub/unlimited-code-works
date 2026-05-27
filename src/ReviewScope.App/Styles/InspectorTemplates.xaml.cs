@@ -122,3 +122,26 @@ public sealed class StringEqConverter : IValueConverter
     public object? ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => value is bool b && b ? parameter as string : Binding.DoNothing;
 }
+
+/// <summary>
+/// Multi-value converter for the bottom shape toolbar. Takes (button.Tag, ActiveCanvasShapeTool,
+/// PendingCanvasItemPlacement) and returns true when this button represents the currently
+/// active tool. An empty Tag stands for "Selection / move" mode and lights up when no tool
+/// is active.
+/// </summary>
+public sealed class ActiveToolButtonConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        string tag = (values.Length > 0 ? values[0] as string : null) ?? string.Empty;
+        string active = (values.Length > 1 ? values[1] as string : null) ?? string.Empty;
+        string pending = (values.Length > 2 ? values[2] as string : null) ?? string.Empty;
+        if (string.IsNullOrEmpty(tag))
+            return string.IsNullOrEmpty(active) && string.IsNullOrEmpty(pending);
+        return string.Equals(tag, active, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(tag, pending, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}

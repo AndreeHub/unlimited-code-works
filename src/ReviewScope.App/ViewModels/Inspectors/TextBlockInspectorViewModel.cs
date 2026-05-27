@@ -4,8 +4,17 @@ using System;
 
 namespace ReviewScope.App.ViewModels.Inspectors;
 
-public sealed partial class TextBlockInspectorViewModel : InspectorViewModelBase
+public partial class TextBlockInspectorViewModel : InspectorViewModelBase
 {
+    /// <summary>The undo-history label written when <see cref="ApplyChanges"/> commits.
+    /// Subclasses override to disambiguate (e.g. "Updated sticky note properties").</summary>
+    protected virtual string ApplyChangesActionDescription => "Updated text card properties";
+
+    /// <summary>When true, the visible Title is auto-derived from the first ~40 chars of
+    /// the body (text-card behavior). Subclasses set false to keep Title fully user-editable
+    /// (sticky-note behavior).</summary>
+    protected virtual bool DeriveTitleFromBody => true;
+
     // Captured style buffer for Copy / Paste text style across selections.
     private static BoardItemStyle? s_copiedStyle;
 
@@ -41,6 +50,7 @@ public sealed partial class TextBlockInspectorViewModel : InspectorViewModelBase
     // --- Toggles ---
     [ObservableProperty] private bool _wordWrap = true;
     [ObservableProperty] private bool _formattedText = true;
+    [ObservableProperty] private bool _outlineEnabled;
     [ObservableProperty] private bool _convertLabelsToSvg;
     [ObservableProperty] private bool _automaticFontSize;
 
@@ -109,6 +119,7 @@ public sealed partial class TextBlockInspectorViewModel : InspectorViewModelBase
             ShadowEnabled = style.ShadowEnabled;
             WordWrap = style.WordWrap;
             FormattedText = style.FormattedText;
+            OutlineEnabled = style.OutlineEnabled;
             ConvertLabelsToSvg = style.ConvertLabelsToSvg;
             AutomaticFontSize = style.AutoFontSize;
 
@@ -156,6 +167,7 @@ public sealed partial class TextBlockInspectorViewModel : InspectorViewModelBase
             ShadowEnabled = ShadowEnabled,
             WordWrap = WordWrap,
             FormattedText = FormattedText,
+            OutlineEnabled = OutlineEnabled,
             ConvertLabelsToSvg = ConvertLabelsToSvg,
             AutoFontSize = AutomaticFontSize,
             FillStyle = FillStyle,
@@ -169,17 +181,20 @@ public sealed partial class TextBlockInspectorViewModel : InspectorViewModelBase
             SpacingLeft = SpacingLeft
         };
 
-        string nextTitle = Body;
-        if (nextTitle.Length > 40)
-            nextTitle = nextTitle.Substring(0, 37) + "...";
-        else if (string.IsNullOrWhiteSpace(nextTitle))
-            nextTitle = "Text";
-
-        if (Title != nextTitle)
+        if (DeriveTitleFromBody)
         {
-            IsRefreshing = true;
-            try { Title = nextTitle; }
-            finally { IsRefreshing = false; }
+            string nextTitle = Body;
+            if (nextTitle.Length > 40)
+                nextTitle = nextTitle.Substring(0, 37) + "...";
+            else if (string.IsNullOrWhiteSpace(nextTitle))
+                nextTitle = "Text";
+
+            if (Title != nextTitle)
+            {
+                IsRefreshing = true;
+                try { Title = nextTitle; }
+                finally { IsRefreshing = false; }
+            }
         }
 
         var nextBlock = block with
@@ -194,7 +209,7 @@ public sealed partial class TextBlockInspectorViewModel : InspectorViewModelBase
             Style = nextStyle
         };
 
-        Parent.UpdateSceneBlock(nextBlock, "Updated text card properties");
+        Parent.UpdateSceneBlock(nextBlock, ApplyChangesActionDescription);
     }
 
     // --- Copy / Clear style ---
@@ -232,6 +247,7 @@ public sealed partial class TextBlockInspectorViewModel : InspectorViewModelBase
             ShadowEnabled = s.ShadowEnabled;
             WordWrap = s.WordWrap;
             FormattedText = s.FormattedText;
+            OutlineEnabled = s.OutlineEnabled;
             ConvertLabelsToSvg = s.ConvertLabelsToSvg;
             AutomaticFontSize = s.AutoFontSize;
             Opacity = s.Opacity;
@@ -287,6 +303,7 @@ public sealed partial class TextBlockInspectorViewModel : InspectorViewModelBase
             ShadowEnabled = false;
             WordWrap = true;
             FormattedText = true;
+            OutlineEnabled = false;
             ConvertLabelsToSvg = false;
             AutomaticFontSize = false;
             Opacity = 1;

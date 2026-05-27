@@ -335,9 +335,10 @@ public sealed partial class CanvasViewport
         return null;
     }
 
-    internal static NoteResizeCorner HitNoteCorner(Rect bounds, WpfPoint world)
+    internal static NoteResizeCorner HitNoteCorner(Rect bounds, WpfPoint world, double zoom = 1.0)
     {
-        const double hs = 14;
+        // Keep a minimum of 20 screen-pixels so handles are always easy to hit at any zoom level.
+        double hs = Math.Max(14.0, 20.0 / zoom);
         if (new Rect(bounds.Left, bounds.Top, hs, hs).Contains(world)) return NoteResizeCorner.TopLeft;
         if (new Rect(bounds.Right - hs, bounds.Top, hs, hs).Contains(world)) return NoteResizeCorner.TopRight;
         if (new Rect(bounds.Left, bounds.Bottom - hs, hs, hs).Contains(world)) return NoteResizeCorner.BottomLeft;
@@ -347,7 +348,8 @@ public sealed partial class CanvasViewport
 
     internal bool IsInResize(Rect bounds, WpfPoint world)
     {
-        const double hs = 22;
+        // Keep a minimum of 24 screen-pixels for the bottom-right resize corner.
+        double hs = Math.Max(22.0, 24.0 / _camera.Zoom);
         if (bounds.Width < hs || bounds.Height < hs) return false;
         return new Rect(bounds.Right - hs, bounds.Bottom - hs, hs, hs).Contains(world)
             || IsInRightEdgeResize(bounds, world);
@@ -355,7 +357,8 @@ public sealed partial class CanvasViewport
 
     internal bool IsInRightEdgeResize(Rect bounds, WpfPoint world)
     {
-        const double hs = 12;
+        // Keep a minimum of 16 screen-pixels wide for the right-edge resize strip.
+        double hs = Math.Max(12.0, 16.0 / _camera.Zoom);
         double edgeH = bounds.Height - HeaderH - FooterH;
         if (edgeH <= 0 || bounds.Width < hs) return false;
         return new Rect(bounds.Right - hs, bounds.Y + HeaderH, hs, edgeH).Contains(world);
@@ -424,7 +427,7 @@ public sealed partial class CanvasViewport
         if (hit is not null)
         {
             if (IsInRestoreButton(hit.Bounds, world)) { Cursor = Cursors.Hand; return; }
-            if (hit.Block.IsSelected && !hit.Block.IsLocked && !IsLinearShapeTool(hit.Block.ShapeType) && HitNoteCorner(hit.Bounds, world) is var corner && corner != NoteResizeCorner.None) { Cursor = corner is NoteResizeCorner.TopLeft or NoteResizeCorner.BottomRight ? Cursors.SizeNWSE : Cursors.SizeNESW; return; }
+            if (hit.Block.IsSelected && !hit.Block.IsLocked && !IsLinearShapeTool(hit.Block.ShapeType) && HitNoteCorner(hit.Bounds, world, _camera.Zoom) is var corner && corner != NoteResizeCorner.None) { Cursor = corner is NoteResizeCorner.TopLeft or NoteResizeCorner.BottomRight ? Cursors.SizeNWSE : Cursors.SizeNESW; return; }
             if (hit.Block.IsSelected && !hit.Block.IsLocked && !IsLinearShapeTool(hit.Block.ShapeType) && IsInRightEdgeResize(hit.Bounds, world)) { Cursor = Cursors.SizeWE; return; }
             Cursor = Cursors.Arrow;
             return;

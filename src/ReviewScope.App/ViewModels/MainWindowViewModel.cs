@@ -61,11 +61,21 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string? _activeCanvasShapeTool;
     [ObservableProperty] private string? _pendingCanvasItemPlacement;
 
+    /// <summary>
+    /// Raised after a new Text/Note block is added programmatically (toolbox button path).
+    /// MainWindow.xaml.cs uses this to put the canvas into in-canvas edit mode on the new block.
+    /// </summary>
+    public event Action<BlockKind>? PostCreateEditRequested;
+    internal void RequestPostCreateEdit(BlockKind kind) => PostCreateEditRequested?.Invoke(kind);
+
     partial void OnActiveInspectorChanged(InspectorViewModelBase? value)
     {
-        IsTextBlockInspectorSelected = value is TextBlockInspectorViewModel;
+        // Use exact-type checks (not `is`) because StickyNoteInspectorViewModel now
+        // inherits from TextBlockInspectorViewModel — without this both flags would
+        // be true at the same time for sticky notes.
+        IsTextBlockInspectorSelected = value?.GetType() == typeof(TextBlockInspectorViewModel);
         IsShapeInspectorSelected = value is ShapeInspectorViewModel;
-        IsStickyNoteInspectorSelected = value is StickyNoteInspectorViewModel;
+        IsStickyNoteInspectorSelected = value?.GetType() == typeof(StickyNoteInspectorViewModel);
         IsConnectionInspectorSelected = value is ConnectionInspectorViewModel;
         IsSwimLaneInspectorSelected = value is SwimLaneInspectorViewModel;
         IsDefaultBlockInspectorSelected = value is DefaultBlockInspectorViewModel;

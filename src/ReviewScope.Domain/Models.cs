@@ -95,6 +95,8 @@ public sealed record BoardItemStyle(
     bool FormattedText = true,
     bool ConvertLabelsToSvg = false,
     bool AutoFontSize = false,
+    bool OutlineEnabled = false,
+    string OutlineCollapsedItems = "",
     double SpacingTop = 4,
     double SpacingRight = 4,
     double SpacingBottom = 4,

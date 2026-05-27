@@ -41,14 +41,17 @@ public sealed partial class MainWindowViewModel
         if (worldY.HasValue) y -= 65;
         var note = new RenderBlock(
             id, $"note::{id:N}", BlockKind.Note,
-            "New note", string.Empty,
+            "Note", string.Empty,
             x, y, 280, 130,
-            Body: "New note...",
+            Body: string.Empty,
+            IsSelected: true,
             ZIndex: NextBlockZIndex(),
             LayerKey: "layer::notes",
             Style: new BoardItemStyle("#FFF3C7", "#E2BA4C", "#3C3412", FontSize: 12.5));
         var annotations = Scene.Annotations.Append(new RenderAnnotation(id, note.Key, note.Body!, note.X, note.Y)).ToList();
-        SetSceneFromUserAction(Scene with { Blocks = Scene.Blocks.Append(note).ToList(), Annotations = annotations }, "Added note");
+        var noteBlocks = Scene.Blocks.Select(b => b with { IsSelected = false }).Append(note).ToList();
+        SetSceneFromUserAction(Scene with { Blocks = noteBlocks, Annotations = annotations }, "Added note");
+        RequestPostCreateEdit(BlockKind.Note);
         await PersistSessionAsync();
     }
 
@@ -71,10 +74,13 @@ public sealed partial class MainWindowViewModel
             id, $"text::{id:N}", BlockKind.Text,
             "Text", string.Empty,
             x, y, 240, 80,
-            Body: "Double-click to edit text",
+            Body: string.Empty,
+            IsSelected: true,
             LayerKey: "layer::architecture",
-            Style: new BoardItemStyle(Fill: "#00000000", Stroke: "#00000000", Text: "#111827", TextAlign: "Center", FontSize: 14));
-        SetSceneFromUserAction(Scene with { Blocks = Scene.Blocks.Append(text).ToList() }, "Added text");
+            Style: new BoardItemStyle(Fill: "#00000000", Stroke: "#00000000", Text: "#111827", TextAlign: "Left", VerticalAlign: "Top", FontSize: 14));
+        var textBlocks = Scene.Blocks.Select(b => b with { IsSelected = false }).Append(text).ToList();
+        SetSceneFromUserAction(Scene with { Blocks = textBlocks }, "Added text");
+        RequestPostCreateEdit(BlockKind.Text);
         await PersistSessionAsync();
     }
 

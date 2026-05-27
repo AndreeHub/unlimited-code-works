@@ -4,7 +4,9 @@
       "Bash(dotnet build *)",
       "Bash(git show *)",
       "Read(//tmp/**)",
-      "PowerShell(ls \"C:\\\\Users\\\\lic\\\\Desktop\\\\3 SWD\\\\ReviewScope\\\\src\" -Recurse | Where-Object {$_.Extension -eq \".cs\"} | Select-Object FullName)"
+      "PowerShell(ls \"C:\\\\Users\\\\lic\\\\Desktop\\\\3 SWD\\\\ReviewScope\\\\src\" -Recurse | Where-Object {$_.Extension -eq \".cs\"} | Select-Object FullName)",
+      "Bash(cd \"C:/Users/lic/Desktop/3 SWD/ReviewScope\" && find ~/.nuget/packages/vortice.directwrite -name \"*.cs\" 2>/dev/null | head -5; find /c/Users/lic/.nuget/packages/vortice.directwrite -name \"*.cs\" 2>/dev/null | head -5)",
+      "Bash(tasklist)"
     ]
   }
 }

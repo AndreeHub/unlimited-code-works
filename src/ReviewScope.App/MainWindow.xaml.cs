@@ -37,6 +37,35 @@ public partial class MainWindow : Window
 
         // When scene is mutated inside the canvas (drag, delete, resize), sync back
         CanvasViewport.BlockMovedCommand = new RelayCommand<CanvasSceneChangedArgs>(OnSceneChangedByCanvas);
+
+        // After a Text/Note is added (toolbox button, canvas placement, etc), drop
+        // straight into in-canvas edit so the user can type immediately.
+        vm.PostCreateEditRequested += OnPostCreateEditRequested;
+
+        // When edit starts, surface the most useful right-side tab: Text-tab for text
+        // cards (typography/spacing/alignment), Inspector-tab for notes (their body
+        // + sticky color live there).
+        CanvasViewport.EditStarted += OnCanvasEditStarted;
+    }
+
+    private void OnCanvasEditStarted(Domain.BlockKind kind)
+    {
+        // Both Text cards and Sticky Notes now share the Text tab (typography,
+        // alignment, spacing), so flip there on edit for either kind.
+        const int TextTab = 2;
+        if (kind is Domain.BlockKind.Text or Domain.BlockKind.Note)
+            _vm.SelectedRightTabIndex = TextTab;
+    }
+
+    private void OnPostCreateEditRequested(Domain.BlockKind kind)
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (kind == Domain.BlockKind.Text)
+                CanvasViewport.BeginEditLastBlockOfKind(Domain.BlockKind.Text);
+            else if (kind == Domain.BlockKind.Note)
+                CanvasViewport.BeginEditLastBlockOfKind(Domain.BlockKind.Note);
+        }), System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private async void OnBranchComboSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -48,11 +77,38 @@ public partial class MainWindow : Window
 
     private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Delete && !(Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && e.Key == Key.C))
-            return;
-
         if (IsTextInputSource(e.OriginalSource as DependencyObject))
             return;
+
+        // While editing a Text/Note/group title in-canvas, navigation keys (Tab and
+        // arrows) would normally be eaten by WPF focus traversal / directional
+        // navigation before they ever reach the canvas HWND. Forward them directly
+        // to the canvas's edit handler and mark e.Handled so WPF leaves them alone.
+        if (CanvasViewport.IsEditingInCanvas)
+        {
+            bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+            if (!ctrl)
+            {
+                if (e.Key is Key.Tab or Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End)
+                {
+                    CanvasViewport.ForwardEditKey(e.Key);
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            // All other in-edit keystrokes (typed characters, Ctrl+B/I/E for inline
+            // markdown, Ctrl+C / Ctrl+X / Ctrl+V for text-selection clipboard, etc.)
+            // belong to the canvas's edit handler. Bail out without firing the global
+            // tool shortcuts / board-level copy.
+            return;
+        }
+
+        if (CanvasViewport.ActivateBottomToolShortcut(e.Key, Keyboard.Modifiers))
+        {
+            e.Handled = true;
+            return;
+        }
 
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && e.Key == Key.C)
         {
@@ -60,6 +116,14 @@ public partial class MainWindow : Window
             e.Handled = true;
             return;
         }
+
+        if (e.Key != Key.Delete)
+            return;
+
+        // Delete is also part of normal text editing; let the canvas's edit
+        // handler delete the char under the cursor.
+        if (CanvasViewport.IsEditingInCanvas)
+            return;
 
         CanvasViewport.DeleteSelection();
         e.Handled = true;

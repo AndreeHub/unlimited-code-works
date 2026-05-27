@@ -31,8 +31,7 @@ internal sealed class ShapeTool : CanvasToolBase
     {
         Viewport.ApplySceneChange(CanvasViewport.ClearSelection(Viewport.Scene));
 
-        Point constrained = ApplyAxisConstraint(world, modifiers);
-        Point snapped = SnapPoint(constrained, out string? attachKey, out WpfPoint? relativeOffset, commit: true);
+        Point snapped = ResolveDraftPoint(world, modifiers, commit: true, out string? attachKey, out WpfPoint? relativeOffset);
 
         // Already in polyline mode → add a vertex, attach to block, or commit on double-click
         if (IsLinear && Viewport._shapeDraftPolyline is { Count: >= 1 } verts)
@@ -87,8 +86,7 @@ internal sealed class ShapeTool : CanvasToolBase
             if (Math.Abs(d.X) >= 4 || Math.Abs(d.Y) >= 4) Viewport._didMove = true;
         }
 
-        Point constrained = ApplyAxisConstraint(world, modifiers);
-        Point current = SnapPoint(constrained, out string? attachEnd, out WpfPoint? relativeEndOffset);
+        Point current = ResolveDraftPoint(world, modifiers, commit: false, out string? attachEnd, out WpfPoint? relativeEndOffset);
         Viewport._shapeDraftCurrentWorld = current;
         Viewport._shapeDraftAttachEndKey = attachEnd;
         Viewport._shapeDraftEndOffset = relativeEndOffset;
@@ -100,8 +98,7 @@ internal sealed class ShapeTool : CanvasToolBase
         if (Viewport._activeShapeTool is null) return;
         if (Viewport._shapeDraftStartWorld is null) return;
 
-        Point constrainedEnd = ApplyAxisConstraint(world, modifiers);
-        Point endWorld = SnapPoint(constrainedEnd, out string? attachEndKey, out WpfPoint? relativeEndOffset, commit: true);
+        Point endWorld = ResolveDraftPoint(world, modifiers, commit: true, out string? attachEndKey, out WpfPoint? relativeEndOffset);
 
         // Non-linear: always commit as single shape on mouse-up
         if (!IsLinear)
@@ -115,10 +112,10 @@ internal sealed class ShapeTool : CanvasToolBase
                 var start = new Point(center.X - sz.Width / 2, center.Y - sz.Height / 2);
                 var end = new Point(center.X + sz.Width / 2, center.Y + sz.Height / 2);
                 var shape = Viewport.CreateShapeBlock(Viewport._activeShapeTool!, start, end);
-                FinalizeShape(shape);
+                FinalizeShape(shape, keepToolActive: modifiers.HasFlag(ModifierKeys.Shift));
                 return;
             }
-            CommitSingleShape(endWorld);
+            CommitSingleShape(endWorld, keepToolActive: modifiers.HasFlag(ModifierKeys.Shift));
             return;
         }
 
@@ -169,10 +166,10 @@ internal sealed class ShapeTool : CanvasToolBase
         }
     }
 
-    private void CommitSingleShape(Point endWorld)
+    private void CommitSingleShape(Point endWorld, bool keepToolActive)
     {
         var shape = Viewport.CreateShapeBlock(Viewport._activeShapeTool!, Viewport._shapeDraftStartWorld!.Value, endWorld);
-        FinalizeShape(shape);
+        FinalizeShape(shape, keepToolActive);
     }
 
     private void CommitLinearDrag(Point endWorld, string? attachEndKey, Point? endOffset, ModifierKeys modifiers)
@@ -230,7 +227,7 @@ internal sealed class ShapeTool : CanvasToolBase
         FinalizeShape(shape);
     }
 
-    private void FinalizeShape(RenderBlock shape)
+    private void FinalizeShape(RenderBlock shape, bool keepToolActive = true)
     {
         var blocks = Viewport.Scene.Blocks
             .Select(b => b with { IsSelected = false })
@@ -241,7 +238,7 @@ internal sealed class ShapeTool : CanvasToolBase
             Blocks = blocks,
             SwimLanes = Viewport.Scene.SwimLanes.Select(l => l with { IsSelected = false }).ToList()
         });
-        ClearDraftState(deactivateTool: false);
+        ClearDraftState(deactivateTool: !keepToolActive);
         Viewport.UpdateHoverCursor(Viewport._lastMouseScreenPoint);
         CanvasViewport.ReleaseCapture();
         Viewport.RebuildSnapshot();
@@ -304,6 +301,120 @@ internal sealed class ShapeTool : CanvasToolBase
     }
 
     /// <summary>
+    /// When Shift or Ctrl is held during linear-shape drawing, looks for the closest point
+    /// on any already-placed line/arrow/polyline. If the cursor is within a small screen
+    /// threshold, returns that closest point — letting the user start (or end) a new line
+    /// directly on an existing one (e.g. branching off it). Returns null otherwise.
+    /// </summary>
+    private Point? TrySnapToExistingLine(Point world, ModifierKeys modifiers)
+    {
+        if (!IsLinear) return null;
+        if (!modifiers.HasFlag(ModifierKeys.Shift) && !modifiers.HasFlag(ModifierKeys.Control)) return null;
+
+        double threshold = Viewport.InvStroke(10f);
+        double bestDistSq = threshold * threshold;
+        Point? bestPoint = null;
+
+        var lookup = Viewport._snapshot.Blocks.ToDictionary(b => b.Block.Key, StringComparer.OrdinalIgnoreCase);
+        foreach (var block in Viewport._snapshot.Blocks)
+        {
+            if (block.Block.Kind != BlockKind.Shape) continue;
+            if (!CanvasViewport.IsLinearShapeTool(block.Block.ShapeType)) continue;
+
+            var points = CanvasDrawingUtils.ResolveLinearShapePoints(block.Block, block.Bounds, lookup);
+            if (points.Count < 2) continue;
+
+            for (int i = 0; i + 1 < points.Count; i++)
+            {
+                Point proj = ProjectPointOntoSegment(world, points[i], points[i + 1]);
+                double dx = proj.X - world.X;
+                double dy = proj.Y - world.Y;
+                double distSq = dx * dx + dy * dy;
+                if (distSq < bestDistSq)
+                {
+                    bestDistSq = distSq;
+                    bestPoint = proj;
+                }
+            }
+        }
+        return bestPoint;
+    }
+
+    private static Point ProjectPointOntoSegment(Point p, Point a, Point b)
+    {
+        double dx = b.X - a.X;
+        double dy = b.Y - a.Y;
+        double lenSq = dx * dx + dy * dy;
+        if (lenSq < 1e-12) return a;
+        double t = ((p.X - a.X) * dx + (p.Y - a.Y) * dy) / lenSq;
+        t = Math.Clamp(t, 0, 1);
+        return new Point(a.X + t * dx, a.Y + t * dy);
+    }
+
+    /// <summary>
+    /// Single entry point that resolves a candidate draft vertex. Snap-to-existing-line takes
+    /// priority (and bypasses block attachment); otherwise we apply the axis constraint and
+    /// the normal block-snap logic.
+    /// </summary>
+    private Point ResolveDraftPoint(Point world, ModifierKeys modifiers, bool commit,
+        out string? attachKey, out WpfPoint? relativeOffset)
+    {
+        if (TrySnapToExistingLine(world, modifiers) is { } lineSnap)
+        {
+            attachKey = null;
+            relativeOffset = null;
+            return lineSnap;
+        }
+        Point constrained = ApplyAxisConstraint(world, modifiers);
+        return SnapPoint(constrained, out attachKey, out relativeOffset, commit: commit, modifiers: modifiers);
+    }
+
+    /// <summary>
+    /// Finds the first intersection point of the ray from <paramref name="origin"/> in the
+    /// direction of <paramref name="through"/> with the axis-aligned rectangle
+    /// <paramref name="bounds"/>. Returns null if the ray misses the rect or has zero length.
+    /// When <paramref name="origin"/> is inside the rect, returns the exit point instead.
+    /// </summary>
+    private static Point? IntersectRayWithRect(Point origin, Point through, Rect bounds)
+    {
+        double dx = through.X - origin.X;
+        double dy = through.Y - origin.Y;
+        if (Math.Abs(dx) < 1e-9 && Math.Abs(dy) < 1e-9) return null;
+
+        double tMinX, tMaxX, tMinY, tMaxY;
+        if (Math.Abs(dx) > 1e-9)
+        {
+            double t1 = (bounds.Left - origin.X) / dx;
+            double t2 = (bounds.Right - origin.X) / dx;
+            tMinX = Math.Min(t1, t2);
+            tMaxX = Math.Max(t1, t2);
+        }
+        else
+        {
+            if (origin.X < bounds.Left || origin.X > bounds.Right) return null;
+            tMinX = double.NegativeInfinity; tMaxX = double.PositiveInfinity;
+        }
+        if (Math.Abs(dy) > 1e-9)
+        {
+            double t1 = (bounds.Top - origin.Y) / dy;
+            double t2 = (bounds.Bottom - origin.Y) / dy;
+            tMinY = Math.Min(t1, t2);
+            tMaxY = Math.Max(t1, t2);
+        }
+        else
+        {
+            if (origin.Y < bounds.Top || origin.Y > bounds.Bottom) return null;
+            tMinY = double.NegativeInfinity; tMaxY = double.PositiveInfinity;
+        }
+
+        double tEntry = Math.Max(tMinX, tMinY);
+        double tExit = Math.Min(tMaxX, tMaxY);
+        if (tEntry > tExit || tExit < 0) return null;
+        double t = tEntry >= 0 ? tEntry : tExit;
+        return new Point(origin.X + t * dx, origin.Y + t * dy);
+    }
+
+    /// <summary>
     /// Resolves the world position for a draft vertex. While the user is still dragging
     /// (<paramref name="commit"/> = false) the raw mouse position is used so the line follows
     /// the cursor freely, even passing behind a target shape. On commit, if the cursor is
@@ -312,7 +423,7 @@ internal sealed class ShapeTool : CanvasToolBase
     /// final line stops at the near edge instead of crossing the shape. Discrete connection
     /// anchors (outside the bounds) still snap immediately in both modes.
     /// </summary>
-    private Point SnapPoint(Point world, out string? attachKey, out WpfPoint? relativeOffset, bool commit = false)
+    private Point SnapPoint(Point world, out string? attachKey, out WpfPoint? relativeOffset, bool commit = false, ModifierKeys modifiers = ModifierKeys.None)
     {
         attachKey = null;
         relativeOffset = null;
@@ -347,14 +458,27 @@ internal sealed class ShapeTool : CanvasToolBase
             // Commit: find the previous vertex (last polyline point, or segment start). For
             // the very first click of a fresh draft there is no prior reference, so fall
             // back to the mouse-based projection.
-            Point reference = world;
+            Point? reference = null;
             if (Viewport._shapeDraftPolyline is { Count: >= 1 } verts)
                 reference = verts[^1];
             else if (Viewport._shapeDraftStartWorld is { } start)
                 reference = start;
 
-            Point toward = bounds.Contains(reference) ? world : reference;
-            Point outlinePoint = CanvasDrawingUtils.GetBlockOutlinePoint(hit.Block, bounds, toward);
+            Point outlinePoint;
+            // Ctrl axis-snap: keep the endpoint strictly on the axis ray from the previous
+            // vertex by intersecting that ray with the block's bounds rect — avoids the
+            // off-axis nudge that center-to-toward outline projection would otherwise cause.
+            if (modifiers.HasFlag(ModifierKeys.Control)
+                && reference is { } refPt
+                && IntersectRayWithRect(refPt, world, bounds) is { } rayHit)
+            {
+                outlinePoint = rayHit;
+            }
+            else
+            {
+                Point toward = reference is { } r && !bounds.Contains(r) ? r : world;
+                outlinePoint = CanvasDrawingUtils.GetBlockOutlinePoint(hit.Block, bounds, toward);
+            }
 
             relativeOffset = new WpfPoint(
                 Math.Clamp((outlinePoint.X - bounds.X) / Math.Max(1, bounds.Width), 0, 1),

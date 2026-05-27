@@ -79,6 +79,7 @@ public sealed partial class ShapeInspectorViewModel : InspectorViewModelBase
         var nextBlock = block with
         {
             Title = Title,
+            ShapeType = ShapeType,
             X = X,
             Y = Y,
             Width = Width,
