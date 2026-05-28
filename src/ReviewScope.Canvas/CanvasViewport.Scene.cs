@@ -156,10 +156,42 @@ public sealed partial class CanvasViewport
                 SourceAnchorIndex = sourceAnchorIndex,
                 TargetAnchorIndex = targetAnchorIndex
             };
-            int sourceAnchor = visualConn.SourceAnchorIndex ?? FindNearestConnectionAnchor(src, dstCenter);
-            int targetAnchor = visualConn.TargetAnchorIndex ?? FindNearestConnectionAnchor(dst, srcCenter);
-            Point start = CanvasDrawingUtils.GetConnectionAnchorPoint(src, sourceAnchor);
-            Point end = CanvasDrawingUtils.GetConnectionAnchorPoint(dst, targetAnchor);
+
+            // Resolve start point — use bullet connection point when SourceLineId is set.
+            Point start;
+            if (conn.SourceLineId is string srcLineId && _dwrite is not null)
+            {
+                float srcFontSize = OutlineDocument.GetFontSize(src.Block);
+                var srcStyle = src.Block.Style ?? new BoardItemStyle();
+                string srcFontFamily = string.IsNullOrWhiteSpace(srcStyle.FontFamily) ? "Segoe UI" : srcStyle.FontFamily!;
+                start = OutlineDocument.GetBulletConnectionPoint(
+                    src.Block, src.Bounds, srcLineId,
+                    srcFontSize, srcFontFamily, srcStyle.Bold, srcStyle.Italic, _dwrite)
+                    ?? CanvasDrawingUtils.GetConnectionAnchorPoint(src, FindNearestConnectionAnchor(src, dstCenter));
+            }
+            else
+            {
+                int sourceAnchor = visualConn.SourceAnchorIndex ?? FindNearestConnectionAnchor(src, dstCenter);
+                start = CanvasDrawingUtils.GetConnectionAnchorPoint(src, sourceAnchor);
+            }
+
+            // Resolve end point — use bullet connection point when TargetLineId is set.
+            Point end;
+            if (conn.TargetLineId is string dstLineId && _dwrite is not null)
+            {
+                float dstFontSize = OutlineDocument.GetFontSize(dst.Block);
+                var dstStyle = dst.Block.Style ?? new BoardItemStyle();
+                string dstFontFamily = string.IsNullOrWhiteSpace(dstStyle.FontFamily) ? "Segoe UI" : dstStyle.FontFamily!;
+                end = OutlineDocument.GetBulletConnectionPoint(
+                    dst.Block, dst.Bounds, dstLineId,
+                    dstFontSize, dstFontFamily, dstStyle.Bold, dstStyle.Italic, _dwrite)
+                    ?? CanvasDrawingUtils.GetConnectionAnchorPoint(dst, FindNearestConnectionAnchor(dst, srcCenter));
+            }
+            else
+            {
+                int targetAnchor = visualConn.TargetAnchorIndex ?? FindNearestConnectionAnchor(dst, srcCenter);
+                end = CanvasDrawingUtils.GetConnectionAnchorPoint(dst, targetAnchor);
+            }
             Rect bounds = new(start, end);
             var visual = new SceneConnectionVisual(visualConn, start, end, bounds);
             if (conn.RouteKind is ConnectorRouteKind.Straight or ConnectorRouteKind.Orthogonal)

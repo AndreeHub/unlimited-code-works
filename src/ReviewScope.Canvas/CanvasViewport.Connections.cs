@@ -18,7 +18,11 @@ namespace ReviewScope.Canvas;
  * Please read the first 15 lines of this file for a summary before reading the entire file to save tokens.
  */
 
-internal sealed record ConnectionAnchorHit(SceneBlockVisual Block, int AnchorIndex, Point Point);
+/// <summary>
+/// Describes a connection anchor that was hit. When <see cref="LineIndex"/> is &gt;= 0
+/// the hit is on a bullet-outline line; when -1 it is one of the 16 standard perimeter anchors.
+/// </summary>
+internal sealed record ConnectionAnchorHit(SceneBlockVisual Block, int AnchorIndex, Point Point, int LineIndex = -1);
 internal sealed record ConnectionControlHit(SceneConnectionVisual Connection, ConnectionControlNodeKind Kind, Point Point);
 internal sealed record ConnectionEndpointHit(SceneConnectionVisual Connection, ConnectionEndpointKind Kind);
 
@@ -71,6 +75,25 @@ public sealed partial class CanvasViewport
         {
             if (block.Block.Kind is BlockKind.Note) continue;
             if (block.Block.Kind == BlockKind.Shape && IsLinearShapeTool(block.Block.ShapeType)) continue;
+
+            // For outline Text blocks, offer bullet connection points instead of perimeter anchors.
+            if (block.Block.Kind == BlockKind.Text && OutlineDocument.IsOutlineBlock(block.Block))
+            {
+                var bulletHit = OutlineDocument.TryHitBullet(block.Block, block.Bounds, world, _dwrite);
+                if (bulletHit is { } bh)
+                {
+                    double dx = bh.ConnectionPoint.X - world.X;
+                    double dy = bh.ConnectionPoint.Y - world.Y;
+                    double dist = dx * dx + dy * dy;
+                    if (dist < best)
+                    {
+                        best = dist;
+                        bestHit = new ConnectionAnchorHit(block, -1, bh.ConnectionPoint, bh.LineIndex);
+                    }
+                }
+                continue; // don't also show perimeter anchors for outline blocks
+            }
+
             for (int i = 0; i < 16; i++)
             {
                 Point anchor = CanvasDrawingUtils.GetConnectionAnchorPoint(block, i);
@@ -415,8 +438,12 @@ public sealed partial class CanvasViewport
         _isDrawingConnection = false;
         _connectionSourceKey = null;
         _connectionSourceAnchorIndex = null;
+        _connectionSourceLineId = null;
+        _connectionSourceBulletLineIndex = -1;
         _connectionHoverTargetKey = null;
         _connectionHoverTargetAnchorIndex = null;
+        _connectionHoverTargetLineId = null;
+        _connectionHoverTargetBulletLineIndex = -1;
         _connectionHoverTargetWorld = null;
         _connectionDraftMidPoint = null;
         _connectionDraftMidPointBends = false;
@@ -431,13 +458,40 @@ public sealed partial class CanvasViewport
         if (anchor is not null && anchor.Block.Block.Key != _connectionSourceKey)
         {
             _connectionHoverTargetKey = anchor.Block.Block.Key;
-            _connectionHoverTargetAnchorIndex = anchor.AnchorIndex;
+            _connectionHoverTargetAnchorIndex = anchor.LineIndex < 0 ? anchor.AnchorIndex : (int?)null;
+            _connectionHoverTargetBulletLineIndex = anchor.LineIndex;
             _connectionHoverTargetWorld = anchor.Point;
+            // For bullet anchors, resolve the line ID lazily so we don't write ^id to the body
+            // until the connection is actually completed.
+            _connectionHoverTargetLineId = anchor.LineIndex >= 0
+                ? GetBulletLineIdForHover(anchor.Block.Block.Key, anchor.LineIndex)
+                : null;
             return;
         }
 
         _connectionHoverTargetKey = null;
         _connectionHoverTargetAnchorIndex = null;
+        _connectionHoverTargetLineId = null;
+        _connectionHoverTargetBulletLineIndex = -1;
         _connectionHoverTargetWorld = null;
+    }
+
+    /// <summary>
+    /// Returns the anchor ID for a bullet hover without modifying the scene.
+    /// If the line has no anchor ID yet, returns null — the ID is only allocated
+    /// when the connection is actually completed via EnsureBulletAnchorId.
+    /// </summary>
+    private string? GetBulletLineIdForHover(string blockKey, int lineIndex)
+    {
+        var block = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(blockKey, StringComparison.OrdinalIgnoreCase));
+        if (block is null) return null;
+        string body = block.Body ?? string.Empty;
+        body = body.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        var lines = body.Split('\n');
+        if (lineIndex < 0 || lineIndex >= lines.Length) return null;
+        string line = lines[lineIndex];
+        int prefix = OutlineDocument.PrefixLengthForLine(line);
+        string display = prefix <= line.Length ? line[prefix..] : string.Empty;
+        return OutlineDocument.ParseBulletAnchorId(display); // null if no ^id yet
     }
 }

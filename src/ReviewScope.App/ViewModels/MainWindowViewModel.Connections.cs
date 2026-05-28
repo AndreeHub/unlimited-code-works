@@ -24,7 +24,9 @@ public sealed partial class MainWindowViewModel
             ArrowPosition: 0.9,
             MidControlX: args.MidControlX,
             MidControlY: args.MidControlY,
-            MidControlBends: args.MidControlBends);
+            MidControlBends: args.MidControlBends,
+            SourceLineId: args.SourceLineId,
+            TargetLineId: args.TargetLineId);
         var connections = Scene.Connections.Append(conn).ToList();
         SetSceneFromUserAction(Scene with { Connections = connections });
         await PersistSessionAsync();

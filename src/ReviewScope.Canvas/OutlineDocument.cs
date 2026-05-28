@@ -19,7 +19,9 @@ internal sealed record OutlineLine(
     int ParentIndex,
     bool HasChildren,
     bool IsCollapsed,
-    bool IsHidden);
+    bool IsHidden,
+    string? AnchorId = null,
+    int AnchorLength = 0);
 
 internal sealed record OutlineRenderLine(
     OutlineLine Line,
@@ -33,6 +35,7 @@ internal sealed record OutlineRenderLine(
 internal sealed class OutlineDocument
 {
     private const float IndentWidth = 18f;
+    public const float IndentWidthPublic = IndentWidth;
     private const float BulletRadius = 2.4f;
     private const float ToggleSize = 9f;
     private const float CheckboxSize = 11f;
@@ -133,7 +136,9 @@ internal sealed class OutlineDocument
             parentIndexes[i],
             hasChildren[i],
             collapsed.Contains(line.Id),
-            hidden[i])).ToList());
+            hidden[i],
+            line.AnchorId,
+            line.AnchorLength)).ToList());
     }
 
     public static Rect GetContentRect(RenderBlock block, Rect bounds)
@@ -310,7 +315,7 @@ internal sealed class OutlineDocument
             if (selStart >= 0)
             {
                 int lineRawStart = line.Start + line.PrefixLength;
-                int lineRawEnd = line.Start + line.Length;
+                int lineRawEnd = line.Start + line.Length - line.AnchorLength;
                 int lineSelStart = Math.Max(selStart, lineRawStart);
                 int lineSelEnd = Math.Min(selEnd, lineRawEnd);
                 if (lineSelStart < lineSelEnd)
@@ -335,7 +340,7 @@ internal sealed class OutlineDocument
             if (hasCursor && editCursorVisible)
             {
                 int lineRawStart = line.Start + line.PrefixLength;
-                int lineRawEnd = line.Start + line.Length;
+                int lineRawEnd = line.Start + line.Length - line.AnchorLength;
                 if (editCursorPos >= line.Start && editCursorPos <= lineRawEnd)
                 {
                     int visCol = Math.Max(0, Math.Min(line.Text.Length, editCursorPos - lineRawStart));
@@ -418,7 +423,7 @@ internal sealed class OutlineDocument
 
         // Below the last visible line — put cursor at the end of the last line if any.
         if (lastLine is not null)
-            return lastLine.Start + lastLine.Length;
+            return lastLine.Start + lastLine.Length - lastLine.AnchorLength;
         return text.Length;
     }
 
@@ -775,6 +780,198 @@ internal sealed class OutlineDocument
         return string.Join('\n', lines);
     }
 
+    // -----------------------------------------------------------------------
+    // Bullet anchor-ID helpers (for bullet-to-block connections)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Returns the 8-hex-char anchor ID if the raw line text ends with " ^xxxxxxxx",
+    /// otherwise returns null.
+    /// </summary>
+    public static string? ParseBulletAnchorId(string rawLineText)
+    {
+        // Format: " ^12345678" = 10 chars (space, caret, 8 hex digits)
+        if (rawLineText.Length < 10) return null;
+        int anchorStart = rawLineText.Length - 10;
+        if (rawLineText[anchorStart] != ' ' || rawLineText[anchorStart + 1] != '^') return null;
+        string hex = rawLineText[(anchorStart + 2)..];
+        if (hex.Length != 8) return null;
+        foreach (char c in hex)
+            if (!Uri.IsHexDigit(c)) return null;
+        return hex;
+    }
+
+    /// <summary>
+    /// Ensures the raw body line at <paramref name="lineIndex"/> has a " ^xxxxxxxx"
+    /// anchor ID suffix. Returns the (potentially updated) body and the bullet's anchor ID.
+    /// </summary>
+    public static (string NewBody, string AnchorId) GetOrAllocateBulletAnchorId(string body, int lineIndex)
+    {
+        body = body.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        var lines = body.Split('\n').ToList();
+        if (lineIndex < 0 || lineIndex >= lines.Count)
+            return (body, GenerateAnchorId());
+
+        string line = lines[lineIndex];
+        // Check if the display part (after prefix) already has a ^id
+        int prefix = PrefixLengthForLine(line);
+        string display = prefix <= line.Length ? line[prefix..] : string.Empty;
+        string? existing = ParseBulletAnchorId(display);
+        if (existing is not null)
+            return (body, existing);
+
+        string newId = GenerateAnchorId();
+        lines[lineIndex] = line + " ^" + newId;
+        return (string.Join('\n', lines), newId);
+    }
+
+    public static string GenerateAnchorIdPublic() =>
+        Guid.NewGuid().ToString("N")[..8];
+
+    private static string GenerateAnchorId() =>
+        GenerateAnchorIdPublic();
+
+    /// <summary>
+    /// Returns the font size for an outline block, mirroring BlockRenderer's AutoFontSize logic.
+    /// </summary>
+    public static float GetFontSize(RenderBlock block)
+    {
+        var style = block.Style ?? new BoardItemStyle();
+        if (block.Kind == BlockKind.Note)
+            return Math.Clamp((float)style.FontSize, 8f, 48f);
+        float baseFont = Math.Clamp((float)style.FontSize, 8f, 96f);
+        if (!style.AutoFontSize || string.IsNullOrEmpty(block.Body))
+            return baseFont;
+        float lines = Math.Max(1, (block.Body ?? "").Split('\n').Length);
+        return (float)Math.Clamp((block.Height - 8) / (lines * 1.4f), 6f, 96f);
+    }
+
+    /// <summary>
+    /// Hit-tests whether <paramref name="world"/> is inside the bullet-dot / toggle
+    /// area of any visible line in an outline block. Returns the line's index within
+    /// the raw body and the world-space point that should be used as the connection
+    /// endpoint (right edge of the block, vertically centred on the row).
+    /// </summary>
+    public static (int LineIndex, WpfPoint ConnectionPoint)? TryHitBullet(
+        RenderBlock block, Rect bounds, WpfPoint world,
+        Vortice.DirectWrite.IDWriteFactory? dwrite = null)
+    {
+        if (!IsOutlineBlock(block)) return null;
+
+        var style = block.Style ?? new BoardItemStyle();
+        var doc = Parse(block.Body ?? string.Empty, style);
+        var content = GetContentRect(block, bounds);
+        float fontSize = GetFontSize(block);
+        float rowH = Math.Max(16f, fontSize * 1.45f);
+        float maxW = (float)content.Width;
+
+        // Only hit-test if the world point is inside (or within a few px of) the block.
+        double hitExpand = 12;
+        if (world.X < bounds.Left - hitExpand || world.X > bounds.Right + hitExpand
+         || world.Y < bounds.Top - hitExpand || world.Y > bounds.Bottom + hitExpand)
+            return null;
+
+        Vortice.DirectWrite.IDWriteTextFormat? fmt = null;
+        if (dwrite is not null)
+        {
+            string fontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily!;
+            fmt = dwrite.CreateTextFormat(fontFamily,
+                style.Bold ? Vortice.DirectWrite.FontWeight.Bold : Vortice.DirectWrite.FontWeight.Normal,
+                style.Italic ? Vortice.DirectWrite.FontStyle.Italic : Vortice.DirectWrite.FontStyle.Normal,
+                Vortice.DirectWrite.FontStretch.Normal, fontSize);
+            fmt.WordWrapping = Vortice.DirectWrite.WordWrapping.Wrap;
+        }
+
+        float y = (float)content.Y;
+        try
+        {
+            foreach (var line in doc.VisibleLines)
+            {
+                if (y > content.Bottom) break;
+                float indent = line.Level * IndentWidth;
+                float available = Math.Max(8f, maxW - indent - 22f);
+
+                float drawn = rowH;
+                if (fmt is not null)
+                {
+                    using var layout = dwrite!.CreateTextLayout(
+                        string.IsNullOrWhiteSpace(line.Text) ? " " : line.Text, fmt, available, MaxTextLayoutHeight);
+                    drawn = MeasureRowHeight(layout, rowH);
+                }
+
+                // Hit zone: the bullet glyph area on the left, with generous padding.
+                // We use a wider zone (the whole left 32px of the indent+bullet area)
+                // so it's easy to click.
+                float hitLeft = (float)content.X + indent;
+                float hitRight = (float)content.X + indent + 32f;
+                var hitRect = new Rect(hitLeft, y, hitRight - hitLeft, drawn);
+                if (hitRect.Contains(world))
+                {
+                    // Connection point is on the right edge of the block at bullet mid-Y.
+                    float midY = y + drawn * 0.5f;
+                    var connectionPoint = new WpfPoint(bounds.Right, midY);
+                    return (line.Index, connectionPoint);
+                }
+
+                y += drawn;
+            }
+        }
+        finally
+        {
+            fmt?.Dispose();
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the world-space point for a connection attached to the bullet whose
+    /// anchor ID is <paramref name="anchorId"/>. Falls back to null if the ID cannot
+    /// be found (e.g. block body was edited after the connection was created).
+    /// </summary>
+    public static WpfPoint? GetBulletConnectionPoint(
+        RenderBlock block, Rect bounds, string anchorId,
+        float fontSize, string fontFamily, bool bold, bool italic,
+        Vortice.DirectWrite.IDWriteFactory dwrite)
+    {
+        if (!IsOutlineBlock(block)) return null;
+
+        var style = block.Style ?? new BoardItemStyle();
+        var doc = Parse(block.Body ?? string.Empty, style);
+        var content = GetContentRect(block, bounds);
+        float rowH = Math.Max(16f, fontSize * 1.45f);
+        float maxW = (float)content.Width;
+
+        using var fmt = dwrite.CreateTextFormat(
+            string.IsNullOrWhiteSpace(fontFamily) ? "Segoe UI" : fontFamily,
+            bold ? Vortice.DirectWrite.FontWeight.Bold : Vortice.DirectWrite.FontWeight.Normal,
+            italic ? Vortice.DirectWrite.FontStyle.Italic : Vortice.DirectWrite.FontStyle.Normal,
+            Vortice.DirectWrite.FontStretch.Normal, fontSize);
+        fmt.WordWrapping = Vortice.DirectWrite.WordWrapping.Wrap;
+
+        float y = (float)content.Y;
+        foreach (var line in doc.VisibleLines)
+        {
+            if (y > content.Bottom + 200) break;
+            float indent = line.Level * IndentWidth;
+            float available = Math.Max(8f, maxW - indent - 22f);
+
+            using var layout = dwrite.CreateTextLayout(
+                string.IsNullOrWhiteSpace(line.Text) ? " " : line.Text, fmt, available, MaxTextLayoutHeight);
+            float drawn = MeasureRowHeight(layout, rowH);
+
+            if (string.Equals(line.AnchorId, anchorId, StringComparison.Ordinal))
+            {
+                float midY = y + drawn * 0.5f;
+                // Use right edge of block so the line exits the block boundary cleanly.
+                return new WpfPoint(bounds.Right, midY);
+            }
+
+            y += drawn;
+        }
+
+        return null;
+    }
+
     private static void DrawToggle(DrawingContext ctx, float x, float y, bool collapsed, WpfColor color)
     {
         var brush = ctx.GetBrush(WpfColor.FromArgb(170, color.R, color.G, color.B));
@@ -818,7 +1015,7 @@ internal sealed class OutlineDocument
                 {
                     var prev = doc.Lines[j];
                     if (prev.IsHidden) continue;
-                    return prev.Start + prev.Length;
+                    return prev.Start + prev.Length - prev.AnchorLength;
                 }
                 return prefixEnd;
             }
@@ -952,8 +1149,18 @@ internal sealed class OutlineDocument
         if (rest.StartsWith("- ", StringComparison.Ordinal) || rest.StartsWith("* ", StringComparison.Ordinal) || rest.StartsWith("\u2022 ", StringComparison.Ordinal))
             bulletLen = 2;
         string display = bulletLen > 0 ? rest[bulletLen..] : rest;
+
+        // Strip the ` ^xxxxxxxx` bullet anchor-ID suffix if present.
+        string? anchorId = ParseBulletAnchorId(display);
+        int anchorLength = 0;
+        if (anchorId is not null)
+        {
+            anchorLength = 10; // space + '^' + 8 hex chars
+            display = display[..^anchorLength];
+        }
+
         string id = StableId(index, level, display.Trim());
-        return new OutlineLineBuilder(index, start, line.Length, Math.Max(0, level), indentChars + bulletLen, display, id);
+        return new OutlineLineBuilder(index, start, line.Length, Math.Max(0, level), indentChars + bulletLen, display, id, anchorId, anchorLength);
     }
 
     private static string StableId(int index, int level, string text)
@@ -971,5 +1178,5 @@ internal sealed class OutlineDocument
         }
     }
 
-    private sealed record OutlineLineBuilder(int Index, int Start, int Length, int Level, int PrefixLength, string Text, string Id);
+    private sealed record OutlineLineBuilder(int Index, int Start, int Length, int Level, int PrefixLength, string Text, string Id, string? AnchorId = null, int AnchorLength = 0);
 }

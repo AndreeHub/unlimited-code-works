@@ -27,7 +27,19 @@ internal sealed class ConnectionTool : CanvasToolBase
 
             Viewport._isDrawingConnection = true;
             Viewport._connectionSourceKey = anchorHit.Block.Block.Key;
-            Viewport._connectionSourceAnchorIndex = anchorHit.AnchorIndex;
+            if (anchorHit.LineIndex >= 0)
+            {
+                // Bullet anchor: allocate ^id immediately so it's ready when the connection completes.
+                Viewport._connectionSourceLineId = Viewport.EnsureBulletAnchorId(anchorHit.Block.Block.Key, anchorHit.LineIndex);
+                Viewport._connectionSourceBulletLineIndex = anchorHit.LineIndex;
+                Viewport._connectionSourceAnchorIndex = null;
+            }
+            else
+            {
+                Viewport._connectionSourceLineId = null;
+                Viewport._connectionSourceBulletLineIndex = -1;
+                Viewport._connectionSourceAnchorIndex = anchorHit.AnchorIndex;
+            }
             Viewport._connectionSourceWorld = anchorHit.Point;
             Viewport._connectionCurrentWorld = anchorHit.Point;
             Viewport._connectionDraftMidPoint = null;

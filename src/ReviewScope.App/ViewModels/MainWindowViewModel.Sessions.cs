@@ -206,7 +206,9 @@ public sealed partial class MainWindowViewModel
                 RouteKind: c.RouteKind,
                 ArrowKind: c.ArrowKind,
                 Stroke: c.Stroke,
-                Dashed: c.Dashed))
+                Dashed: c.Dashed,
+                SourceLineId: c.SourceLineId,
+                TargetLineId: c.TargetLineId))
             .ToList();
 
         var swimLanes = session.SwimLanes
@@ -377,7 +379,9 @@ public sealed partial class MainWindowViewModel
                 c.RouteKind,
                 c.ArrowKind,
                 c.Stroke,
-                c.Dashed))
+                c.Dashed,
+                c.SourceLineId,
+                c.TargetLineId))
             .ToList();
 
         var annotations = scene.Annotations

@@ -30,7 +30,7 @@ public sealed record ExtractRequestedArgs(RenderBlock SourceBlock, int Line, int
 public sealed record FocusRequestedArgs(RenderBlock SourceBlock, int Line, int Column);
 public sealed record BlockActivatedArgs(RenderBlock Block);
 public sealed record PasteRequestedArgs(double WorldX, double WorldY);
-public sealed record ConnectionDrawnArgs(string SourceKey, string TargetKey, int? SourceAnchorIndex, int? TargetAnchorIndex, double? MidControlX, double? MidControlY, bool MidControlBends);
+public sealed record ConnectionDrawnArgs(string SourceKey, string TargetKey, int? SourceAnchorIndex, int? TargetAnchorIndex, double? MidControlX, double? MidControlY, bool MidControlBends, string? SourceLineId = null, string? TargetLineId = null);
 public sealed record AnnotationRequestedArgs(double WorldX, double WorldY, string? AttachedBlockKey = null);
 public sealed record ItemPlacementArgs(string Kind, double WorldX, double WorldY);
 public sealed record CanvasSceneChangedArgs(RenderScene Before, RenderScene After, bool IsContentChange);
@@ -234,10 +234,14 @@ public sealed partial class CanvasViewport : HwndHost
     internal bool _isDrawingConnection;
     internal string? _connectionSourceKey;
     internal int? _connectionSourceAnchorIndex;
+    internal string? _connectionSourceLineId;          // set when source is a bullet anchor
+    internal int _connectionSourceBulletLineIndex = -1; // raw line index of source bullet
     internal WpfPoint _connectionSourceWorld;
     internal WpfPoint _connectionCurrentWorld;
     internal string? _connectionHoverTargetKey;
     internal int? _connectionHoverTargetAnchorIndex;
+    internal string? _connectionHoverTargetLineId;       // set when hover target is a bullet anchor
+    internal int _connectionHoverTargetBulletLineIndex = -1; // raw line index of hover-target bullet
     internal WpfPoint? _connectionHoverTargetWorld;
     internal WpfPoint? _connectionDraftMidPoint;
     internal bool _connectionDraftMidPointBends;
@@ -510,8 +514,47 @@ public sealed partial class CanvasViewport : HwndHost
         if (anchor.Block.Block.Key.Equals(_connectionSourceKey, StringComparison.OrdinalIgnoreCase)) return false;
         if (_rewireConnectionId is Guid id) { CompleteConnectionRewire(anchor); return true; }
         if (_connectionSourceKey is null || ConnectionDrawnCommand?.CanExecute(null) != true) return false;
-        ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(_connectionSourceKey, anchor.Block.Block.Key, _connectionSourceAnchorIndex, anchor.AnchorIndex, _connectionDraftMidPoint?.X, _connectionDraftMidPoint?.Y, _connectionDraftMidPointBends));
+
+        // For bullet anchors, allocate (or retrieve) the stable ^id in the body text.
+        string? targetLineId = anchor.LineIndex >= 0
+            ? EnsureBulletAnchorId(anchor.Block.Block.Key, anchor.LineIndex)
+            : null;
+        int? targetAnchorIndex = anchor.LineIndex < 0 ? anchor.AnchorIndex : (int?)null;
+
+        ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(
+            _connectionSourceKey, anchor.Block.Block.Key,
+            _connectionSourceAnchorIndex, targetAnchorIndex,
+            _connectionDraftMidPoint?.X, _connectionDraftMidPoint?.Y, _connectionDraftMidPointBends,
+            SourceLineId: _connectionSourceLineId,
+            TargetLineId: targetLineId));
         return true;
+    }
+
+    /// <summary>
+    /// Ensures the bullet at <paramref name="lineIndex"/> in the block identified by
+    /// <paramref name="blockKey"/> has a persistent " ^xxxxxxxx" anchor ID suffix.
+    /// Writes the updated body to the scene when needed and returns the anchor ID.
+    /// </summary>
+    internal string EnsureBulletAnchorId(string blockKey, int lineIndex)
+    {
+        var block = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(blockKey, StringComparison.OrdinalIgnoreCase));
+        if (block is null) return OutlineDocument.GenerateAnchorIdPublic();
+
+        string body = block.Body ?? string.Empty;
+        var (newBody, anchorId) = OutlineDocument.GetOrAllocateBulletAnchorId(body, lineIndex);
+
+        if (!string.Equals(newBody, body, StringComparison.Ordinal))
+        {
+            // Persist the ^id back into the block body so it survives save/load.
+            var updatedBlock = block with { Body = newBody };
+            var blocks = Scene.Blocks
+                .Select(b => b.Key.Equals(blockKey, StringComparison.OrdinalIgnoreCase) ? updatedBlock : b)
+                .ToList();
+            ApplySceneChange(Scene with { Blocks = blocks });
+            RebuildSnapshot();
+        }
+
+        return anchorId;
     }
 
     internal float InvStroke(float strokeWidth) => (float)(strokeWidth / _camera.Zoom);

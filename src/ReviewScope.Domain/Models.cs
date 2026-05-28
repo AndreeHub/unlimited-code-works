@@ -144,7 +144,9 @@ public sealed record ConnectionSnapshot(
     ConnectorRouteKind RouteKind = ConnectorRouteKind.Curved,
     ConnectorArrowKind ArrowKind = ConnectorArrowKind.Forward,
     string Stroke = "#4584CB",
-    bool Dashed = false);
+    bool Dashed = false,
+    string? SourceLineId = null,
+    string? TargetLineId = null);
 
 public sealed record AnnotationSnapshot(
     Guid Id,
@@ -227,7 +229,9 @@ public sealed record RenderConnection(
     ConnectorRouteKind RouteKind = ConnectorRouteKind.Curved,
     ConnectorArrowKind ArrowKind = ConnectorArrowKind.Forward,
     string Stroke = "#4584CB",
-    bool Dashed = false);
+    bool Dashed = false,
+    string? SourceLineId = null,
+    string? TargetLineId = null);
 
 public sealed record RenderSwimLane(
     Guid Id,

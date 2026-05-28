@@ -102,7 +102,9 @@ public sealed partial class CanvasViewport
                         _isExtractMode, _hoverAnchorBlockKey, _hoverAnchorIndex,
                         _isDrawingConnection, _connectionSourceKey, _connectionSourceAnchorIndex,
                         _connectionHoverTargetKey, _connectionHoverTargetAnchorIndex,
-                        ConnectorsEnabled, _codeScrollLines, GetOrLoadImageBitmap);
+                        ConnectorsEnabled, _codeScrollLines, GetOrLoadImageBitmap,
+                        _connectionSourceLineId, _connectionHoverTargetLineId,
+                        _connectionSourceBulletLineIndex, _connectionHoverTargetBulletLineIndex);
                 }
             }
 
