@@ -12,6 +12,10 @@ public sealed class SessionRepository : ISessionRepository
     private readonly string _legacyRootPath;
     private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
+    // Serializes all atomic writes so concurrent PersistSessionAsync calls (now triggered far more
+    // frequently by bullet-connection scene changes) cannot race on File.Move against the same path.
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
+
     public SessionRepository() : this(null) { }
 
     public SessionRepository(string? rootPath)
@@ -187,6 +191,8 @@ public sealed class SessionRepository : ISessionRepository
         string dir = Path.GetDirectoryName(path) ?? Environment.CurrentDirectory;
         Directory.CreateDirectory(dir);
         string tempPath = Path.Combine(dir, $"{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+
+        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await using (var stream = File.Create(tempPath))
@@ -194,10 +200,11 @@ public sealed class SessionRepository : ISessionRepository
                 await JsonSerializer.SerializeAsync(stream, value, _jsonOptions, ct);
             }
 
-            File.Move(tempPath, path, overwrite: true);
+            await MoveWithRetryAsync(tempPath, path, ct).ConfigureAwait(false);
         }
         finally
         {
+            _writeLock.Release();
             try
             {
                 if (File.Exists(tempPath))
@@ -208,6 +215,26 @@ public sealed class SessionRepository : ISessionRepository
             }
             catch (UnauthorizedAccessException)
             {
+            }
+        }
+    }
+
+    // File.Move(overwrite) maps to MoveFileEx(MOVEFILE_REPLACE_EXISTING) which can transiently fail
+    // with UnauthorizedAccessException (0x80070005) when an antivirus/indexer or a brief reader holds
+    // the destination handle. Retry with backoff before giving up.
+    private static async Task MoveWithRetryAsync(string tempPath, string destPath, CancellationToken ct)
+    {
+        const int maxAttempts = 5;
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(tempPath, destPath, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when ((ex is UnauthorizedAccessException or IOException) && attempt < maxAttempts)
+            {
+                await Task.Delay(20 * attempt, ct).ConfigureAwait(false);
             }
         }
     }
