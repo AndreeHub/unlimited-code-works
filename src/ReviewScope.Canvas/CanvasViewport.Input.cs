@@ -164,12 +164,12 @@ public sealed partial class CanvasViewport
             {
                 // Outline overlays that respond before cursor positioning: collapse
                 // toggle on parent bullets, and TODO/DONE checkboxes.
-                if (OutlineDocument.TryHitToggle(editVis.Block, editVis.Bounds, world, out string editToggleLineId))
+                if (OutlineDocument.TryHitToggle(editVis.Block, editVis.Bounds, world, out string editToggleLineId, _dwrite))
                 {
                     ToggleOutlineLineCollapseInEdit(editToggleLineId);
                     return;
                 }
-                int editTodoLine = OutlineDocument.TryHitTodoCheckbox(editVis.Block, editVis.Bounds, world);
+                int editTodoLine = OutlineDocument.TryHitTodoCheckbox(editVis.Block, editVis.Bounds, world, _dwrite);
                 if (editTodoLine >= 0)
                 {
                     ToggleTodoLineInEdit(editTodoLine);
@@ -181,11 +181,8 @@ public sealed partial class CanvasViewport
                 {
                     var style = editVis.Block.Style ?? new BoardItemStyle();
                     var contentRect = OutlineDocument.GetContentRect(editVis.Block, editVis.Bounds);
-                    float fontSize = editVis.Block.Kind == BlockKind.Note
-                        ? 12.5f
-                        : Math.Clamp((float)style.FontSize, 8f, 96f);
-                    string fam = editVis.Block.Kind == BlockKind.Note ? "Segoe UI"
-                        : (string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily!);
+                    float fontSize = GetOutlineFontSize(editVis.Block, editVis.Bounds, _editBody);
+                    string fam = string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily!;
                     newPos = OutlineDocument.HitTestPoint(editVis.Block, contentRect, _editBody, fontSize, fam, style.Bold, style.Italic, world, _dwrite);
                 }
                 else
@@ -224,14 +221,14 @@ public sealed partial class CanvasViewport
         if (modifiers.HasFlag(ModifierKeys.Control)) { SetTool("Marquee"); _currentTool?.HandleLDown(screen, world, modifiers); return; }
 
         var outlineToggleHit = HitBlock(world);
-        if (outlineToggleHit is not null && OutlineDocument.TryHitToggle(outlineToggleHit.Block, outlineToggleHit.Bounds, world, out string outlineLineId))
+        if (outlineToggleHit is not null && OutlineDocument.TryHitToggle(outlineToggleHit.Block, outlineToggleHit.Bounds, world, out string outlineLineId, _dwrite))
         {
             ToggleOutlineLineCollapse(outlineToggleHit.Block.Key, outlineLineId);
             return;
         }
         if (outlineToggleHit is not null)
         {
-            int todoLine = OutlineDocument.TryHitTodoCheckbox(outlineToggleHit.Block, outlineToggleHit.Bounds, world);
+            int todoLine = OutlineDocument.TryHitTodoCheckbox(outlineToggleHit.Block, outlineToggleHit.Bounds, world, _dwrite);
             if (todoLine >= 0)
             {
                 ToggleTodoLine(outlineToggleHit.Block.Key, todoLine);
@@ -326,9 +323,8 @@ public sealed partial class CanvasViewport
                 {
                     var style2 = ev.Block.Style ?? new BoardItemStyle();
                     var contentRect = OutlineDocument.GetContentRect(ev.Block, ev.Bounds);
-                    float fontSize = ev.Block.Kind == BlockKind.Note ? 12.5f : Math.Clamp((float)style2.FontSize, 8f, 96f);
-                    string fam = ev.Block.Kind == BlockKind.Note ? "Segoe UI"
-                        : (string.IsNullOrWhiteSpace(style2.FontFamily) ? "Segoe UI" : style2.FontFamily!);
+                    float fontSize = GetOutlineFontSize(ev.Block, ev.Bounds, _editBody);
+                    string fam = string.IsNullOrWhiteSpace(style2.FontFamily) ? "Segoe UI" : style2.FontFamily!;
                     _editCursorPos = OutlineDocument.HitTestPoint(ev.Block, contentRect, _editBody, fontSize, fam, style2.Bold, style2.Italic, world, _dwrite);
                 }
                 else
@@ -500,11 +496,29 @@ public sealed partial class CanvasViewport
     }
 
     /// <summary>Same as <see cref="ToggleOutlineLineCollapse"/> but for the block being
-    /// edited — updates the live block's style so the visual reflects immediately.</summary>
+    /// edited — updates the live block's style so the visual reflects immediately, then
+    /// snaps the cursor to a visible line if it ended up inside collapsed content.</summary>
     private void ToggleOutlineLineCollapseInEdit(string lineId)
     {
         if (_editingNoteKey is null) return;
         ToggleOutlineLineCollapse(_editingNoteKey, lineId);
+
+        var block = CurrentEditingBlock();
+        if (block is null) return;
+        var doc = OutlineDocument.Parse(_editBody, block.Style ?? new BoardItemStyle());
+        var cursorLine = doc.Lines.FirstOrDefault(l =>
+            _editCursorPos >= l.Start && _editCursorPos <= l.Start + l.Length);
+        if (cursorLine is null || !cursorLine.IsHidden) return;
+
+        var fallback = doc.VisibleLines.LastOrDefault(l => l.Index < cursorLine.Index);
+        if (fallback is not null)
+            _editCursorPos = fallback.Start + fallback.Length;
+        else
+        {
+            var first = doc.VisibleLines.FirstOrDefault();
+            _editCursorPos = first is not null ? first.Start + first.PrefixLength : 0;
+        }
+        _editSelectionAnchor = -1;
     }
 
     private void UngroupSelectedGroups()
@@ -743,6 +757,19 @@ public sealed partial class CanvasViewport
         return ((float)bounds.X + 14, (float)(bounds.Y + bounds.Height / 2 - 8), (float)bounds.Width - 28, 13f, false, Vortice.DirectWrite.TextAlignment.Leading, 18f, Vortice.DirectWrite.ParagraphAlignment.Near, null, false, false);
     }
 
+    /// <summary>Compute the effective font size for an outline block, matching BlockRenderer's logic.</summary>
+    private static float GetOutlineFontSize(RenderBlock block, Rect bounds, string text)
+    {
+        var style = block.Style ?? new BoardItemStyle();
+        if (block.Kind == BlockKind.Note)
+            return Math.Clamp((float)style.FontSize, 8f, 48f);
+        float baseFont = Math.Clamp((float)style.FontSize, 8f, 96f);
+        if (!style.AutoFontSize || string.IsNullOrEmpty(text))
+            return baseFont;
+        float lines = Math.Max(1, text.Split('\n').Length);
+        return (float)Math.Clamp((bounds.Height - 8) / (lines * 1.4f), 6f, 96f);
+    }
+
     private static Vortice.DirectWrite.ParagraphAlignment ToDWriteParagraphAlignment(string? v) =>
         v?.Trim().ToLowerInvariant() switch
         {
@@ -760,6 +787,7 @@ public sealed partial class CanvasViewport
 
     internal void CommitNoteEdit(bool save)
     {
+        HideAutocomplete();
         _cursorBlinkTimer?.Dispose(); _cursorBlinkTimer = null; string? key = _editingNoteKey; _editingNoteKey = null; _editCursorVisible = false; _editSelectionAnchor = -1; _editMouseSelecting = false;
         if (save && key is not null)
         {
@@ -825,6 +853,10 @@ public sealed partial class CanvasViewport
 
     private void HandleEditModeKey(Key key)
     {
+        // Autocomplete owns Up/Down/Tab/Return/Esc whenever its popup is open, so
+        // those keys don't bubble down to outline navigation / commit.
+        if (TryHandleAutocompleteKey(key)) return;
+
         bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift); bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control); bool alt = Keyboard.Modifiers.HasFlag(ModifierKeys.Alt); string text = _editingTitle ? _editTitle : _editBody;
         if (ctrl && key == Key.A) { _editSelectionAnchor = 0; _editCursorPos = text.Length; _editCursorVisible = true; RenderNative(); return; }
         if (ctrl && (key == Key.C || key == Key.X)) { var selCx = GetEditSelection(); if (selCx is not null) { int s = selCx.Value.Item1, e = selCx.Value.Item2; try { System.Windows.Clipboard.SetText(text.Substring(s, e - s)); } catch { } if (key == Key.X) DeleteEditSelection(); } _editCursorVisible = true; RenderNative(); return; }
@@ -898,6 +930,7 @@ public sealed partial class CanvasViewport
             _editCursorPos = OutlineDocument.SnapToVisible(_editBody, CurrentEditingBlock()?.Style, _editCursorPos, dir);
         }
 
+        RefreshAutocompleteState();
         _editCursorVisible = true; RenderNative();
     }
 
@@ -916,10 +949,21 @@ public sealed partial class CanvasViewport
 
         if (currentContent.Length == 0 && _editCursorPos >= line.Start + OutlineDocument.PrefixLengthForLine(line.Text))
         {
-            int remove = OutlineDocument.PrefixLengthForLine(line.Text);
-            _editBody = _editBody.Remove(line.Start, remove).Insert(line.Start, string.Empty);
-            _editCursorPos = line.Start;
-            InsertEditText("\n");
+            // Empty bullet: if indented, outdent one level (Logseq-style); if already at
+            // the top level, strip the bullet prefix and leave a plain blank line.
+            bool isIndented = line.Text.StartsWith("  ", StringComparison.Ordinal)
+                           || line.Text.StartsWith("\t", StringComparison.Ordinal);
+            if (isIndented)
+            {
+                IndentCurrentOutlineSubtree(-1);
+            }
+            else
+            {
+                int remove = OutlineDocument.PrefixLengthForLine(line.Text);
+                _editBody = _editBody.Remove(line.Start, remove);
+                _editCursorPos = line.Start;
+                _editSelectionAnchor = -1;
+            }
             return;
         }
 
@@ -1000,6 +1044,7 @@ public sealed partial class CanvasViewport
             return;
 
         if (c == '\r') { if (!_editingTitle) InsertEditText("\n"); } else if (c >= 32) InsertEditText(c.ToString());
+        RefreshAutocompleteState();
         _editCursorVisible = true; RenderNative();
     }
 

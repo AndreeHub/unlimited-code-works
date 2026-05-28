@@ -46,6 +46,10 @@ public partial class MainWindow : Window
         // cards (typography/spacing/alignment), Inspector-tab for notes (their body
         // + sticky color live there).
         CanvasViewport.EditStarted += OnCanvasEditStarted;
+
+        // Feed inline autocomplete (#tag, [[wiki link]]) from the per-workspace
+        // TagIndex held by the view-model.
+        CanvasViewport.AutocompleteSuggestionsProvider = vm.GetAutocompleteSuggestions;
     }
 
     private void OnCanvasEditStarted(Domain.BlockKind kind)
@@ -87,6 +91,7 @@ public partial class MainWindow : Window
         if (CanvasViewport.IsEditingInCanvas)
         {
             bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+            bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
             if (!ctrl)
             {
                 if (e.Key is Key.Tab or Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End)
@@ -95,6 +100,13 @@ public partial class MainWindow : Window
                     e.Handled = true;
                     return;
                 }
+            }
+            else if (e.Key is Key.A or Key.C or Key.X or Key.V or Key.B or Key.I or Key.E
+                     || (shift && e.Key == Key.S))
+            {
+                CanvasViewport.ForwardEditKey(e.Key);
+                e.Handled = true;
+                return;
             }
 
             // All other in-edit keystrokes (typed characters, Ctrl+B/I/E for inline
@@ -533,6 +545,9 @@ public partial class MainWindow : Window
 
         if (Clipboard.ContainsText() && LooksLikeMarkdown(Clipboard.GetText()))
         {
+            if (await _vm.PasteClipboardTextIntoSelectedEditableBlockAsync())
+                return;
+
             await _vm.PasteMarkdownDocAtAsync(args.WorldX, args.WorldY);
             return;
         }

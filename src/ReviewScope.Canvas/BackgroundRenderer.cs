@@ -17,53 +17,76 @@ internal sealed class BackgroundRenderer
         _ctx = ctx;
     }
 
-    public void DrawBackground(Size viewSize, CanvasBackgroundMode mode)
+    public void DrawBackground(Size viewSize, CanvasBackgroundMode mode, CameraState camera)
     {
         if (mode == CanvasBackgroundMode.Dots)
-            DrawDots(viewSize);
+            DrawDots(viewSize, camera);
         else
-            DrawGrid(viewSize);
+            DrawGrid(viewSize, camera);
     }
 
-    private void DrawGrid(Size viewSize)
+    private void DrawGrid(Size viewSize, CameraState camera)
     {
         float w = (float)viewSize.Width, h = (float)viewSize.Height;
+        const float worldSpacing = 36f;
+        const int majorEvery = 5;
+
+        float screenSpacing = worldSpacing * (float)camera.Zoom;
+        if (screenSpacing < 3f) return;
+
         var minor = _ctx.GetBrush(WpfColor.FromArgb(62, 198, 207, 219));
         var major = _ctx.GetBrush(WpfColor.FromArgb(104, 172, 184, 199));
-        // Camera-aware grid: lines stay locked to world units so panning feels physical
-        float spacing = 36f;
-        float majorEvery = 5f;
-        double zoom = _ctx.Camera.Zoom;
-        float gridStep = (float)(spacing * zoom);
-        if (gridStep < 12f) gridStep = (float)(spacing * 4 * zoom);
-        if (gridStep < 8f) return;
 
-        float ox = (float)(_ctx.Camera.OffsetX % gridStep);
-        float oy = (float)(_ctx.Camera.OffsetY % gridStep);
-        int i = 0;
-        for (float x = ox; x < w; x += gridStep, i++)
-            _ctx.RenderTarget.DrawLine(new Vector2(x, 0), new Vector2(x, h), i % (int)majorEvery == 0 ? major : minor, 1f);
-        i = 0;
-        for (float y = oy; y < h; y += gridStep, i++)
-            _ctx.RenderTarget.DrawLine(new Vector2(0, y), new Vector2(w, y), i % (int)majorEvery == 0 ? major : minor, 1f);
+        // World-anchored: world line at x = i*worldSpacing is at screen x = i*screenSpacing + offsetX.
+        // Find the first world index whose screen position is >= 0.
+        int firstIx = (int)System.Math.Floor(-camera.OffsetX / screenSpacing);
+        int firstIy = (int)System.Math.Floor(-camera.OffsetY / screenSpacing);
+
+        for (int ix = firstIx; ; ix++)
+        {
+            float x = ix * screenSpacing + (float)camera.OffsetX;
+            if (x > w) break;
+            var brush = (ix % majorEvery == 0) ? major : minor;
+            _ctx.RenderTarget.DrawLine(new Vector2(x, 0), new Vector2(x, h), brush, 1f);
+        }
+        for (int iy = firstIy; ; iy++)
+        {
+            float y = iy * screenSpacing + (float)camera.OffsetY;
+            if (y > h) break;
+            var brush = (iy % majorEvery == 0) ? major : minor;
+            _ctx.RenderTarget.DrawLine(new Vector2(0, y), new Vector2(w, y), brush, 1f);
+        }
     }
 
-    private void DrawDots(Size viewSize)
+    private void DrawDots(Size viewSize, CameraState camera)
     {
         float w = (float)viewSize.Width, h = (float)viewSize.Height;
-        const double worldSpacing = 24;
-        float spacing = (float)(worldSpacing * _ctx.Camera.Zoom);
-        while (spacing < 13f) spacing *= 2f;
-        while (spacing > 30f) spacing *= 0.5f;
+        const float worldSpacing = 20f;
+        const float worldRadius = 1.4f;
 
-        float ox = (float)(_ctx.Camera.OffsetX % spacing);
-        float oy = (float)(_ctx.Camera.OffsetY % spacing);
-        byte alpha = (byte)Math.Clamp(132 - Math.Abs(spacing - 20f) * 2.0f, 72, 132);
-        var dot = _ctx.GetBrush(WpfColor.FromArgb(alpha, 176, 186, 200));
-        float r = Math.Clamp(spacing / 14f, 1.15f, 1.85f);
-        for (float y = oy; y < h; y += spacing)
-            for (float x = ox; x < w; x += spacing)
-                _ctx.RenderTarget.FillEllipse(new Ellipse(new Vector2(x, y), r, r), dot);
+        float screenSpacing = worldSpacing * (float)camera.Zoom;
+        // When zoomed way out, dots crowd into noise — drop them.
+        if (screenSpacing < 4f) return;
+
+        // Keep dot size readable but proportional to zoom (clamped).
+        float radius = System.Math.Clamp(worldRadius * (float)camera.Zoom, 0.6f, 3.0f);
+
+        var dot = _ctx.GetBrush(WpfColor.FromArgb(132, 176, 186, 200));
+
+        int firstIx = (int)System.Math.Floor(-camera.OffsetX / screenSpacing);
+        int firstIy = (int)System.Math.Floor(-camera.OffsetY / screenSpacing);
+
+        for (int iy = firstIy; ; iy++)
+        {
+            float y = iy * screenSpacing + (float)camera.OffsetY;
+            if (y > h + radius) break;
+            for (int ix = firstIx; ; ix++)
+            {
+                float x = ix * screenSpacing + (float)camera.OffsetX;
+                if (x > w + radius) break;
+                _ctx.RenderTarget.FillEllipse(new Ellipse(new Vector2(x, y), radius, radius), dot);
+            }
+        }
     }
 
     public void DrawEmptyHint(Size viewSize)

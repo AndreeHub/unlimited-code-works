@@ -37,6 +37,8 @@ public partial class App : Application
                 services.AddSingleton<SemanticSpanService>();
                 services.AddSingleton<SymbolScopeService>();
                 services.AddSingleton<SessionRepository>();
+                services.AddSingleton<TagIndexStore>();
+                services.AddSingleton<ITagIndex>(sp => sp.GetRequiredService<TagIndexStore>());
                 services.AddSingleton<MainWindowViewModel>();
                 services.AddSingleton<MainWindow>();
             })

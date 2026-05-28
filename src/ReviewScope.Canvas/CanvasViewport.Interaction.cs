@@ -21,6 +21,7 @@ namespace ReviewScope.Canvas;
 public sealed partial class CanvasViewport
 {
     internal sealed record LinearShapeVertexHit(SceneBlockVisual Block, int VertexIndex, WpfPoint Point);
+    internal sealed record BlockResizeCornerHit(SceneBlockVisual Block, NoteResizeCorner Corner);
 
     internal string? HitShapeTool(WpfPoint screen)
     {
@@ -337,13 +338,31 @@ public sealed partial class CanvasViewport
 
     internal static NoteResizeCorner HitNoteCorner(Rect bounds, WpfPoint world, double zoom = 1.0)
     {
-        // Keep a minimum of 20 screen-pixels so handles are always easy to hit at any zoom level.
-        double hs = Math.Max(14.0, 20.0 / zoom);
-        if (new Rect(bounds.Left, bounds.Top, hs, hs).Contains(world)) return NoteResizeCorner.TopLeft;
-        if (new Rect(bounds.Right - hs, bounds.Top, hs, hs).Contains(world)) return NoteResizeCorner.TopRight;
-        if (new Rect(bounds.Left, bounds.Bottom - hs, hs, hs).Contains(world)) return NoteResizeCorner.BottomLeft;
-        if (new Rect(bounds.Right - hs, bounds.Bottom - hs, hs, hs).Contains(world)) return NoteResizeCorner.BottomRight;
+        // The visible corner handle is centered on the block corner. Keep the
+        // hitbox invisible but centered too, so clicking the visible outside half
+        // of the handle still starts a resize.
+        double hs = Math.Max(22.0, 34.0 / zoom);
+        double half = hs / 2.0;
+        if (new Rect(bounds.Left - half, bounds.Top - half, hs, hs).Contains(world)) return NoteResizeCorner.TopLeft;
+        if (new Rect(bounds.Right - half, bounds.Top - half, hs, hs).Contains(world)) return NoteResizeCorner.TopRight;
+        if (new Rect(bounds.Left - half, bounds.Bottom - half, hs, hs).Contains(world)) return NoteResizeCorner.BottomLeft;
+        if (new Rect(bounds.Right - half, bounds.Bottom - half, hs, hs).Contains(world)) return NoteResizeCorner.BottomRight;
         return NoteResizeCorner.None;
+    }
+
+    internal BlockResizeCornerHit? HitSelectedBlockResizeCorner(WpfPoint world)
+    {
+        foreach (var block in _snapshot.Blocks.Reverse<SceneBlockVisual>())
+        {
+            if (!block.Block.IsSelected || block.Block.IsLocked || IsLinearShapeTool(block.Block.ShapeType))
+                continue;
+
+            var corner = HitNoteCorner(block.Bounds, world, _camera.Zoom);
+            if (corner != NoteResizeCorner.None)
+                return new BlockResizeCornerHit(block, corner);
+        }
+
+        return null;
     }
 
     internal bool IsInResize(Rect bounds, WpfPoint world)
@@ -422,6 +441,14 @@ public sealed partial class CanvasViewport
         if (HitConnectionControlNode(world) is not null) { Cursor = Cursors.SizeAll; return; }
         if (HitConnectionArrow(world) is not null) { Cursor = Cursors.Hand; return; }
         if (HitConnectionCurve(world, out _) is not null) { Cursor = Cursors.Cross; return; }
+
+        if (HitSelectedBlockResizeCorner(world) is { } resizeCornerHit)
+        {
+            Cursor = resizeCornerHit.Corner is NoteResizeCorner.TopLeft or NoteResizeCorner.BottomRight
+                ? Cursors.SizeNWSE
+                : Cursors.SizeNESW;
+            return;
+        }
 
         var hit = HitBlock(world);
         if (hit is not null)

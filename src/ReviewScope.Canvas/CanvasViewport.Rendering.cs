@@ -57,7 +57,7 @@ public sealed partial class CanvasViewport
         _rt.Transform = Matrix3x2.Identity;
         _rt.Clear(_drawingContext.ToColor4(WpfColor.FromRgb(251, 252, 253)));
         
-        _backgroundRenderer?.DrawBackground(viewSize, BackgroundMode);
+        _backgroundRenderer?.DrawBackground(viewSize, BackgroundMode, _camera);
 
         {
             var tx = Matrix3x2.CreateScale((float)_camera.Zoom)
@@ -112,6 +112,8 @@ public sealed partial class CanvasViewport
 
         if (ShowShapeToolPalette)
             _uiComponentRenderer?.DrawShapeToolPalette(viewSize, ShapeToolIds, _activeShapeTool, _hoverShapeTool);
+
+        DrawAutocompletePopup();
 
         try { _rt.EndDraw(); }
         catch { DisposeRenderTarget(); EnsureRT(); }

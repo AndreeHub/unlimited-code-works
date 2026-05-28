@@ -45,6 +45,20 @@ internal sealed class SelectionTool : CanvasToolBase
             return;
         }
 
+        var resizeCornerHit = Viewport.HitSelectedBlockResizeCorner(world);
+        if (resizeCornerHit is not null)
+        {
+            Viewport._noteResizeKey = resizeCornerHit.Block.Block.Key;
+            Viewport._noteResizeCorner = resizeCornerHit.Corner;
+            Viewport._noteResizeWorldPoint = world;
+            Viewport._dragStartScreen = screen;
+            Viewport._didMove = false;
+            Viewport.Cursor = resizeCornerHit.Corner is NoteResizeCorner.TopLeft or NoteResizeCorner.BottomRight
+                ? Cursors.SizeNWSE : Cursors.SizeNESW;
+            CanvasViewport.SetCapture(Viewport._hwnd);
+            return;
+        }
+
         var hit = Viewport.HitBlock(world);
         if (hit is not null)
         {

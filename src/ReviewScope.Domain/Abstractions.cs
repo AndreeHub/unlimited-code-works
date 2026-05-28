@@ -30,3 +30,28 @@ public interface ISessionRepository
     Task SaveSessionAsync(ReviewSession session, CancellationToken cancellationToken);
     Task DeleteSessionAsync(Guid sessionId, string workspaceKey, CancellationToken cancellationToken);
 }
+
+public sealed record TagIndexSnapshot(IReadOnlyList<string> Tags, IReadOnlyList<string> WikiLinks)
+{
+    public static TagIndexSnapshot Empty { get; } = new(Array.Empty<string>(), Array.Empty<string>());
+}
+
+/// <summary>
+/// Per-workspace index of every #tag and [[wiki link]] the user has ever typed.
+/// Drives autocomplete in the outline editor and exposes a tag vocabulary for
+/// annotating non-text objects.
+/// </summary>
+public interface ITagIndex
+{
+    /// <summary>Currently cached snapshot for <paramref name="workspaceKey"/>. Empty until <see cref="LoadAsync"/> has been called.</summary>
+    TagIndexSnapshot GetSnapshot(string workspaceKey);
+
+    Task<TagIndexSnapshot> LoadAsync(string workspaceKey, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Merge the supplied vocabulary into the workspace index. New values are
+    /// persisted in the background; the call returns the updated snapshot
+    /// synchronously so the UI can react without awaiting.
+    /// </summary>
+    TagIndexSnapshot Record(string workspaceKey, IEnumerable<string> tags, IEnumerable<string> wikiLinks);
+}

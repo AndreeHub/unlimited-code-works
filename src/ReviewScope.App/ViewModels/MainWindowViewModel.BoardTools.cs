@@ -417,6 +417,45 @@ public sealed partial class MainWindowViewModel
         await PasteBoardItemsAtAsync(null, null);
     }
 
+    public async Task<bool> PasteClipboardTextIntoSelectedEditableBlockAsync()
+    {
+        if (SelectedBlock is not { Kind: BlockKind.Note or BlockKind.Text } block || block.IsLocked)
+            return false;
+        if (!Clipboard.ContainsText())
+            return false;
+
+        string pastedText = NormalizePastedText(Clipboard.GetText());
+        if (pastedText.Length == 0 || IsBoardClipboardPayload(pastedText))
+            return false;
+
+        string nextBody = MergePastedTextIntoBody(block.Body, pastedText);
+        string nextTitle = block.Kind == BlockKind.Text
+            ? DeriveTextCardTitle(nextBody)
+            : string.IsNullOrWhiteSpace(block.Title) ? "Note" : block.Title;
+
+        var nextBlock = block with
+        {
+            Title = nextTitle,
+            Body = nextBody
+        };
+
+        var blocks = Scene.Blocks.Select(b =>
+            b.Key.Equals(block.Key, StringComparison.OrdinalIgnoreCase) ? nextBlock : b).ToList();
+
+        IReadOnlyList<RenderAnnotation> annotations = Scene.Annotations;
+        if (block.Kind == BlockKind.Note)
+        {
+            annotations = Scene.Annotations.Select(a =>
+                a.Id == block.Id ? a with { Content = nextBody } : a).ToList();
+        }
+
+        var nextScene = Scene with { Blocks = blocks, Annotations = annotations };
+        var (sceneWithTags, _) = SyncBlockTagsFromBody(Scene, nextScene);
+        SetSceneFromUserAction(sceneWithTags, block.Kind == BlockKind.Note ? "Pasted text into note" : "Pasted text into text card");
+        await PersistSessionAsync();
+        return true;
+    }
+
     public async Task PasteBoardItemsAtAsync(double? x, double? y)
     {
         if (Clipboard.ContainsImage())
@@ -424,6 +463,9 @@ public sealed partial class MainWindowViewModel
             await PasteImageFromClipboardAtAsync(x, y);
             return;
         }
+
+        if (await PasteClipboardTextIntoSelectedEditableBlockAsync())
+            return;
 
         if (!Clipboard.ContainsText()) return;
         try
@@ -443,6 +485,37 @@ public sealed partial class MainWindowViewModel
         catch
         {
             StatusMessage = "Clipboard does not contain board items.";
+        }
+    }
+
+    private static string NormalizePastedText(string text) =>
+        text.Replace("\r\n", "\n").Replace('\r', '\n');
+
+    private static string MergePastedTextIntoBody(string? body, string pastedText)
+    {
+        string existing = NormalizePastedText(body ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(existing) || string.Equals(existing, "- ", StringComparison.Ordinal))
+            return pastedText;
+
+        string paste = pastedText.TrimStart('\n');
+        return existing.EndsWith('\n') ? existing + paste : existing + "\n" + paste;
+    }
+
+    private static string DeriveTextCardTitle(string body)
+    {
+        string title = body.Length > 40 ? body.Substring(0, 37) + "..." : body;
+        return string.IsNullOrWhiteSpace(title) ? "Text" : title;
+    }
+
+    private static bool IsBoardClipboardPayload(string text)
+    {
+        try
+        {
+            return ReadBoardClipboardPayload(text).Blocks.Count > 0;
+        }
+        catch
+        {
+            return false;
         }
     }
 

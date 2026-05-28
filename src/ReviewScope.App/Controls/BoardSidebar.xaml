@@ -53,6 +53,10 @@
                                                     <Setter Property="ContentTemplate" Value="{StaticResource ShapeInspector.Style}"/>
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsConnectionInspectorSelected}" Value="True">
+                                                    <Setter Property="ContentTemplate" Value="{StaticResource ConnectionInspector.Style}"/>
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
                                     </ContentControl.Style>
@@ -73,6 +77,9 @@
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding IsShapeInspectorSelected}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsConnectionInspectorSelected}" Value="True">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                 </DataTrigger>
                                             </Style.Triggers>

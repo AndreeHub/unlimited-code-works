@@ -36,6 +36,7 @@ internal sealed class OutlineDocument
     private const float BulletRadius = 2.4f;
     private const float ToggleSize = 9f;
     private const float CheckboxSize = 11f;
+    private const float MaxTextLayoutHeight = 4096f;
 
     /// <summary>State of a TODO-style line: nothing, open, or done.</summary>
     public enum TodoState { None, Todo, Done }
@@ -148,7 +149,8 @@ internal sealed class OutlineDocument
         return new Rect(bounds.X + padL, bounds.Y + padT, Math.Max(4, bounds.Width - padL - padR), Math.Max(4, bounds.Height - padT - padB));
     }
 
-    public static bool TryHitToggle(RenderBlock block, Rect bounds, WpfPoint world, out string lineId)
+    public static bool TryHitToggle(RenderBlock block, Rect bounds, WpfPoint world, out string lineId,
+        Vortice.DirectWrite.IDWriteFactory? dwrite = null)
     {
         lineId = string.Empty;
         if (!IsOutlineBlock(block))
@@ -159,18 +161,46 @@ internal sealed class OutlineDocument
         var content = GetContentRect(block, bounds);
         float fontSize = block.Kind == BlockKind.Note ? Math.Clamp((float)style.FontSize, 8f, 48f) : Math.Clamp((float)style.FontSize, 8f, 96f);
         float rowH = Math.Max(16f, fontSize * 1.45f);
-        float y = (float)content.Y;
-        foreach (var line in doc.VisibleLines)
+        float maxW = (float)content.Width;
+
+        Vortice.DirectWrite.IDWriteTextFormat? fmt = null;
+        if (dwrite is not null)
         {
-            if (y > content.Bottom) break;
-            float toggleX = (float)content.X + line.Level * IndentWidth + 1f;
-            var hit = new Rect(toggleX - 3, y + (rowH - ToggleSize) * 0.5f - 3, ToggleSize + 6, ToggleSize + 6);
-            if (line.HasChildren && hit.Contains(world))
+            string fontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily!;
+            fmt = dwrite.CreateTextFormat(fontFamily,
+                style.Bold ? Vortice.DirectWrite.FontWeight.Bold : Vortice.DirectWrite.FontWeight.Normal,
+                style.Italic ? Vortice.DirectWrite.FontStyle.Italic : Vortice.DirectWrite.FontStyle.Normal,
+                Vortice.DirectWrite.FontStretch.Normal, fontSize);
+            fmt.WordWrapping = Vortice.DirectWrite.WordWrapping.Wrap;
+        }
+
+        float y = (float)content.Y;
+        try
+        {
+            foreach (var line in doc.VisibleLines)
             {
-                lineId = line.Id;
-                return true;
+                if (y > content.Bottom) break;
+                float toggleX = (float)content.X + line.Level * IndentWidth + 1f;
+                var hit = new Rect(toggleX - 3, y + (rowH - ToggleSize) * 0.5f - 3, ToggleSize + 6, ToggleSize + 6);
+                if (line.HasChildren && hit.Contains(world))
+                {
+                    lineId = line.Id;
+                    return true;
+                }
+                float drawn = rowH;
+                if (fmt is not null)
+                {
+                    float available = Math.Max(8f, maxW - line.Level * IndentWidth - 22f);
+                    using var layout = dwrite!.CreateTextLayout(
+                        string.IsNullOrWhiteSpace(line.Text) ? " " : line.Text, fmt, available, MaxTextLayoutHeight);
+                    drawn = MeasureRowHeight(layout, rowH);
+                }
+                y += drawn;
             }
-            y += rowH;
+        }
+        finally
+        {
+            fmt?.Dispose();
         }
         return false;
     }
@@ -265,7 +295,7 @@ internal sealed class OutlineDocument
             var (displayText, displaySpans) = BuildDisplay(line.Text, hideMarkers);
 
             string visibleText = string.IsNullOrWhiteSpace(displayText) ? " " : displayText;
-            using var layout = ctx.DWriteFactory.CreateTextLayout(visibleText, fmt, available, rowH * 2.4f);
+            using var layout = ctx.DWriteFactory.CreateTextLayout(visibleText, fmt, available, MaxTextLayoutHeight);
             ApplyInlineMarkdownSpans(layout, displaySpans);
             DrawInlineDecorationsSpans(ctx, layout, displaySpans, textX, y, rowH);
             if (todo == TodoState.Done)
@@ -317,7 +347,7 @@ internal sealed class OutlineDocument
                 }
             }
 
-            y += Math.Max(rowH, Math.Min(rowH * 2.4f, layout.Metrics.Height + 2f));
+            y += MeasureRowHeight(layout, rowH);
         }
     }
 
@@ -349,17 +379,30 @@ internal sealed class OutlineDocument
         fmt.WordWrapping = Vortice.DirectWrite.WordWrapping.Wrap;
 
         OutlineLine? lastLine = null;
-        float lastTextX = x, lastY = y;
-        float lastAvailable = Math.Max(8f, maxW);
-        float lastHeight = rowH;
 
         foreach (var line in doc.VisibleLines)
         {
             float indent = line.Level * IndentWidth;
             float textX = x + indent + 22f;
             float available = Math.Max(8f, maxW - indent - 22f);
-            using var layout = dwrite.CreateTextLayout(string.IsNullOrWhiteSpace(line.Text) ? " " : line.Text, fmt, available, rowH * 2.4f);
-            float drawn = Math.Max(rowH, Math.Min(rowH * 2.4f, layout.Metrics.Height + 2f));
+
+            // Mirror Draw's textX shift when both collapse toggle and TODO checkbox are present.
+            if (line.HasChildren && ClassifyTodo(line.Text) != TodoState.None)
+            {
+                float toggleX = x + indent + 1f;
+                float overflow = (toggleX + ToggleSize + 2 + CheckboxSize + 3) - textX;
+                if (overflow > 0)
+                {
+                    textX += overflow;
+                    available = Math.Max(8f, available - overflow);
+                }
+            }
+
+            string visibleText = string.IsNullOrWhiteSpace(line.Text) ? " " : line.Text;
+            using var layout = dwrite.CreateTextLayout(visibleText, fmt, available, MaxTextLayoutHeight);
+            // Apply inline markdown styling so bold/italic/code glyph widths match the rendered layout.
+            ApplyInlineMarkdownSpans(layout, ParseInlineSpans(line.Text).ToList());
+            float drawn = MeasureRowHeight(layout, rowH);
 
             if (world.Y >= y && world.Y < y + drawn)
             {
@@ -370,15 +413,10 @@ internal sealed class OutlineDocument
             }
 
             lastLine = line;
-            lastTextX = textX;
-            lastY = y;
-            lastAvailable = available;
-            lastHeight = drawn;
             y += drawn;
         }
 
-        // Below the last visible line — put cursor at the end of the last line if any,
-        // otherwise at end of text.
+        // Below the last visible line — put cursor at the end of the last line if any.
         if (lastLine is not null)
             return lastLine.Start + lastLine.Length;
         return text.Length;
@@ -416,6 +454,9 @@ internal sealed class OutlineDocument
             }
         }
     }
+
+    private static float MeasureRowHeight(Vortice.DirectWrite.IDWriteTextLayout layout, float rowH) =>
+        Math.Max(rowH, layout.Metrics.Height + 2f);
 
     /// <summary>
     /// Fill the colored pill backgrounds for #tag and [[ref]] spans on a single line.
@@ -643,7 +684,8 @@ internal sealed class OutlineDocument
     /// Hit-test a click against TODO/DONE checkbox glyphs. Returns the 0-based raw
     /// line index of the bullet that owns the checkbox, or -1 on miss.
     /// </summary>
-    public static int TryHitTodoCheckbox(RenderBlock block, Rect bounds, WpfPoint world)
+    public static int TryHitTodoCheckbox(RenderBlock block, Rect bounds, WpfPoint world,
+        Vortice.DirectWrite.IDWriteFactory? dwrite = null)
     {
         if (!IsOutlineBlock(block)) return -1;
 
@@ -652,25 +694,53 @@ internal sealed class OutlineDocument
         var content = GetContentRect(block, bounds);
         float fontSize = block.Kind == BlockKind.Note ? Math.Clamp((float)style.FontSize, 8f, 48f) : Math.Clamp((float)style.FontSize, 8f, 96f);
         float rowH = Math.Max(16f, fontSize * 1.45f);
-        float y = (float)content.Y;
-        foreach (var line in doc.VisibleLines)
+        float maxW = (float)content.Width;
+
+        Vortice.DirectWrite.IDWriteTextFormat? fmt = null;
+        if (dwrite is not null)
         {
-            if (y > content.Bottom) break;
-            if (ClassifyTodo(line.Text) != TodoState.None)
+            string fontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily!;
+            fmt = dwrite.CreateTextFormat(fontFamily,
+                style.Bold ? Vortice.DirectWrite.FontWeight.Bold : Vortice.DirectWrite.FontWeight.Normal,
+                style.Italic ? Vortice.DirectWrite.FontStyle.Italic : Vortice.DirectWrite.FontStyle.Normal,
+                Vortice.DirectWrite.FontStretch.Normal, fontSize);
+            fmt.WordWrapping = Vortice.DirectWrite.WordWrapping.Wrap;
+        }
+
+        float y = (float)content.Y;
+        try
+        {
+            foreach (var line in doc.VisibleLines)
             {
-                // Mirror Draw's column layout so the hit area lands on the actual
-                // checkbox glyph (whether it's at the bullet position or shifted
-                // right of the collapse toggle).
+                if (y > content.Bottom) break;
                 float indent = line.Level * IndentWidth;
-                float toggleX = (float)content.X + indent + 1f;
-                float bulletX = (float)content.X + indent + 12f;
-                bool hasToggle = line.HasChildren;
-                float checkboxX = hasToggle ? toggleX + ToggleSize + 2 : bulletX - CheckboxSize * 0.5f + 1;
-                var hit = new Rect(checkboxX - 4, y, CheckboxSize + 8, rowH);
-                if (hit.Contains(world))
-                    return line.Index;
+                if (ClassifyTodo(line.Text) != TodoState.None)
+                {
+                    // Mirror Draw's column layout so the hit area lands on the actual
+                    // checkbox glyph (whether it's at the bullet position or shifted
+                    // right of the collapse toggle).
+                    float toggleX = (float)content.X + indent + 1f;
+                    float bulletX = (float)content.X + indent + 12f;
+                    bool hasToggle = line.HasChildren;
+                    float checkboxX = hasToggle ? toggleX + ToggleSize + 2 : bulletX - CheckboxSize * 0.5f + 1;
+                    var hit = new Rect(checkboxX - 4, y, CheckboxSize + 8, rowH);
+                    if (hit.Contains(world))
+                        return line.Index;
+                }
+                float drawn = rowH;
+                if (fmt is not null)
+                {
+                    float available = Math.Max(8f, maxW - indent - 22f);
+                    using var layout = dwrite!.CreateTextLayout(
+                        string.IsNullOrWhiteSpace(line.Text) ? " " : line.Text, fmt, available, MaxTextLayoutHeight);
+                    drawn = MeasureRowHeight(layout, rowH);
+                }
+                y += drawn;
             }
-            y += rowH;
+        }
+        finally
+        {
+            fmt?.Dispose();
         }
         return -1;
     }

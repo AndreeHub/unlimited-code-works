@@ -58,7 +58,9 @@ public sealed record BlockPlacement(
     BoardItemStyle? Style = null,
     BoardSourceBinding? Source = null,
     BoardGroupState? GroupState = null,
-    string? Body = null);
+    string? Body = null,
+    IReadOnlyList<string>? Tags = null,
+    IReadOnlyList<string>? WikiLinks = null);
 
 public sealed record FocusedRange(
     int StartLine,
@@ -200,7 +202,9 @@ public sealed record RenderBlock(
     string? ShapeType = null,
     BoardItemStyle? Style = null,
     BoardSourceBinding? Source = null,
-    BoardGroupState? GroupState = null);
+    BoardGroupState? GroupState = null,
+    IReadOnlyList<string>? Tags = null,
+    IReadOnlyList<string>? WikiLinks = null);
 
 public sealed record RenderConnection(
     Guid Id,

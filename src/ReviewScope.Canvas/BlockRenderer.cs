@@ -275,6 +275,10 @@ internal sealed class BlockRenderer
         bool isEditing = editingNoteKey == block.Key;
         Rect outer = blockVis.Bounds;
         float x = (float)outer.X, y = (float)outer.Y, w = (float)outer.Width, h = (float)outer.Height;
+        float titleW = Math.Max(1f, w - 48f);
+        float bodyClipW = w - 24f;
+        float bodyW = w - 28f;
+        float bodyH = h - 54f;
 
         string bodyText = isEditing ? editBody : (block.Body ?? string.Empty);
 
@@ -323,46 +327,49 @@ internal sealed class BlockRenderer
         // Title
         string titleText = isEditing ? editTitle : block.Title;
         if (isEditing && editingTitle)
-            DrawEditSelection(titleText, titleFontSize, x + 24, y + 12, w - 48, wrap: false, sketchy: false, editCursorPos, editSelectionAnchor);
+            DrawEditSelection(titleText, titleFontSize, x + 24, y + 12, titleW, wrap: false, sketchy: false, editCursorPos, editSelectionAnchor);
 
-        _ctx.DrawText(titleText, x + 24, y + 12, w - 48, titleFontSize, titleColor);
+        _ctx.DrawText(titleText, x + 24, y + 12, titleW, titleFontSize, titleColor);
 
         if (isEditing && editingTitle && editCursorVisible)
-            DrawNoteCursor(titleText, titleFontSize, x + 24, y + 12, w - 48, editCursorPos);
+            DrawNoteCursor(titleText, titleFontSize, x + 24, y + 12, titleW, editCursorPos);
 
         // Body
-        _ctx.RenderTarget.PushAxisAlignedClip(new RectangleF(x + 12, y + 42, w - 24, h - 54), AntialiasMode.PerPrimitive);
-        float bx = x + 14, by = y + 42, bw = w - 28;
-        string noteFontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily;
-
-        if (OutlineDocument.IsOutlineBlock(block))
+        if (bodyClipW > 0f && bodyW > 0f && bodyH > 0f)
         {
-            OutlineDocument.Draw(
-                _ctx,
-                block,
-                new Rect(bx, by, bw, h - 54),
-                bodyText,
-                bodyColor,
-                bodyFontSize,
-                noteFontFamily,
-                bold: style.Bold,
-                italic: style.Italic,
-                editCursorPos: (isEditing && !editingTitle) ? editCursorPos : -1,
-                editSelectionAnchor: (isEditing && !editingTitle) ? editSelectionAnchor : -1,
-                editCursorVisible: isEditing && !editingTitle && editCursorVisible);
+            _ctx.RenderTarget.PushAxisAlignedClip(new RectangleF(x + 12, y + 42, bodyClipW, bodyH), AntialiasMode.PerPrimitive);
+            float bx = x + 14, by = y + 42;
+            string noteFontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily;
+
+            if (OutlineDocument.IsOutlineBlock(block))
+            {
+                OutlineDocument.Draw(
+                    _ctx,
+                    block,
+                    new Rect(bx, by, bodyW, bodyH),
+                    bodyText,
+                    bodyColor,
+                    bodyFontSize,
+                    noteFontFamily,
+                    bold: style.Bold,
+                    italic: style.Italic,
+                    editCursorPos: (isEditing && !editingTitle) ? editCursorPos : -1,
+                    editSelectionAnchor: (isEditing && !editingTitle) ? editSelectionAnchor : -1,
+                    editCursorVisible: isEditing && !editingTitle && editCursorVisible);
+            }
+            else
+            {
+                if (isEditing && !editingTitle)
+                    DrawEditSelection(bodyText, bodyFontSize, bx, by, bodyW, wrap: true, sketchy: false, editCursorPos, editSelectionAnchor);
+
+                _ctx.DrawWrappedText(bodyText, bx, by, bodyW, bodyH, bodyFontSize, bodyColor, wrap: true);
+
+                if (isEditing && !editingTitle && editCursorVisible)
+                    DrawNoteCursor(bodyText, bodyFontSize, bx, by, bodyW, editCursorPos, wrap: true);
+            }
+
+            _ctx.RenderTarget.PopAxisAlignedClip();
         }
-        else
-        {
-            if (isEditing && !editingTitle)
-                DrawEditSelection(bodyText, bodyFontSize, bx, by, bw, wrap: true, sketchy: false, editCursorPos, editSelectionAnchor);
-
-            _ctx.DrawWrappedText(bodyText, bx, by, bw, h - 54, bodyFontSize, bodyColor, wrap: true);
-
-            if (isEditing && !editingTitle && editCursorVisible)
-                DrawNoteCursor(bodyText, bodyFontSize, bx, by, bw, editCursorPos, wrap: true);
-        }
-
-        _ctx.RenderTarget.PopAxisAlignedClip();
 
         // Corner handles for notes
         if ((isSelected || isEditing) && !block.IsLocked)
@@ -1327,6 +1334,8 @@ internal sealed class BlockRenderer
 
     private void DrawNoteCursor(string text, float fontSize, float textX, float textY, float maxW, int cursorPos, bool wrap = false, bool sketchy = false, DWriteTextAlignment alignment = DWriteTextAlignment.Leading, float maxH = 9999f, DWriteParagraphAlignment paragraphAlignment = DWriteParagraphAlignment.Near, string? fontFamily = null, bool bold = false, bool italic = false)
     {
+        if (maxW < 1f || maxH < 1f) return;
+
         IDWriteTextFormat fmt = fontFamily is null
             ? _ctx.GetTextFormat(fontSize, sketchy)
             : _ctx.GetRichFormat(fontFamily, fontSize, bold, italic);
@@ -1365,6 +1374,7 @@ internal sealed class BlockRenderer
 
     private void DrawEditSelection(string text, float fontSize, float textX, float textY, float maxW, bool wrap = false, bool sketchy = false, int cursorPos = 0, int selectionAnchor = -1, DWriteTextAlignment alignment = DWriteTextAlignment.Leading, float maxH = 9999f, DWriteParagraphAlignment paragraphAlignment = DWriteParagraphAlignment.Near, string? fontFamily = null, bool bold = false, bool italic = false)
     {
+        if (maxW < 1f || maxH < 1f) return;
         if (selectionAnchor < 0 || selectionAnchor == cursorPos) return;
         int start = Math.Min(selectionAnchor, cursorPos);
         int end = Math.Max(selectionAnchor, cursorPos);

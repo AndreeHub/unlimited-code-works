@@ -18,7 +18,11 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly SemanticSpanService _semanticSpan;
     private readonly SymbolScopeService _symbolScope;
     private readonly SessionRepository _sessions;
+    private readonly TagIndexStore _tagIndex;
     private readonly ILogger<MainWindowViewModel> _logger;
+
+    /// <summary>Exposed so the canvas autocomplete callback can read the latest tag/wiki-link vocabulary.</summary>
+    internal TagIndexStore TagIndex => _tagIndex;
 
     private const double CodeLineHeight = 18.0;
     private const double CodeBlockVerticalChrome = 100.0;
@@ -160,6 +164,7 @@ public partial class MainWindowViewModel : ObservableObject
         SemanticSpanService semanticSpan,
         SymbolScopeService symbolScope,
         SessionRepository sessions,
+        TagIndexStore tagIndex,
         ILogger<MainWindowViewModel> logger)
     {
         _workspace = workspace;
@@ -167,7 +172,45 @@ public partial class MainWindowViewModel : ObservableObject
         _semanticSpan = semanticSpan;
         _symbolScope = symbolScope;
         _sessions = sessions;
+        _tagIndex = tagIndex;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Returns the cached autocomplete vocabulary for the current workspace. Falls
+    /// back to an empty list before any workspace is open so callers don't have to
+    /// branch on initialization order.
+    /// </summary>
+    internal IReadOnlyList<string> GetAutocompleteSuggestions(TagTokenKind kind, string prefix)
+    {
+        if (_currentSnapshot is null) return Array.Empty<string>();
+        var snapshot = _tagIndex.GetSnapshot(_currentSnapshot.WorkspaceKey);
+        var source = kind == TagTokenKind.Tag ? snapshot.Tags : snapshot.WikiLinks;
+        if (source.Count == 0) return Array.Empty<string>();
+        if (string.IsNullOrEmpty(prefix)) return source.Take(8).ToArray();
+        return source
+            .Where(s => s.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Take(8)
+            .ToArray();
+    }
+
+    internal void RecordTagsFromBody(string? body)
+    {
+        if (_currentSnapshot is null || string.IsNullOrEmpty(body)) return;
+        var (tags, links) = TagTokens.Extract(body);
+        if (tags.Count == 0 && links.Count == 0) return;
+        _tagIndex.Record(_currentSnapshot.WorkspaceKey, tags, links);
+    }
+
+    /// <summary>
+    /// Called from the inspector when the user types tags manually (not via the
+    /// outline body). Feeds the workspace TagIndex so those tags become autocomplete
+    /// suggestions everywhere else.
+    /// </summary>
+    internal void RecordTagsFromInspector(IReadOnlyList<string> tags)
+    {
+        if (_currentSnapshot is null || tags.Count == 0) return;
+        _tagIndex.Record(_currentSnapshot.WorkspaceKey, tags, Array.Empty<string>());
     }
 
     private void SetSceneFromUserAction(RenderScene newScene, string? description = null, RenderScene? undoBase = null)

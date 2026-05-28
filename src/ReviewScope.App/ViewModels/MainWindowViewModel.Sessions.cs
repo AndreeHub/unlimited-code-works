@@ -185,7 +185,9 @@ public sealed partial class MainWindowViewModel
             ShapeType: b.ShapeType,
             Style: b.Style,
             Source: b.Source,
-            GroupState: b.GroupState);
+            GroupState: b.GroupState,
+            Tags: b.Tags,
+            WikiLinks: b.WikiLinks);
         }).ToList();
 
         var connections = session.Connections
@@ -357,7 +359,7 @@ public sealed partial class MainWindowViewModel
             b.Id, b.Kind, b.Key, b.Title, b.Subtitle,
             b.FilePath, b.StartLine, b.EndLine,
             b.X, b.Y, b.Width, b.Height, b.IsCollapsed, b.Focused,
-            b.ZIndex, b.LayerKey, b.IsLocked, b.ShapeType, b.Style, b.Source, b.GroupState, PersistedBodyFor(b))).ToList();
+            b.ZIndex, b.LayerKey, b.IsLocked, b.ShapeType, b.Style, b.Source, b.GroupState, PersistedBodyFor(b), b.Tags, b.WikiLinks)).ToList();
 
         var connections = scene.Connections
             .Select(c => new ConnectionSnapshot(c.Id, c.SourceKey, c.TargetKey, c.Label,

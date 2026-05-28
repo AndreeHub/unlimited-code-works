@@ -20,6 +20,7 @@ public sealed partial class ShapeInspectorViewModel : InspectorViewModelBase
     [ObservableProperty] private double _width;
     [ObservableProperty] private double _height;
     [ObservableProperty] private bool _isLocked;
+    [ObservableProperty] private bool _isLinearShape;
 
     public ShapeInspectorViewModel(MainWindowViewModel parent) : base(parent)
     {
@@ -36,6 +37,7 @@ public sealed partial class ShapeInspectorViewModel : InspectorViewModelBase
         {
             Title = block.Title;
             ShapeType = block.ShapeType ?? "rectangle";
+            IsLinearShape = IsLinearShapeType(ShapeType);
             X = Math.Round(block.X);
             Y = Math.Round(block.Y);
             Width = Math.Round(block.Width);
@@ -90,4 +92,12 @@ public sealed partial class ShapeInspectorViewModel : InspectorViewModelBase
 
         Parent.UpdateSceneBlock(nextBlock, "Updated shape properties");
     }
+
+    partial void OnShapeTypeChanged(string value)
+    {
+        IsLinearShape = IsLinearShapeType(value);
+    }
+
+    private static bool IsLinearShapeType(string? shapeType) =>
+        shapeType is "line" or "arrow" or "polyline";
 }

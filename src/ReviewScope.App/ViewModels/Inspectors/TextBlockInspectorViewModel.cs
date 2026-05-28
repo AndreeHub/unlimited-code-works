@@ -6,6 +6,11 @@ namespace ReviewScope.App.ViewModels.Inspectors;
 
 public partial class TextBlockInspectorViewModel : InspectorViewModelBase
 {
+    private const double MinTextCardWidth = 120.0;
+    private const double MinTextCardHeight = 40.0;
+    private const double MinStickyNoteWidth = 160.0;
+    private const double MinStickyNoteHeight = 90.0;
+
     /// <summary>The undo-history label written when <see cref="ApplyChanges"/> commits.
     /// Subclasses override to disambiguate (e.g. "Updated sticky note properties").</summary>
     protected virtual string ApplyChangesActionDescription => "Updated text card properties";
@@ -73,6 +78,13 @@ public partial class TextBlockInspectorViewModel : InspectorViewModelBase
     [ObservableProperty] private double _height;
     [ObservableProperty] private bool _isLocked;
 
+    /// <summary>
+    /// Comma- or space-separated #tags attached to this block. Edited in the inspector
+    /// and round-tripped to <see cref="BlockPlacement.Tags"/>. Round-trip ignores the
+    /// leading '#' so the field works for users who type either form.
+    /// </summary>
+    [ObservableProperty] private string _tagsText = string.Empty;
+
     public TextBlockInspectorViewModel(MainWindowViewModel parent) : base(parent)
     {
         Refresh();
@@ -133,6 +145,8 @@ public partial class TextBlockInspectorViewModel : InspectorViewModelBase
             SpacingRight = style.SpacingRight;
             SpacingBottom = style.SpacingBottom;
             SpacingLeft = style.SpacingLeft;
+
+            TagsText = FormatTagList(block.Tags);
         }
         finally
         {
@@ -144,6 +158,11 @@ public partial class TextBlockInspectorViewModel : InspectorViewModelBase
     {
         var block = Parent.SelectedBlock;
         if (block is null) return;
+
+        double minWidth = block.Kind == BlockKind.Note ? MinStickyNoteWidth : MinTextCardWidth;
+        double minHeight = block.Kind == BlockKind.Note ? MinStickyNoteHeight : MinTextCardHeight;
+        double nextWidth = CoerceDimension(Width, minWidth, block.Width);
+        double nextHeight = CoerceDimension(Height, minHeight, block.Height);
 
         var style = block.Style ?? new BoardItemStyle();
         var nextStyle = style with
@@ -197,19 +216,53 @@ public partial class TextBlockInspectorViewModel : InspectorViewModelBase
             }
         }
 
+        var parsedTags = ParseTagList(TagsText);
+
         var nextBlock = block with
         {
             Title = Title,
             Body = Body,
             X = X,
             Y = Y,
-            Width = Width,
-            Height = Height,
+            Width = nextWidth,
+            Height = nextHeight,
             IsLocked = IsLocked,
-            Style = nextStyle
+            Style = nextStyle,
+            Tags = parsedTags.Count == 0 ? null : parsedTags
         };
 
         Parent.UpdateSceneBlock(nextBlock, ApplyChangesActionDescription);
+        Parent.RecordTagsFromInspector(parsedTags);
+    }
+
+    private static string FormatTagList(IReadOnlyList<string>? tags)
+    {
+        if (tags is null || tags.Count == 0) return string.Empty;
+        return string.Join(' ', tags.Select(t => "#" + t));
+    }
+
+    private static IReadOnlyList<string> ParseTagList(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return Array.Empty<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<string>();
+        foreach (var token in raw.Split(new[] { ',', ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string clean = token.TrimStart('#').Trim();
+            if (clean.Length == 0) continue;
+            if (seen.Add(clean)) result.Add(clean);
+        }
+        return result;
+    }
+
+    private static double CoerceDimension(double value, double minimum, double fallback)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+            return double.IsNaN(fallback) || double.IsInfinity(fallback)
+                ? minimum
+                : Math.Max(minimum, fallback);
+
+        return Math.Max(minimum, value);
     }
 
     // --- Copy / Clear style ---

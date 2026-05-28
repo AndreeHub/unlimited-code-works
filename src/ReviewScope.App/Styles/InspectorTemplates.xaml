@@ -785,11 +785,11 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,4,0">
-                            <TextBox Text="{Binding Width, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="6,4"/>
+                            <TextBox Text="{Binding Width, UpdateSourceTrigger=LostFocus}" FontSize="11" Padding="6,4"/>
                             <TextBlock Text="Width" FontSize="9" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Margin="4,0,0,0">
-                            <TextBox Text="{Binding Height, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="6,4"/>
+                            <TextBox Text="{Binding Height, UpdateSourceTrigger=LostFocus}" FontSize="11" Padding="6,4"/>
                             <TextBlock Text="Height" FontSize="9" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center"/>
                         </StackPanel>
                     </Grid>
@@ -861,7 +861,10 @@
                     <TextBox Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="5,4" Margin="0,0,0,8"/>
 
                     <TextBlock Text="Body Text" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBox Text="{Binding Body, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="5,4" MinLines="3" MaxLines="8" AcceptsReturn="True" TextWrapping="Wrap"/>
+                    <TextBox Text="{Binding Body, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="5,4" MinLines="3" MaxLines="8" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+                    <TextBlock Text="Tags" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBox Text="{Binding TagsText, UpdateSourceTrigger=PropertyChanged}" FontSize="11" Padding="5,4" ToolTip="Space- or comma-separated, e.g. #review #blockers. # is optional — it'll be auto-added."/>
                 </StackPanel>
             </Expander>
         </StackPanel>
@@ -915,6 +918,9 @@
                         <ComboBoxItem Content="Diamond" Tag="diamond"/>
                         <ComboBoxItem Content="Hexagon" Tag="hexagon"/>
                         <ComboBoxItem Content="Star" Tag="star"/>
+                        <ComboBoxItem Content="Line" Tag="line"/>
+                        <ComboBoxItem Content="Arrow" Tag="arrow"/>
+                        <ComboBoxItem Content="Polyline" Tag="polyline"/>
                     </ComboBox>
                 </StackPanel>
             </Expander>
@@ -928,9 +934,42 @@
         <StackPanel Margin="0,0,0,12">
             <Expander Header="Style" IsExpanded="True" Margin="0,0,0,8">
                 <StackPanel Margin="0,8,0,0">
+                    <!-- Stroke Color -->
+                    <TextBlock Text="Line / Border Color" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <ListBox SelectedValue="{Binding Stroke, Mode=TwoWay}" Style="{StaticResource SwatchListBoxStyle}" SelectedValuePath="Tag" Margin="0,0,0,6">
+                        <ListBoxItem Tag="#FFFFFF" Background="#FFFFFF" ToolTip="White"/>
+                        <ListBoxItem Tag="#E2E8F0" Background="#E2E8F0" ToolTip="Cloud"/>
+                        <ListBoxItem Tag="#1E293B" Background="#1E293B" ToolTip="Slate"/>
+                        <ListBoxItem Tag="#0F766E" Background="#0F766E" ToolTip="Deep teal"/>
+                        <ListBoxItem Tag="#2E7DD7" Background="#2E7DD7" ToolTip="Accent"/>
+                        <ListBoxItem Tag="#C2410C" Background="#C2410C" ToolTip="Rust"/>
+                    </ListBox>
+                    <Button Style="{StaticResource ToolButton}" Content="Custom..." Tag="Stroke" Click="OnPickColorForActiveInspector" Height="28" Padding="8,2" Margin="0,0,0,8" HorizontalAlignment="Left"/>
+
                     <!-- Fill Style -->
-                    <TextBlock Text="Fill Style" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <ListBox SelectedValue="{Binding FillStyle, Mode=TwoWay}" Style="{StaticResource SegmentedListBoxStyle2}" SelectedValuePath="Tag" Margin="0,0,0,8">
+                    <TextBlock Text="Fill Style" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsLinearShape}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <ListBox SelectedValue="{Binding FillStyle, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,0,0,8">
+                        <ListBox.Style>
+                            <Style TargetType="ListBox" BasedOn="{StaticResource SegmentedListBoxStyle2}">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsLinearShape}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListBox.Style>
                         <ListBoxItem Content="Hatched" Tag="hatch"/>
                         <ListBoxItem Content="Solid" Tag="solid"/>
                     </ListBox>
@@ -951,8 +990,29 @@
                     </ListBox>
 
                     <!-- Background Color -->
-                    <TextBlock Text="Background Color" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <ListBox SelectedValue="{Binding Fill, Mode=TwoWay}" Style="{StaticResource SwatchListBoxStyle}" SelectedValuePath="Tag" Margin="0,0,0,6">
+                    <TextBlock Text="Background Color" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsLinearShape}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <ListBox SelectedValue="{Binding Fill, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,0,0,6">
+                        <ListBox.Style>
+                            <Style TargetType="ListBox" BasedOn="{StaticResource SwatchListBoxStyle}">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsLinearShape}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListBox.Style>
                         <ListBoxItem Tag="#00000000" Background="Transparent" ToolTip="Transparent">
                             <Grid Width="20" Height="20">
                                 <Line X1="2" Y1="18" X2="18" Y2="2" Stroke="#EF4444" StrokeThickness="1.5"/>
@@ -973,19 +1033,18 @@
                         <ListBoxItem Tag="#2E7DD7" Background="#2E7DD7" ToolTip="Accent"/>
                         <ListBoxItem Tag="#C2410C" Background="#C2410C" ToolTip="Rust"/>
                     </ListBox>
-                    <Button Style="{StaticResource ToolButton}" Content="Custom..." Tag="Fill" Click="OnPickColorForActiveInspector" Height="28" Padding="8,2" Margin="0,0,0,8" HorizontalAlignment="Left"/>
-
-                    <!-- Stroke Color -->
-                    <TextBlock Text="Border Color" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <ListBox SelectedValue="{Binding Stroke, Mode=TwoWay}" Style="{StaticResource SwatchListBoxStyle}" SelectedValuePath="Tag" Margin="0,0,0,6">
-                        <ListBoxItem Tag="#FFFFFF" Background="#FFFFFF" ToolTip="White"/>
-                        <ListBoxItem Tag="#E2E8F0" Background="#E2E8F0" ToolTip="Cloud"/>
-                        <ListBoxItem Tag="#1E293B" Background="#1E293B" ToolTip="Slate"/>
-                        <ListBoxItem Tag="#0F766E" Background="#0F766E" ToolTip="Deep teal"/>
-                        <ListBoxItem Tag="#2E7DD7" Background="#2E7DD7" ToolTip="Accent"/>
-                        <ListBoxItem Tag="#C2410C" Background="#C2410C" ToolTip="Rust"/>
-                    </ListBox>
-                    <Button Style="{StaticResource ToolButton}" Content="Custom..." Tag="Stroke" Click="OnPickColorForActiveInspector" Height="28" Padding="8,2" Margin="0,0,0,8" HorizontalAlignment="Left"/>
+                    <Button Content="Custom..." Tag="Fill" Click="OnPickColorForActiveInspector" Height="28" Padding="8,2" Margin="0,0,0,8" HorizontalAlignment="Left">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource ToolButton}">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsLinearShape}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
 
                     <!-- Corner Rounding -->
                     <TextBlock Text="Corner Rounding" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,4"/>
@@ -1086,6 +1145,42 @@
             <Expander Header="Lock" IsExpanded="True" Margin="0,0,0,8">
                 <StackPanel Margin="0,8,0,0">
                     <CheckBox Content="Locked" IsChecked="{Binding IsLocked}" Margin="0,2,0,0"/>
+                </StackPanel>
+            </Expander>
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================ -->
+    <!-- Connector Inspector: Style tab - line color, stroke, arrows   -->
+    <!-- ============================================================ -->
+    <DataTemplate x:Key="ConnectionInspector.Style">
+        <StackPanel Margin="0,0,0,12">
+            <Expander Header="Line" IsExpanded="True" Margin="0,0,0,8">
+                <StackPanel Margin="0,8,0,0">
+                    <TextBlock Text="Line Color" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <ListBox SelectedValue="{Binding Stroke, Mode=TwoWay}" Style="{StaticResource SwatchListBoxStyle}" SelectedValuePath="Tag" Margin="0,0,0,6">
+                        <ListBoxItem Tag="#E2E8F0" Background="#E2E8F0" ToolTip="Cloud"/>
+                        <ListBoxItem Tag="#1E293B" Background="#1E293B" ToolTip="Slate"/>
+                        <ListBoxItem Tag="#0F766E" Background="#0F766E" ToolTip="Deep teal"/>
+                        <ListBoxItem Tag="#2E7DD7" Background="#2E7DD7" ToolTip="Accent"/>
+                        <ListBoxItem Tag="#C2410C" Background="#C2410C" ToolTip="Rust"/>
+                        <ListBoxItem Tag="#63D2A5" Background="#63D2A5" ToolTip="Green"/>
+                    </ListBox>
+                    <Button Style="{StaticResource ToolButton}" Content="Custom..." Tag="Stroke" Click="OnPickColorForActiveInspector" Height="28" Padding="8,2" Margin="0,0,0,8" HorizontalAlignment="Left"/>
+
+                    <TextBlock Text="Line Style" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <ListBox SelectedValue="{Binding Dashed, Mode=TwoWay}" Style="{StaticResource SegmentedListBoxStyle2}" SelectedValuePath="Tag" Margin="0,0,0,8">
+                        <ListBoxItem Content="Solid" Tag="{StaticResource BoolFalse}"/>
+                        <ListBoxItem Content="Dashed" Tag="{StaticResource BoolTrue}"/>
+                    </ListBox>
+
+                    <TextBlock Text="Arrow Direction" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <ListBox SelectedValue="{Binding ArrowKind, Mode=TwoWay}" Style="{StaticResource SegmentedListBoxStyle4}" SelectedValuePath="Tag" Margin="0,0,0,8">
+                        <ListBoxItem Content="None" Tag="None"/>
+                        <ListBoxItem Content="Fwd" Tag="Forward"/>
+                        <ListBoxItem Content="Back" Tag="Backward"/>
+                        <ListBoxItem Content="Both" Tag="Both"/>
+                    </ListBox>
                 </StackPanel>
             </Expander>
         </StackPanel>

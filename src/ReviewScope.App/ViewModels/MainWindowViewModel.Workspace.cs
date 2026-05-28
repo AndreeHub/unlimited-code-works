@@ -105,6 +105,7 @@ public sealed partial class MainWindowViewModel
             if (loadVersion != _loadVersion || ct.IsCancellationRequested) return;
             BuildExplorer(_currentSnapshot);
             BuildFileExplorer(_currentSnapshot);
+            await _tagIndex.LoadAsync(_currentSnapshot.WorkspaceKey, ct);
             await LoadSessionsAsync(_currentSnapshot.WorkspaceKey, ct);
         }
         catch (OperationCanceledException)
