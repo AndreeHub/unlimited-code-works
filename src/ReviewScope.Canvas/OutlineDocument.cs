@@ -899,18 +899,17 @@ internal sealed class OutlineDocument
                     drawn = MeasureRowHeight(layout, rowH);
                 }
 
-                // Hit zone: the bullet glyph area on the left, with generous padding.
-                // We use a wider zone (the whole left 32px of the indent+bullet area)
-                // so it's easy to click.
-                float hitLeft = (float)content.X + indent;
-                float hitRight = (float)content.X + indent + 32f;
-                var hitRect = new Rect(hitLeft, y, hitRight - hitLeft, drawn);
-                if (hitRect.Contains(world))
+                // Hit zone: a generous circle around the bullet glyph (Logseq-style).
+                // The bullet position matches Draw(): x + indent + 12, y + rowH * 0.5.
+                float bulletX = (float)content.X + indent + 12f;
+                float bulletMidY = y + drawn * 0.5f;
+                double dx = world.X - bulletX;
+                double dy = world.Y - bulletMidY;
+                const double hitRadius = 12.0;
+                if (dx * dx + dy * dy <= hitRadius * hitRadius)
                 {
-                    // Connection point is on the right edge of the block at bullet mid-Y.
-                    float midY = y + drawn * 0.5f;
-                    var connectionPoint = new WpfPoint(bounds.Right, midY);
-                    return (line.Index, connectionPoint);
+                    // Connection point IS the bullet itself — the line emerges from the bullet.
+                    return (line.Index, new WpfPoint(bulletX, bulletMidY));
                 }
 
                 y += drawn;
@@ -961,9 +960,11 @@ internal sealed class OutlineDocument
 
             if (string.Equals(line.AnchorId, anchorId, StringComparison.Ordinal))
             {
+                // Connection point IS the bullet itself (Logseq-style), so the line
+                // visually emerges from the bullet glyph.
+                float bulletX = (float)content.X + indent + 12f;
                 float midY = y + drawn * 0.5f;
-                // Use right edge of block so the line exits the block boundary cleanly.
-                return new WpfPoint(bounds.Right, midY);
+                return new WpfPoint(bulletX, midY);
             }
 
             y += drawn;

@@ -1395,7 +1395,6 @@ internal sealed class BlockRenderer
         var hoverStroke = _ctx.GetBrush(WpfColor.FromArgb(235, 35, 162, 109));
         var sourceStroke = _ctx.GetBrush(WpfColor.FromArgb(235, 32, 104, 192));
         float r = Math.Max(3.0f, _ctx.InvStroke(4.0f));
-        float dotX = (float)bounds.Right;
 
         string fontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily!;
         using var fmt = _ctx.DWriteFactory.CreateTextFormat(fontFamily,
@@ -1415,6 +1414,9 @@ internal sealed class BlockRenderer
                 string.IsNullOrWhiteSpace(line.Text) ? " " : line.Text, fmt, available, 4096f);
             float drawn = Math.Max(rowH, layout.Metrics.Height + 2f);
 
+            // Position the anchor AT the bullet glyph (Logseq-style) — same as
+            // OutlineDocument.Draw's bulletX = x + indent + 12.
+            float dotX = (float)content.X + indent + 12f;
             float midY = y + drawn * 0.5f;
             // Highlight by AnchorId (already allocated) or by line index (not yet allocated).
             bool isSource = isDrawingConnection
