@@ -129,7 +129,12 @@ public sealed class SessionRepository : ISessionRepository
         {
             try
             {
-                await using var read = File.OpenRead(projectPath);
+                // Share Delete/Write so a concurrent atomic replace of project.json
+                // (File.Move overwrite -> MoveFileEx REPLACE_EXISTING) isn't blocked by
+                // this read handle, which otherwise surfaces as UnauthorizedAccessException.
+                await using var read = new FileStream(
+                    projectPath, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete);
                 var existing = await JsonSerializer.DeserializeAsync<ReviewScopeProject>(read, _jsonOptions, ct);
                 if (existing is not null)
                     return existing;

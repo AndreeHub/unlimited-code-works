@@ -29,9 +29,12 @@ internal sealed class ConnectionTool : CanvasToolBase
             Viewport._connectionSourceKey = anchorHit.Block.Block.Key;
             if (anchorHit.LineIndex >= 0)
             {
-                // Bullet anchor: allocate ^id immediately so it's ready when the connection completes.
-                Viewport._connectionSourceLineId = Viewport.EnsureBulletAnchorId(anchorHit.Block.Block.Key, anchorHit.LineIndex);
+                // Bullet anchor: remember the line and peek at any existing ^id, but DON'T
+                // write one yet. The id is allocated only when the connection actually
+                // completes (mirroring the target side), so abandoning the drag doesn't
+                // leave an orphan ^id behind in the note body.
                 Viewport._connectionSourceBulletLineIndex = anchorHit.LineIndex;
+                Viewport._connectionSourceLineId = Viewport.PeekBulletAnchorId(anchorHit.Block.Block.Key, anchorHit.LineIndex);
                 Viewport._connectionSourceAnchorIndex = null;
             }
             else

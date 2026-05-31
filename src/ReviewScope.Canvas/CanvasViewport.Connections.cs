@@ -73,11 +73,10 @@ public sealed partial class CanvasViewport
 
         foreach (var block in _snapshot.Blocks.Reverse<SceneBlockVisual>())
         {
-            if (block.Block.Kind is BlockKind.Note) continue;
             if (block.Block.Kind == BlockKind.Shape && IsLinearShapeTool(block.Block.ShapeType)) continue;
 
-            // For outline Text blocks, offer bullet connection points instead of perimeter anchors.
-            if (block.Block.Kind == BlockKind.Text && OutlineDocument.IsOutlineBlock(block.Block))
+            // For outline blocks (Note and Text), offer bullet connection points instead of perimeter anchors.
+            if (OutlineDocument.IsOutlineBlock(block.Block))
             {
                 var bulletHit = OutlineDocument.TryHitBullet(block.Block, block.Bounds, world, _dwrite);
                 if (bulletHit is { } bh)
@@ -464,7 +463,7 @@ public sealed partial class CanvasViewport
             // For bullet anchors, resolve the line ID lazily so we don't write ^id to the body
             // until the connection is actually completed.
             _connectionHoverTargetLineId = anchor.LineIndex >= 0
-                ? GetBulletLineIdForHover(anchor.Block.Block.Key, anchor.LineIndex)
+                ? PeekBulletAnchorId(anchor.Block.Block.Key, anchor.LineIndex)
                 : null;
             return;
         }
@@ -477,11 +476,12 @@ public sealed partial class CanvasViewport
     }
 
     /// <summary>
-    /// Returns the anchor ID for a bullet hover without modifying the scene.
+    /// Returns the existing anchor ID for a bullet line without modifying the scene.
     /// If the line has no anchor ID yet, returns null — the ID is only allocated
-    /// when the connection is actually completed via EnsureBulletAnchorId.
+    /// when the connection is actually completed via EnsureBulletAnchorId. Used by
+    /// both the hover target and the source endpoint while a connection is being drawn.
     /// </summary>
-    private string? GetBulletLineIdForHover(string blockKey, int lineIndex)
+    internal string? PeekBulletAnchorId(string blockKey, int lineIndex)
     {
         var block = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(blockKey, StringComparison.OrdinalIgnoreCase));
         if (block is null) return null;

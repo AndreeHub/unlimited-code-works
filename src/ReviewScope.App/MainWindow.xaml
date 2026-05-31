@@ -60,33 +60,35 @@
                             VerticalAlignment="Center"
                             Height="20"
                             Background="{StaticResource PanelBg}">
-                        <Button x:Name="FileMenuButton"
-                                Style="{StaticResource GhostButton}"
-                                Content="File"
-                                Padding="7,0"
-                                MinHeight="18"
-                                FontSize="11"
-                                FontWeight="SemiBold"
-                                Click="OnFileMenuButtonClick">
-                            <Button.ContextMenu>
-                                <ContextMenu Placement="Bottom"
-                                             PlacementTarget="{Binding ElementName=FileMenuButton}"
-                                             DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                                    <MenuItem Header="Settings"
-                                              Command="{Binding OpenSettingsCommand}"/>
-                                    <Separator/>
-                                    <MenuItem Header="Save"
-                                              Command="{Binding SaveWorkCommand}"
-                                              InputGestureText="Ctrl+S"/>
-                                    <MenuItem Header="Save As"
-                                              Command="{Binding SaveWorkAsCommand}"
-                                              InputGestureText="Ctrl+Shift+S"/>
-                                    <Separator/>
-                                    <MenuItem Header="Load"
-                                              Command="{Binding LoadWorkCommand}"/>
-                                </ContextMenu>
-                            </Button.ContextMenu>
-                        </Button>
+                        <!--
+                            Native Menu instead of Button+ContextMenu: ContextMenu hosts in its
+                            own popup HWND that WPF lazy-creates on first open (100-300ms of
+                            "did I click it?" lag), and the re-click flow flickers because the
+                            menu auto-closes from click-outside *before* the button's Click
+                            handler reopens it. A real Menu + MenuItem pre-realizes the popup
+                            host with the menu and handles click-to-toggle natively.
+                        -->
+                        <Menu Background="Transparent"
+                              Padding="0"
+                              VerticalAlignment="Stretch">
+                            <MenuItem Header="File"
+                                      Padding="7,0"
+                                      FontSize="11"
+                                      FontWeight="SemiBold">
+                                <MenuItem Header="Settings"
+                                          Command="{Binding OpenSettingsCommand}"/>
+                                <Separator/>
+                                <MenuItem Header="Save"
+                                          Command="{Binding SaveWorkCommand}"
+                                          InputGestureText="Ctrl+S"/>
+                                <MenuItem Header="Save As"
+                                          Command="{Binding SaveWorkAsCommand}"
+                                          InputGestureText="Ctrl+Shift+S"/>
+                                <Separator/>
+                                <MenuItem Header="Load"
+                                          Command="{Binding LoadWorkCommand}"/>
+                            </MenuItem>
+                        </Menu>
                     </Border>
                 </Border>
 
@@ -414,6 +416,51 @@
                                 </ListBox>
                             </Grid>
                         </TabItem>
+
+                        <TabItem Header="Project">
+                            <Grid Margin="0,10,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                                    <Button Style="{StaticResource HeaderRibbonButton}" Content="+ Board" Command="{Binding CreateNewSessionCommand}"/>
+                                    <TextBlock Style="{StaticResource HeaderSeparatorText}"/>
+                                    <Button Style="{StaticResource HeaderRibbonButton}" Content="+ Page" Command="{Binding CreateNewPageCommand}"/>
+                                    <TextBlock Style="{StaticResource HeaderSeparatorText}"/>
+                                    <Button Style="{StaticResource HeaderRibbonButton}" Content="Today" Command="{Binding OpenTodayJournalCommand}"/>
+                                </StackPanel>
+                                <ListBox x:Name="ProjectDocList" Grid.Row="1"
+                                         SelectedItem="{Binding SelectedSession}"
+                                         SelectionChanged="OnProjectDocSelectionChanged"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                    <ListBox.GroupStyle>
+                                        <GroupStyle>
+                                            <GroupStyle.HeaderTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Name}" FontSize="9.5" FontWeight="SemiBold"
+                                                               Foreground="{StaticResource MutedForeground}" Margin="2,10,0,3"/>
+                                                </DataTemplate>
+                                            </GroupStyle.HeaderTemplate>
+                                        </GroupStyle>
+                                    </ListBox.GroupStyle>
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Height="22" ToolTip="{Binding Name}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="18"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="11"
+                                                           Foreground="{StaticResource ForegroundBrush}"
+                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Grid>
+                        </TabItem>
                     </TabControl>
 
                 </Grid>
@@ -433,6 +480,8 @@
             </GridSplitter>
 
             <Grid Grid.Column="2" Background="{StaticResource CanvasBg}">
+                <Grid x:Name="CanvasHostGrid"
+                      Visibility="{Binding IsCanvasDocumentActive, Converter={StaticResource BoolVis}}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
@@ -572,6 +621,21 @@
                                         </StackPanel>
                                     </Grid>
                                 </Button>
+                                <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding OpenTransclusionPickerCommand}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="34"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="28" Height="28" CornerRadius="6" Background="#D1FAE5" VerticalAlignment="Top">
+                                            <Path Data="M9,7 H19 M9,12 H19 M9,17 H15 M5,7 V7 M5,12 V12 M5,17 V17" Stroke="#047857" StrokeThickness="1.8" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="Block Reference" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                            <TextBlock Text="Mirror a note bullet here ((live))." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Button>
                             </StackPanel>
                         </ScrollViewer>
                     </Grid>
@@ -650,6 +714,88 @@
                         </Button>
                     </StackPanel>
                 </Border>
+
+                <!-- ============ Block-reference (transclusion) picker overlay ============ -->
+                <Grid Grid.Row="0" Grid.RowSpan="2" Panel.ZIndex="50"
+                      Background="#66000000"
+                      Visibility="{Binding IsTransclusionPickerOpen, Converter={StaticResource BoolVis}}">
+                    <Border Width="520" MaxHeight="560" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}"
+                            BorderThickness="1" CornerRadius="12" Padding="0">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="24" ShadowDepth="4" Opacity="0.28" Color="#0F172A"/>
+                        </Border.Effect>
+                        <Grid Margin="16">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0">
+                                <TextBlock Text="Reference a block" FontSize="14" FontWeight="SemiBold"
+                                           Foreground="{StaticResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                <Button HorizontalAlignment="Right" Style="{StaticResource GhostButton}"
+                                        Command="{Binding CloseTransclusionPickerCommand}" Padding="6,0" Content="✕" FontSize="12"/>
+                            </Grid>
+                            <TextBox Grid.Row="1" Margin="0,10,0,8" Padding="8,6"
+                                     Text="{Binding TransclusionPickerFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     FontSize="12.5"
+                                     Background="{StaticResource CanvasBg}" BorderBrush="{StaticResource SoftBorder}"
+                                     Foreground="{StaticResource ForegroundBrush}"/>
+                            <ListBox Grid.Row="2" ItemsSource="{Binding TransclusionCandidates}"
+                                     Background="Transparent" BorderThickness="0"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Setter Property="Margin" Value="0,1"/>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button HorizontalContentAlignment="Stretch" Cursor="Hand"
+                                                Background="Transparent" BorderThickness="0" Padding="6,5"
+                                                Command="{Binding DataContext.AddTransclusionCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                                CommandParameter="{Binding}">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Preview}" FontSize="12.5" Margin="{Binding Indent}"
+                                                           Foreground="{StaticResource ForegroundBrush}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding DocumentName}" FontSize="10.5"
+                                                           Foreground="{StaticResource SubtleForeground}" Margin="0,2,0,0"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+                </Grid>
+                </Grid>
+
+                <!-- Logseq-style outline editor; shown for Page/Journal documents.
+                     A centered title heading sits above the outline body, matching the
+                     centered writing column the editor itself renders. -->
+                <Grid Visibility="{Binding IsOutlineDocumentActive, Converter={StaticResource BoolVis}}"
+                      Background="{StaticResource PanelBg}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <!-- Logseq-style page title: a large left-aligned heading whose block matches
+                         the centered ~720px writing column, so its left edge lines up with the
+                         bullets below it. Edit it to rename the page. -->
+                    <TextBox x:Name="OutlineTitleBox" Grid.Row="0"
+                             Text="{Binding OutlineDocumentTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             KeyDown="OnOutlineTitleKeyDown" LostKeyboardFocus="OnOutlineTitleLostFocus"
+                             HorizontalAlignment="Center" MaxWidth="720" MinWidth="680"
+                             Margin="0,30,12,6" Padding="22,0,0,0" BorderThickness="0" Background="Transparent"
+                             FontFamily="Segoe UI" FontSize="32" FontWeight="Bold"
+                             Foreground="{StaticResource ForegroundBrush}"
+                             HorizontalContentAlignment="Left" TextAlignment="Left" />
+                    <canvas:OutlineView x:Name="OutlineEditor" Grid.Row="1"/>
+                </Grid>
             </Grid>
 
             <GridSplitter Grid.Column="3" HorizontalAlignment="Stretch" Cursor="SizeWE"

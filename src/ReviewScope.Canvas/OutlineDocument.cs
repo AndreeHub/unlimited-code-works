@@ -44,6 +44,19 @@ internal sealed class OutlineDocument
     /// <summary>State of a TODO-style line: nothing, open, or done.</summary>
     public enum TodoState { None, Todo, Done }
 
+    /// <summary>
+    /// True when a visible bullet line's text is a horizontal-divider marker. Logseq accepts
+    /// a run of three or more dashes (with optional surrounding whitespace) on its own bullet.
+    /// </summary>
+    public static bool IsDividerText(string visibleLineText)
+    {
+        string t = visibleLineText.Trim();
+        if (t.Length < 3) return false;
+        foreach (char c in t)
+            if (c != '-') return false;
+        return true;
+    }
+
     public static TodoState ClassifyTodo(string visibleLineText)
     {
         if (visibleLineText.StartsWith("TODO ", StringComparison.Ordinal)) return TodoState.Todo;
@@ -62,7 +75,7 @@ internal sealed class OutlineDocument
     public IEnumerable<OutlineLine> VisibleLines => Lines.Where(l => !l.IsHidden);
 
     public static bool IsOutlineBlock(RenderBlock block) =>
-        block.Kind is BlockKind.Note or BlockKind.Text;
+        block.Kind is BlockKind.Note or BlockKind.Text or BlockKind.Transclusion;
 
     public static HashSet<string> ParseCollapsedSet(BoardItemStyle? style) =>
         (style?.OutlineCollapsedItems ?? string.Empty)
@@ -116,7 +129,7 @@ internal sealed class OutlineDocument
             int parent = parentIndexes[i];
             while (parent >= 0)
             {
-                if (collapsed.Contains(raw[parent].Id))
+                if (raw[parent].AnchorId is string pa && collapsed.Contains(pa))
                 {
                     hidden[i] = true;
                     break;
@@ -135,7 +148,7 @@ internal sealed class OutlineDocument
             line.Id,
             parentIndexes[i],
             hasChildren[i],
-            collapsed.Contains(line.Id),
+            line.AnchorId is not null && collapsed.Contains(line.AnchorId),
             hidden[i],
             line.AnchorId,
             line.AnchorLength)).ToList());
@@ -154,10 +167,10 @@ internal sealed class OutlineDocument
         return new Rect(bounds.X + padL, bounds.Y + padT, Math.Max(4, bounds.Width - padL - padR), Math.Max(4, bounds.Height - padT - padB));
     }
 
-    public static bool TryHitToggle(RenderBlock block, Rect bounds, WpfPoint world, out string lineId,
+    public static bool TryHitToggle(RenderBlock block, Rect bounds, WpfPoint world, out int lineIndex,
         Vortice.DirectWrite.IDWriteFactory? dwrite = null)
     {
-        lineId = string.Empty;
+        lineIndex = -1;
         if (!IsOutlineBlock(block))
             return false;
 
@@ -189,7 +202,7 @@ internal sealed class OutlineDocument
                 var hit = new Rect(toggleX - 3, y + (rowH - ToggleSize) * 0.5f - 3, ToggleSize + 6, ToggleSize + 6);
                 if (line.HasChildren && hit.Contains(world))
                 {
-                    lineId = line.Id;
+                    lineIndex = line.Index;
                     return true;
                 }
                 float drawn = rowH;
@@ -292,6 +305,21 @@ internal sealed class OutlineDocument
                 DrawTodoCheckbox(ctx, checkboxX, y + (rowH - CheckboxSize) * 0.5f, todo == TodoState.Done, color);
             else if (!hasToggle)
                 ctx.RenderTarget.FillEllipse(new Ellipse(new Vector2(bulletX, y + rowH * 0.5f), BulletRadius, BulletRadius), bulletBrush);
+
+            // Logseq-style horizontal divider: a bullet whose content is exactly "---"
+            // renders as a horizontal rule. The caret line still shows the raw "---" so
+            // it stays editable (type a 4th char or backspace to dissolve the divider).
+            int divRawStart = line.Start + line.PrefixLength;
+            int divRawEnd = line.Start + line.Length - line.AnchorLength;
+            bool caretOnLine = hasCursor && editCursorPos >= line.Start && editCursorPos <= divRawEnd;
+            if (IsDividerText(line.Text) && !caretOnLine)
+            {
+                float ruleY = y + rowH * 0.5f;
+                var ruleBrush = ctx.GetBrush(WpfColor.FromArgb(110, color.R, color.G, color.B));
+                ctx.RenderTarget.DrawLine(new Vector2(textX, ruleY), new Vector2(x + maxW, ruleY), ruleBrush, ctx.InvStroke(1.4f));
+                y += rowH;
+                continue;
+            }
 
             // When the cursor is in this block, render raw text so cursor positions
             // and the markers themselves stay visible for editing. Otherwise strip
@@ -454,6 +482,7 @@ internal sealed class OutlineDocument
                     layout.SetFontFamilyName("Consolas", contentRange);
                     break;
                 case InlineKind.Ref:
+                case InlineKind.BlockRef:
                     layout.SetUnderline(true, new Vortice.DirectWrite.TextRange((uint)span.Start, (uint)span.Length));
                     break;
             }
@@ -478,17 +507,24 @@ internal sealed class OutlineDocument
         if (spans.Count == 0) return;
         var tagBg = ctx.GetBrush(WpfColor.FromArgb(70, 59, 130, 246));      // soft blue
         var refBg = ctx.GetBrush(WpfColor.FromArgb(70, 139, 92, 246));      // soft purple
+        var blockRefBg = ctx.GetBrush(WpfColor.FromArgb(70, 16, 185, 129)); // soft teal
 
         foreach (var span in spans)
         {
-            if (span.Kind is not (InlineKind.Tag or InlineKind.Ref)) continue;
+            if (span.Kind is not (InlineKind.Tag or InlineKind.Ref or InlineKind.BlockRef)) continue;
             layout.HitTestTextPosition((uint)span.Start, false, out float sx, out _, out _);
             layout.HitTestTextPosition((uint)(span.Start + span.Length), false, out float ex, out _, out _);
             float padX = 3f;
             var rect = new RoundedRectangle(
                 new RectangleF(textX + sx - padX, lineY + 1f, Math.Max(2, ex - sx) + padX * 2, rowH - 2f),
                 4f, 4f);
-            ctx.RenderTarget.FillRoundedRectangle(rect, span.Kind == InlineKind.Tag ? tagBg : refBg);
+            var bg = span.Kind switch
+            {
+                InlineKind.Tag => tagBg,
+                InlineKind.Ref => refBg,
+                _ => blockRefBg,
+            };
+            ctx.RenderTarget.FillRoundedRectangle(rect, bg);
         }
     }
 
@@ -521,6 +557,7 @@ internal sealed class OutlineDocument
                 case InlineKind.Strike:
                 case InlineKind.Code:
                 case InlineKind.Ref:
+                case InlineKind.BlockRef:
                     // Drop the marker chars; only keep the inner content.
                     sb.Append(rawLineText, span.ContentStart, span.ContentLength);
                     spans.Add(new InlineSpan(dispStart, span.ContentLength, dispStart, span.ContentLength, span.Kind));
@@ -539,7 +576,7 @@ internal sealed class OutlineDocument
         return (sb.ToString(), spans);
     }
 
-    internal enum InlineKind { Bold, Italic, Strike, Code, Tag, Ref }
+    internal enum InlineKind { Bold, Italic, Strike, Code, Tag, Ref, BlockRef }
     internal readonly record struct InlineSpan(int Start, int Length, int ContentStart, int ContentLength, InlineKind Kind);
 
     /// <summary>
@@ -613,6 +650,17 @@ internal sealed class OutlineDocument
                 if (end > i + 2)
                 {
                     yield return new InlineSpan(i, end + 2 - i, i + 2, end - (i + 2), InlineKind.Ref);
+                    i = end + 2;
+                    continue;
+                }
+            }
+            // ((^anchor)) — block reference (transclusion source)
+            else if (c == '(' && i + 1 < text.Length && text[i + 1] == '(')
+            {
+                int end = text.IndexOf("))", i + 2, StringComparison.Ordinal);
+                if (end > i + 2)
+                {
+                    yield return new InlineSpan(i, end + 2 - i, i + 2, end - (i + 2), InlineKind.BlockRef);
                     i = end + 2;
                     continue;
                 }
@@ -847,16 +895,21 @@ internal sealed class OutlineDocument
     }
 
     /// <summary>
-    /// Hit-tests whether <paramref name="world"/> is inside the bullet-dot / toggle
-    /// area of any visible line in an outline block. Returns the line's index within
-    /// the raw body and the world-space point that should be used as the connection
-    /// endpoint (right edge of the block, vertically centred on the row).
+    /// Per-visible-line layout geometry for an outline block, measured exactly the way
+    /// <see cref="Draw"/> lays rows out (BuildDisplay + MeasureRowHeight, accumulating the
+    /// drawn height of each row). All connection-anchor consumers (hit-test, render, and
+    /// endpoint resolution) share this so they stay pixel-aligned with the rendered text
+    /// and don't drift apart as rows wrap or markers are hidden.
     /// </summary>
-    public static (int LineIndex, WpfPoint ConnectionPoint)? TryHitBullet(
-        RenderBlock block, Rect bounds, WpfPoint world,
-        Vortice.DirectWrite.IDWriteFactory? dwrite = null)
+    internal readonly record struct BulletRow(
+        OutlineLine Line, float RowTop, float RowHeight, float Indent, float BulletMidY);
+
+    internal static IReadOnlyList<BulletRow> LayoutBulletRows(
+        RenderBlock block, Rect bounds, bool hideMarkers,
+        Vortice.DirectWrite.IDWriteFactory dwrite)
     {
-        if (!IsOutlineBlock(block)) return null;
+        var rows = new List<BulletRow>();
+        if (!IsOutlineBlock(block)) return rows;
 
         var style = block.Style ?? new BoardItemStyle();
         var doc = Parse(block.Body ?? string.Empty, style);
@@ -865,111 +918,86 @@ internal sealed class OutlineDocument
         float rowH = Math.Max(16f, fontSize * 1.45f);
         float maxW = (float)content.Width;
 
-        // Only hit-test if the world point is inside (or within a few px of) the block.
-        double hitExpand = 12;
-        if (world.X < bounds.Left - hitExpand || world.X > bounds.Right + hitExpand
-         || world.Y < bounds.Top - hitExpand || world.Y > bounds.Bottom + hitExpand)
-            return null;
-
-        Vortice.DirectWrite.IDWriteTextFormat? fmt = null;
-        if (dwrite is not null)
-        {
-            string fontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily!;
-            fmt = dwrite.CreateTextFormat(fontFamily,
-                style.Bold ? Vortice.DirectWrite.FontWeight.Bold : Vortice.DirectWrite.FontWeight.Normal,
-                style.Italic ? Vortice.DirectWrite.FontStyle.Italic : Vortice.DirectWrite.FontStyle.Normal,
-                Vortice.DirectWrite.FontStretch.Normal, fontSize);
-            fmt.WordWrapping = Vortice.DirectWrite.WordWrapping.Wrap;
-        }
-
-        float y = (float)content.Y;
-        try
-        {
-            foreach (var line in doc.VisibleLines)
-            {
-                if (y > content.Bottom) break;
-                float indent = line.Level * IndentWidth;
-                float available = Math.Max(8f, maxW - indent - 22f);
-
-                float drawn = rowH;
-                if (fmt is not null)
-                {
-                    using var layout = dwrite!.CreateTextLayout(
-                        string.IsNullOrWhiteSpace(line.Text) ? " " : line.Text, fmt, available, MaxTextLayoutHeight);
-                    drawn = MeasureRowHeight(layout, rowH);
-                }
-
-                // Hit zone: a generous circle around the bullet glyph (Logseq-style).
-                // The bullet position matches Draw(): x + indent + 12, y + rowH * 0.5.
-                float bulletX = (float)content.X + indent + 12f;
-                float bulletMidY = y + drawn * 0.5f;
-                double dx = world.X - bulletX;
-                double dy = world.Y - bulletMidY;
-                const double hitRadius = 12.0;
-                if (dx * dx + dy * dy <= hitRadius * hitRadius)
-                {
-                    // Connection point IS the bullet itself — the line emerges from the bullet.
-                    return (line.Index, new WpfPoint(bulletX, bulletMidY));
-                }
-
-                y += drawn;
-            }
-        }
-        finally
-        {
-            fmt?.Dispose();
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// Returns the world-space point for a connection attached to the bullet whose
-    /// anchor ID is <paramref name="anchorId"/>. Falls back to null if the ID cannot
-    /// be found (e.g. block body was edited after the connection was created).
-    /// </summary>
-    public static WpfPoint? GetBulletConnectionPoint(
-        RenderBlock block, Rect bounds, string anchorId,
-        float fontSize, string fontFamily, bool bold, bool italic,
-        Vortice.DirectWrite.IDWriteFactory dwrite)
-    {
-        if (!IsOutlineBlock(block)) return null;
-
-        var style = block.Style ?? new BoardItemStyle();
-        var doc = Parse(block.Body ?? string.Empty, style);
-        var content = GetContentRect(block, bounds);
-        float rowH = Math.Max(16f, fontSize * 1.45f);
-        float maxW = (float)content.Width;
-
-        using var fmt = dwrite.CreateTextFormat(
-            string.IsNullOrWhiteSpace(fontFamily) ? "Segoe UI" : fontFamily,
-            bold ? Vortice.DirectWrite.FontWeight.Bold : Vortice.DirectWrite.FontWeight.Normal,
-            italic ? Vortice.DirectWrite.FontStyle.Italic : Vortice.DirectWrite.FontStyle.Normal,
+        string fontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily!;
+        using var fmt = dwrite.CreateTextFormat(fontFamily,
+            style.Bold ? Vortice.DirectWrite.FontWeight.Bold : Vortice.DirectWrite.FontWeight.Normal,
+            style.Italic ? Vortice.DirectWrite.FontStyle.Italic : Vortice.DirectWrite.FontStyle.Normal,
             Vortice.DirectWrite.FontStretch.Normal, fontSize);
         fmt.WordWrapping = Vortice.DirectWrite.WordWrapping.Wrap;
 
         float y = (float)content.Y;
         foreach (var line in doc.VisibleLines)
         {
-            if (y > content.Bottom + 200) break;
             float indent = line.Level * IndentWidth;
             float available = Math.Max(8f, maxW - indent - 22f);
 
-            using var layout = dwrite.CreateTextLayout(
-                string.IsNullOrWhiteSpace(line.Text) ? " " : line.Text, fmt, available, MaxTextLayoutHeight);
+            var (displayText, _) = BuildDisplay(line.Text, hideMarkers);
+            string visibleText = string.IsNullOrWhiteSpace(displayText) ? " " : displayText;
+            using var layout = dwrite.CreateTextLayout(visibleText, fmt, available, MaxTextLayoutHeight);
             float drawn = MeasureRowHeight(layout, rowH);
 
-            if (string.Equals(line.AnchorId, anchorId, StringComparison.Ordinal))
-            {
-                // Connection point IS the bullet itself (Logseq-style), so the line
-                // visually emerges from the bullet glyph.
-                float bulletX = (float)content.X + indent + 12f;
-                float midY = y + drawn * 0.5f;
-                return new WpfPoint(bulletX, midY);
-            }
-
+            // The bullet glyph is drawn at the top sub-row's vertical centre (y + rowH/2),
+            // not the centre of the whole wrapped row — match that so anchors sit on the bullet.
+            float bulletMidY = y + rowH * 0.5f;
+            rows.Add(new BulletRow(line, y, drawn, indent, bulletMidY));
             y += drawn;
         }
 
+        return rows;
+    }
+
+    /// <summary>
+    /// Hit-tests whether <paramref name="world"/> is near the connection anchor of any
+    /// visible line in an outline block. Returns the line's index within the raw body and
+    /// the world-space point that should be used as the connection endpoint: the block's
+    /// LEFT edge (fixed X), vertically aligned with the bullet's row.
+    /// </summary>
+    public static (int LineIndex, WpfPoint ConnectionPoint)? TryHitBullet(
+        RenderBlock block, Rect bounds, WpfPoint world,
+        Vortice.DirectWrite.IDWriteFactory? dwrite = null)
+    {
+        if (!IsOutlineBlock(block) || dwrite is null) return null;
+
+        // Only hit-test if the world point is inside (or within a few px of) the block.
+        double hitExpand = 12;
+        if (world.X < bounds.Left - hitExpand || world.X > bounds.Right + hitExpand
+         || world.Y < bounds.Top - hitExpand || world.Y > bounds.Bottom + hitExpand)
+            return null;
+
+        // The block isn't being edited when hit-testing for a new connection drag, so
+        // markers are hidden — measure the same way the view renders them.
+        var rows = LayoutBulletRows(block, bounds, hideMarkers: true, dwrite);
+        float anchorX = (float)bounds.Left;
+        const double hitRadius = 12.0;
+        foreach (var row in rows)
+        {
+            double dx = world.X - anchorX;
+            double dy = world.Y - row.BulletMidY;
+            if (dx * dx + dy * dy <= hitRadius * hitRadius)
+                return (row.Line.Index, new WpfPoint(anchorX, row.BulletMidY));
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the world-space point for a connection attached to the bullet whose
+    /// anchor ID is <paramref name="anchorId"/>: the block's LEFT edge (fixed X) aligned
+    /// vertically with the bullet's row. Falls back to null if the ID cannot be found
+    /// (e.g. block body was edited after the connection was created).
+    /// </summary>
+    public static WpfPoint? GetBulletConnectionPoint(
+        RenderBlock block, Rect bounds, string anchorId, bool hideMarkers,
+        Vortice.DirectWrite.IDWriteFactory dwrite)
+    {
+        if (!IsOutlineBlock(block)) return null;
+
+        var rows = LayoutBulletRows(block, bounds, hideMarkers, dwrite);
+        float anchorX = (float)bounds.Left;
+        foreach (var row in rows)
+        {
+            if (string.Equals(row.Line.AnchorId, anchorId, StringComparison.Ordinal))
+                return new WpfPoint(anchorX, row.BulletMidY);
+        }
         return null;
     }
 
@@ -1044,18 +1072,6 @@ internal sealed class OutlineDocument
         return (start, end, text[start..end]);
     }
 
-    public static string BulletPrefixForLine(string line)
-    {
-        int indent = line.TakeWhile(c => c is ' ' or '\t').Count();
-        string leading = line[..indent];
-        string rest = line[indent..];
-        if (rest.StartsWith("- ", StringComparison.Ordinal) || rest.StartsWith("* ", StringComparison.Ordinal))
-            return leading + rest[..2];
-        if (rest.StartsWith("\u2022 ", StringComparison.Ordinal))
-            return leading + "- ";
-        return leading + "- ";
-    }
-
     public static int PrefixLengthForLine(string line)
     {
         int indent = line.TakeWhile(c => c is ' ' or '\t').Count();
@@ -1064,75 +1080,6 @@ internal sealed class OutlineDocument
             return indent + 2;
         return indent;
     }
-
-    public static string IndentLine(string line) => "  " + line;
-
-    public static string OutdentLine(string line)
-    {
-        if (line.StartsWith("  ", StringComparison.Ordinal)) return line[2..];
-        if (line.StartsWith("\t", StringComparison.Ordinal)) return line[1..];
-        return line;
-    }
-
-    public static string MoveSubtree(string text, int cursorPos, int direction, out int nextCursorPos)
-    {
-        nextCursorPos = cursorPos;
-        var lines = SplitLines(text);
-        if (lines.Count <= 1) return text;
-        int current = Math.Clamp(LineIndexAt(text, cursorPos), 0, lines.Count - 1);
-        int start = current;
-        int level = ParseLine(current, 0, lines[current]).Level;
-        int end = current + 1;
-        while (end < lines.Count && ParseLine(end, 0, lines[end]).Level > level) end++;
-
-        if (direction < 0)
-        {
-            int prevStart = start - 1;
-            while (prevStart >= 0 && ParseLine(prevStart, 0, lines[prevStart]).Level > level)
-                prevStart--;
-            if (prevStart < 0 || ParseLine(prevStart, 0, lines[prevStart]).Level != level) return text;
-            var moving = lines.GetRange(start, end - start);
-            lines.RemoveRange(start, end - start);
-            lines.InsertRange(prevStart, moving);
-            nextCursorPos = CursorPosForLine(lines, prevStart, Math.Max(0, cursorPos - LineStartOffset(text, current)));
-            return string.Join('\n', lines);
-        }
-
-        int nextStart = end;
-        if (nextStart >= lines.Count) return text;
-        int nextLevel = ParseLine(nextStart, 0, lines[nextStart]).Level;
-        if (nextLevel != level) return text;
-        int nextEnd = nextStart + 1;
-        while (nextEnd < lines.Count && ParseLine(nextEnd, 0, lines[nextEnd]).Level > nextLevel) nextEnd++;
-        var subtree = lines.GetRange(start, end - start);
-        lines.RemoveRange(start, end - start);
-        int insertAt = nextEnd - subtree.Count;
-        lines.InsertRange(insertAt, subtree);
-        nextCursorPos = CursorPosForLine(lines, insertAt, Math.Max(0, cursorPos - LineStartOffset(text, current)));
-        return string.Join('\n', lines);
-    }
-
-    private static int LineStartOffset(string text, int lineIndex)
-    {
-        int line = 0;
-        for (int i = 0; i < text.Length; i++)
-        {
-            if (line == lineIndex) return i;
-            if (text[i] == '\n') line++;
-        }
-        return text.Length;
-    }
-
-    private static int CursorPosForLine(IReadOnlyList<string> lines, int lineIndex, int column)
-    {
-        int pos = 0;
-        for (int i = 0; i < lineIndex && i < lines.Count; i++)
-            pos += lines[i].Length + 1;
-        return pos + Math.Min(column, lines[Math.Clamp(lineIndex, 0, lines.Count - 1)].Length);
-    }
-
-    private static List<string> SplitLines(string text) =>
-        text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n').ToList();
 
     private static OutlineLineBuilder ParseLine(int index, int start, string line)
     {

@@ -2,7 +2,7 @@ namespace ReviewScope.Domain;
 
 // --- Enums ---
 
-public enum BlockKind { File, Extract, Note, MarkdownDoc, Shape, Text, Image, Container }
+public enum BlockKind { File, Extract, Note, MarkdownDoc, Shape, Text, Image, Container, Transclusion }
 public enum SemanticTokenKind { Plain, Keyword, Type, Function, Property, Field, String, Comment, Number, Preprocessor, Operator }
 public enum ConnectorRouteKind { Curved, Straight, Orthogonal }
 public enum ConnectorArrowKind { None, Forward, Backward, Both }
@@ -11,6 +11,13 @@ public enum ConnectionControlNodeKind { None, Middle, Source, Target }
 public enum ConnectionEndpointKind { None, Source, Target }
 public enum NoteResizeCorner { None, TopLeft, TopRight, BottomLeft, BottomRight }
 public enum CanvasBackgroundMode { Dots, Grid }
+
+/// <summary>
+/// What kind of document a <see cref="ReviewSession"/> represents in the project registry.
+/// Canvas = the freeform board (blocks/connections); Page = a named Logseq-style outline;
+/// Journal = a date-named outline page (one per day).
+/// </summary>
+public enum DocumentKind { Canvas, Page, Journal }
 
 // --- Workspace / file discovery ---
 
@@ -60,7 +67,11 @@ public sealed record BlockPlacement(
     BoardGroupState? GroupState = null,
     string? Body = null,
     IReadOnlyList<string>? Tags = null,
-    IReadOnlyList<string>? WikiLinks = null);
+    IReadOnlyList<string>? WikiLinks = null,
+    // For BlockKind.Transclusion: the persistent ^anchor id of the source bullet this block
+    // mirrors. The mirrored text itself is NOT persisted (it's re-resolved on load); only this
+    // pointer is, so the transclusion stays live when the source bullet changes.
+    string? RefAnchorId = null);
 
 public sealed record FocusedRange(
     int StartLine,
@@ -175,7 +186,14 @@ public sealed record ReviewSession(
     IReadOnlyList<AnnotationSnapshot> Annotations,
     IReadOnlyList<SwimLaneSnapshot> SwimLanes,
     DateTimeOffset UpdatedAt,
-    IReadOnlyList<BoardLayerSnapshot>? Layers = null);
+    IReadOnlyList<BoardLayerSnapshot>? Layers = null,
+    // --- Phase 3 document-registry fields (appended for JSON back-compat) ---
+    // Canvas docs ignore the outline fields; Page/Journal docs keep Blocks empty and
+    // store their Logseq-style outline as serialized markdown in OutlineBody, with the
+    // collapsed-anchor set persisted (semicolon-separated) in OutlineCollapsed.
+    DocumentKind Kind = DocumentKind.Canvas,
+    string? OutlineBody = null,
+    string? OutlineCollapsed = null);
 
 // --- Render model (in-memory, passed to canvas) ---
 
@@ -206,7 +224,10 @@ public sealed record RenderBlock(
     BoardSourceBinding? Source = null,
     BoardGroupState? GroupState = null,
     IReadOnlyList<string>? Tags = null,
-    IReadOnlyList<string>? WikiLinks = null);
+    IReadOnlyList<string>? WikiLinks = null,
+    // For BlockKind.Transclusion: the source bullet's persistent ^anchor id. Body carries the
+    // resolved (mirrored) markdown for rendering; this pointer is what gets persisted.
+    string? RefAnchorId = null);
 
 public sealed record RenderConnection(
     Guid Id,

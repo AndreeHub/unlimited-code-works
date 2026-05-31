@@ -99,6 +99,148 @@ public sealed partial class MainWindowViewModel
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Transclusion (block reference) — mirror an outline bullet onto the canvas
+    // -----------------------------------------------------------------------
+
+    /// <summary>Opens the block-reference picker, (re)populating it with every bullet across all
+    /// outline documents. The user picks one; <see cref="AddTransclusionAsync"/> creates a live,
+    /// read-only mirror of it on the canvas.</summary>
+    [RelayCommand]
+    public void OpenTransclusionPicker()
+    {
+        if (!IsCanvasDocumentActive) return;
+        TransclusionPickerFilter = string.Empty;
+        RebuildTransclusionCandidates();
+        IsTransclusionPickerOpen = true;
+    }
+
+    [RelayCommand]
+    public void CloseTransclusionPicker()
+    {
+        IsTransclusionPickerOpen = false;
+        TransclusionCandidates.Clear();
+    }
+
+    partial void OnTransclusionPickerFilterChanged(string value)
+    {
+        if (IsTransclusionPickerOpen)
+            RebuildTransclusionCandidates();
+    }
+
+    private void RebuildTransclusionCandidates()
+    {
+        TransclusionCandidates.Clear();
+        string filter = TransclusionPickerFilter?.Trim() ?? string.Empty;
+
+        foreach (var doc in Sessions.Where(s => s.Kind != DocumentKind.Canvas))
+        {
+            string body = (doc.OutlineBody ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
+            if (body.Length == 0) continue;
+            string[] lines = body.Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var (depth, anchorId, preview) = DescribeOutlineLine(lines[i]);
+                if (string.IsNullOrWhiteSpace(preview)) continue;
+                if (filter.Length > 0 && !preview.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                    && !doc.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                TransclusionCandidates.Add(new TransclusionCandidateViewModel(doc.Id, doc.Name, i, anchorId, preview, depth));
+            }
+        }
+    }
+
+    /// <summary>Parses one raw outline line into (depth, anchorId?, preview text) for the picker,
+    /// mirroring the tree parser's indent rules (tab = one level, two spaces = one level).</summary>
+    private static (int Depth, string? AnchorId, string Preview) DescribeOutlineLine(string line)
+    {
+        int indentChars = 0, level = 0;
+        foreach (char c in line)
+        {
+            if (c == '\t') { indentChars++; level++; }
+            else if (c == ' ') indentChars++;
+            else break;
+        }
+        level += line.TakeWhile(c => c == ' ').Count() / 2;
+
+        string rest = line[indentChars..];
+        if (rest.StartsWith("- ", StringComparison.Ordinal)
+            || rest.StartsWith("* ", StringComparison.Ordinal)
+            || rest.StartsWith("• ", StringComparison.Ordinal))
+            rest = rest[2..];
+
+        string? anchorId = null;
+        if (rest.Length >= 10 && rest[^10] == ' ' && rest[^9] == '^'
+            && rest[^8..].All(Uri.IsHexDigit))
+        {
+            anchorId = rest[^8..];
+            rest = rest[..^10];
+        }
+
+        return (Math.Max(0, level), anchorId, rest.Trim());
+    }
+
+    /// <summary>Appends a fresh " ^xxxxxxxx" anchor to the bullet at <paramref name="lineIndex"/>
+    /// if it lacks one, returning the updated body and the anchor id. Mirrors
+    /// <c>OutlineDocument.GetOrAllocateBulletAnchorId</c> (which is internal to the Canvas layer).</summary>
+    private static (string NewBody, string AnchorId) AllocateBulletAnchor(string body, int lineIndex)
+    {
+        body = body.Replace("\r\n", "\n").Replace('\r', '\n');
+        var lines = body.Split('\n').ToList();
+        string newId = Guid.NewGuid().ToString("N")[..8];
+        if (lineIndex < 0 || lineIndex >= lines.Count)
+            return (body, newId);
+
+        var (_, existing, _) = DescribeOutlineLine(lines[lineIndex]);
+        if (existing is not null)
+            return (body, existing);
+
+        lines[lineIndex] = lines[lineIndex] + " ^" + newId;
+        return (string.Join('\n', lines), newId);
+    }
+
+    /// <summary>Creates a Transclusion block mirroring the chosen bullet. Allocates the source
+    /// bullet's anchor on demand (and persists the source doc) so the reference stays stable
+    /// across edits, then drops a live read-only mirror on the canvas.</summary>
+    [RelayCommand]
+    public async Task AddTransclusionAsync(TransclusionCandidateViewModel? candidate)
+    {
+        if (candidate is null) return;
+        var doc = Sessions.FirstOrDefault(s => s.Id == candidate.DocumentId);
+        if (doc is null) return;
+
+        string anchorId = candidate.AnchorId ?? string.Empty;
+        if (anchorId.Length == 0)
+        {
+            var (newBody, allocated) = AllocateBulletAnchor(doc.OutlineBody ?? string.Empty, candidate.LineIndex);
+            anchorId = allocated;
+            var updatedDoc = doc with { OutlineBody = newBody, UpdatedAt = DateTimeOffset.UtcNow };
+            ReplaceSession(doc, updatedDoc);
+            await _sessions.SaveSessionAsync(updatedDoc, CancellationToken.None);
+        }
+
+        IsTransclusionPickerOpen = false;
+        TransclusionCandidates.Clear();
+
+        var id = Guid.NewGuid();
+        var block = new RenderBlock(
+            id, $"transclusion::{id:N}", BlockKind.Transclusion,
+            "Block reference", doc.Name,
+            180 + Scene.Blocks.Count * 22, 140 + Scene.Blocks.Count * 18, 360, 120,
+            IsSelected: true,
+            LayerKey: "layer::notes",
+            ShapeType: "transclusion",
+            Style: new BoardItemStyle(Fill: "#F8FAFC", Stroke: "#10B981", Text: "#111827", TextAlign: "Left", VerticalAlign: "Top", FontSize: 14, OutlineEnabled: true),
+            RefAnchorId: anchorId);
+
+        var resolved = ResolveTransclusions(Scene with
+        {
+            Blocks = Scene.Blocks.Select(b => b with { IsSelected = false }).Append(block).ToList()
+        });
+        SetSceneFromUserAction(resolved, "Added block reference");
+        await PersistSessionAsync();
+    }
+
     [RelayCommand]
     public async Task AddContainerCardAsync()
     {
@@ -268,7 +410,10 @@ public sealed partial class MainWindowViewModel
             Body: title,
             LayerKey: "layer::screenshots",
             ShapeType: "image",
-            Style: new BoardItemStyle("#FFFFFF", "#CBD5E1", "#111827"),
+            // FillStyle defaults to "hatch" globally, which paints diagonal lines behind the
+            // screenshot frame. Force "solid" so pasted images sit on a clean white card by default —
+            // the user can still flip it back to hatch / none from the style inspector.
+            Style: new BoardItemStyle("#FFFFFF", "#CBD5E1", "#111827", FillStyle: "solid"),
             Source: new BoardSourceBinding(assetPath, sourcePath, SourceLanguage: "image"));
         SetSceneFromUserAction(Scene with { Blocks = Scene.Blocks.Append(image).ToList() }, status);
         await PersistSessionAsync();

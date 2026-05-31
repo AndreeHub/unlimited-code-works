@@ -83,7 +83,10 @@ internal sealed class BlockRenderer
                 DrawCodeBlock(blockVis, codeScrollLines, isExtractMode, hoverAnchorBlockKey, hoverAnchorIndex, isDrawingConnection, connectionSourceKey, connectionSourceAnchorIndex, connectionHoverTargetKey, connectionHoverTargetAnchorIndex, connectorsEnabled);
                 break;
             case BlockKind.Note:
-                DrawNoteBlock(blockVis, editingNoteKey, editTitle, editBody, editingTitle, editCursorVisible, editCursorPos, editSelectionAnchor);
+                DrawNoteBlock(blockVis, editingNoteKey, editTitle, editBody, editingTitle, editCursorVisible, editCursorPos, editSelectionAnchor,
+                    isDrawingConnection, connectionSourceKey, connectionHoverTargetKey, connectorsEnabled,
+                    connectionSourceLineId, connectionHoverTargetLineId,
+                    connectionSourceBulletLineIndex, connectionHoverTargetBulletLineIndex);
                 break;
             case BlockKind.MarkdownDoc:
                 DrawMarkdownDocBlock(blockVis);
@@ -92,6 +95,7 @@ internal sealed class BlockRenderer
                 DrawShapeBlock(blockVis, editingNoteKey, editTitle, editBody, editCursorVisible, editCursorPos, editSelectionAnchor, hoverAnchorBlockKey, hoverAnchorIndex, isDrawingConnection, connectionSourceKey, connectionSourceAnchorIndex, connectionHoverTargetKey, connectionHoverTargetAnchorIndex, connectorsEnabled, imageLoader);
                 break;
             case BlockKind.Text:
+            case BlockKind.Transclusion:
                 DrawTextBlock(blockVis, editingNoteKey, editBody, editCursorVisible, editCursorPos, editSelectionAnchor,
                     hoverAnchorBlockKey, hoverAnchorIndex, isDrawingConnection, connectionSourceKey, connectionSourceAnchorIndex,
                     connectionHoverTargetKey, connectionHoverTargetAnchorIndex, connectorsEnabled,
@@ -276,7 +280,10 @@ internal sealed class BlockRenderer
             DrawConnectionAnchors(block, outer, accent, hoverAnchorBlockKey, hoverAnchorIndex, isDrawingConnection, connectionSourceKey, connectionSourceAnchorIndex, connectionHoverTargetKey, connectionHoverTargetAnchorIndex);
     }
 
-    private void DrawNoteBlock(SceneBlockVisual blockVis, string? editingNoteKey, string editTitle, string editBody, bool editingTitle, bool editCursorVisible, int editCursorPos, int editSelectionAnchor)
+    private void DrawNoteBlock(SceneBlockVisual blockVis, string? editingNoteKey, string editTitle, string editBody, bool editingTitle, bool editCursorVisible, int editCursorPos, int editSelectionAnchor,
+        bool isDrawingConnection, string? connectionSourceKey, string? connectionHoverTargetKey, bool connectorsEnabled,
+        string? connectionSourceLineId, string? connectionHoverTargetLineId,
+        int connectionSourceBulletLineIndex, int connectionHoverTargetBulletLineIndex)
     {
         var block = blockVis.Block;
         bool isSelected = block.IsSelected;
@@ -378,6 +385,11 @@ internal sealed class BlockRenderer
 
             _ctx.RenderTarget.PopAxisAlignedClip();
         }
+
+        // Per-bullet connection anchors, matching how outline Text blocks expose them.
+        if (OutlineDocument.IsOutlineBlock(block) && ShouldDrawConnectionAnchors(block, connectorsEnabled))
+            DrawBulletAnchors(block, outer, strokeColor, isEditing, connectionSourceKey, connectionSourceLineId, connectionSourceBulletLineIndex,
+                connectionHoverTargetKey, connectionHoverTargetLineId, connectionHoverTargetBulletLineIndex, isDrawingConnection);
 
         // Corner handles for notes
         if ((isSelected || isEditing) && !block.IsLocked)
@@ -859,7 +871,7 @@ internal sealed class BlockRenderer
 
         // For outline Text blocks, show per-bullet anchor dots instead of perimeter anchors.
         if (OutlineDocument.IsOutlineBlock(block) && ShouldDrawConnectionAnchors(block, connectorsEnabled))
-            DrawBulletAnchors(block, outer, stroke, connectionSourceKey, connectionSourceLineId, connectionSourceBulletLineIndex,
+            DrawBulletAnchors(block, outer, stroke, isEditing, connectionSourceKey, connectionSourceLineId, connectionSourceBulletLineIndex,
                 connectionHoverTargetKey, connectionHoverTargetLineId, connectionHoverTargetBulletLineIndex, isDrawingConnection);
         else if (!OutlineDocument.IsOutlineBlock(block) && ShouldDrawConnectionAnchors(block, connectorsEnabled))
             DrawConnectionAnchors(block, outer, stroke, hoverAnchorBlockKey, hoverAnchorIndex,
@@ -1365,16 +1377,19 @@ internal sealed class BlockRenderer
     private bool ShouldDrawConnectionAnchors(RenderBlock block, bool connectorsEnabled) =>
         connectorsEnabled
         && _ctx.Zoom > UltraCompactZoom
-        && block.Kind is not (BlockKind.Note or BlockKind.Shape);
+        && block.Kind is not BlockKind.Shape;
 
     /// <summary>
-    /// Draws one small anchor dot on the right edge of the block for each visible
-    /// outline bullet line, highlighted when it is the source/target of a live connection drag.
+    /// Draws one small anchor dot on the LEFT edge of the block for each visible outline
+    /// bullet line, vertically aligned with the bullet's row, highlighted when it is the
+    /// source/target of a live connection drag. Sharing OutlineDocument.LayoutBulletRows
+    /// keeps these dots pixel-aligned with where connections actually attach.
     /// </summary>
     private void DrawBulletAnchors(
         RenderBlock block,
         Rect bounds,
         WpfColor accent,
+        bool isEditing,
         string? connectionSourceKey,
         string? connectionSourceLineId,
         int connectionSourceBulletLineIndex,
@@ -1383,59 +1398,34 @@ internal sealed class BlockRenderer
         int connectionHoverTargetBulletLineIndex,
         bool isDrawingConnection)
     {
-        var style = block.Style ?? new BoardItemStyle();
-        var doc = OutlineDocument.Parse(block.Body ?? string.Empty, style);
-        var content = OutlineDocument.GetContentRect(block, bounds);
-        float fontSize = OutlineDocument.GetFontSize(block);
-        float rowH = Math.Max(16f, fontSize * 1.45f);
-        float maxW = (float)content.Width;
-
         var fill = _ctx.GetBrush(WpfColor.FromArgb(230, 255, 255, 255));
         var normalStroke = _ctx.GetBrush(WpfColor.FromArgb(180, accent.R, accent.G, accent.B));
         var hoverStroke = _ctx.GetBrush(WpfColor.FromArgb(235, 35, 162, 109));
         var sourceStroke = _ctx.GetBrush(WpfColor.FromArgb(235, 32, 104, 192));
         float r = Math.Max(3.0f, _ctx.InvStroke(4.0f));
 
-        string fontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily!;
-        using var fmt = _ctx.DWriteFactory.CreateTextFormat(fontFamily,
-            style.Bold ? Vortice.DirectWrite.FontWeight.Bold : Vortice.DirectWrite.FontWeight.Normal,
-            style.Italic ? Vortice.DirectWrite.FontStyle.Italic : Vortice.DirectWrite.FontStyle.Normal,
-            Vortice.DirectWrite.FontStretch.Normal, fontSize);
-        fmt.WordWrapping = Vortice.DirectWrite.WordWrapping.Wrap;
-
-        float y = (float)content.Y;
-        foreach (var line in doc.VisibleLines)
+        float dotX = (float)bounds.Left;
+        var rows = OutlineDocument.LayoutBulletRows(block, bounds, hideMarkers: !isEditing, _ctx.DWriteFactory);
+        foreach (var row in rows)
         {
-            if (y > content.Bottom) break;
-            float indent = line.Level * OutlineDocument.IndentWidthPublic;
-            float available = Math.Max(8f, maxW - indent - 22f);
+            if (row.RowTop > bounds.Bottom) break;
 
-            using var layout = _ctx.DWriteFactory.CreateTextLayout(
-                string.IsNullOrWhiteSpace(line.Text) ? " " : line.Text, fmt, available, 4096f);
-            float drawn = Math.Max(rowH, layout.Metrics.Height + 2f);
-
-            // Position the anchor AT the bullet glyph (Logseq-style) — same as
-            // OutlineDocument.Draw's bulletX = x + indent + 12.
-            float dotX = (float)content.X + indent + 12f;
-            float midY = y + drawn * 0.5f;
             // Highlight by AnchorId (already allocated) or by line index (not yet allocated).
             bool isSource = isDrawingConnection
                 && block.Key == connectionSourceKey
-                && (line.AnchorId != null && line.AnchorId == connectionSourceLineId
-                    || (connectionSourceLineId == null && line.Index == connectionSourceBulletLineIndex));
+                && (row.Line.AnchorId != null && row.Line.AnchorId == connectionSourceLineId
+                    || (connectionSourceLineId == null && row.Line.Index == connectionSourceBulletLineIndex));
             bool isTarget = isDrawingConnection
                 && block.Key == connectionHoverTargetKey
-                && (line.AnchorId != null && line.AnchorId == connectionHoverTargetLineId
-                    || (connectionHoverTargetLineId == null && line.Index == connectionHoverTargetBulletLineIndex));
+                && (row.Line.AnchorId != null && row.Line.AnchorId == connectionHoverTargetLineId
+                    || (connectionHoverTargetLineId == null && row.Line.Index == connectionHoverTargetBulletLineIndex));
 
             float rr = isSource || isTarget ? r * 1.45f : r;
-            var center = new Vector2(dotX, midY);
+            var center = new Vector2(dotX, row.BulletMidY);
             _ctx.RenderTarget.FillEllipse(new Ellipse(center, r, r), fill);
             _ctx.RenderTarget.DrawEllipse(new Ellipse(center, rr, rr),
                 isTarget ? hoverStroke : isSource ? sourceStroke : normalStroke,
                 _ctx.InvStroke(isSource || isTarget ? 1.2f : 0.75f));
-
-            y += drawn;
         }
     }
 

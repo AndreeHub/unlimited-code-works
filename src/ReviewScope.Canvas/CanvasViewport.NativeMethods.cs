@@ -44,6 +44,7 @@ public sealed partial class CanvasViewport
         [DllImport("user32.dll")] public static extern IntPtr SetCapture(IntPtr hWnd);
         [DllImport("user32.dll")] public static extern bool ReleaseCapture();
         [DllImport("user32.dll")] public static extern IntPtr SetFocus(IntPtr hWnd);
+        [DllImport("user32.dll")] public static extern short GetKeyState(int nVirtKey);
         [DllImport("user32.dll")] public static extern int GetDoubleClickTime();
         [DllImport("user32.dll")] public static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
         [DllImport("user32.dll", CharSet = CharSet.Auto)] public static extern bool RegisterClassEx(ref WNDCLASSEX pcx);

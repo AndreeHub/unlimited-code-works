@@ -105,6 +105,24 @@ public sealed partial class CanvasViewport
                 .ToList()
         };
 
+    // While an outline block is being edited, its committed Body is stale (the live text
+    // lives in _editBody and is only written back on CommitNoteEdit). Substitute the live
+    // text into the snapshot so bullet connection anchors track newly typed bullets
+    // immediately, instead of only appearing after the edit is committed.
+    private RenderBlock WithLiveEditBody(RenderBlock block)
+    {
+        if (_editingTitle || _editingNoteKey is null) return block;
+        if (!block.Key.Equals(_editingNoteKey, StringComparison.OrdinalIgnoreCase)) return block;
+        if (!OutlineDocument.IsOutlineBlock(block)) return block;
+        return block with { Body = _editBody };
+    }
+
+    // True when this block is the one currently being edited (cursor present, markers shown).
+    // Connection-point measurement must match the rendered text, which hides markers in view mode.
+    private bool IsEditingBlock(RenderBlock block) =>
+        !_editingTitle && _editingNoteKey is not null
+        && block.Key.Equals(_editingNoteKey, StringComparison.OrdinalIgnoreCase);
+
     private void RebuildSnapshotInternal()
     {
         foreach (var geometry in _connectionGeoms.Values)
@@ -117,7 +135,7 @@ public sealed partial class CanvasViewport
             .Where(b => !hiddenByCollapsedGroups.Contains(b.Key))
             .OrderBy(b => b.ZIndex)
             .ThenBy(GetBlockStackRank)
-            .Select(b => new SceneBlockVisual(b, new Rect(b.X, b.Y, b.Width, b.Height)))
+            .Select(b => new SceneBlockVisual(WithLiveEditBody(b), new Rect(b.X, b.Y, b.Width, b.Height)))
             .ToList();
         var blockLookup = blocks.ToDictionary(b => b.Block.Key, StringComparer.OrdinalIgnoreCase);
         blocks = blocks
@@ -161,12 +179,8 @@ public sealed partial class CanvasViewport
             Point start;
             if (conn.SourceLineId is string srcLineId && _dwrite is not null)
             {
-                float srcFontSize = OutlineDocument.GetFontSize(src.Block);
-                var srcStyle = src.Block.Style ?? new BoardItemStyle();
-                string srcFontFamily = string.IsNullOrWhiteSpace(srcStyle.FontFamily) ? "Segoe UI" : srcStyle.FontFamily!;
                 start = OutlineDocument.GetBulletConnectionPoint(
-                    src.Block, src.Bounds, srcLineId,
-                    srcFontSize, srcFontFamily, srcStyle.Bold, srcStyle.Italic, _dwrite)
+                    src.Block, src.Bounds, srcLineId, hideMarkers: !IsEditingBlock(src.Block), _dwrite)
                     ?? CanvasDrawingUtils.GetConnectionAnchorPoint(src, FindNearestConnectionAnchor(src, dstCenter));
             }
             else
@@ -179,12 +193,8 @@ public sealed partial class CanvasViewport
             Point end;
             if (conn.TargetLineId is string dstLineId && _dwrite is not null)
             {
-                float dstFontSize = OutlineDocument.GetFontSize(dst.Block);
-                var dstStyle = dst.Block.Style ?? new BoardItemStyle();
-                string dstFontFamily = string.IsNullOrWhiteSpace(dstStyle.FontFamily) ? "Segoe UI" : dstStyle.FontFamily!;
                 end = OutlineDocument.GetBulletConnectionPoint(
-                    dst.Block, dst.Bounds, dstLineId,
-                    dstFontSize, dstFontFamily, dstStyle.Bold, dstStyle.Italic, _dwrite)
+                    dst.Block, dst.Bounds, dstLineId, hideMarkers: !IsEditingBlock(dst.Block), _dwrite)
                     ?? CanvasDrawingUtils.GetConnectionAnchorPoint(dst, FindNearestConnectionAnchor(dst, srcCenter));
             }
             else

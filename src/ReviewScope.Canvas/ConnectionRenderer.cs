@@ -32,8 +32,11 @@ internal sealed class ConnectionRenderer
         float stroke = _ctx.InvStroke(conn.IsSelected ? 3.0f : 2.1f);
 
         var brush = _ctx.GetBrush(lineColor);
-        var points = SampleConnectionPoints(connVis).ToArray();
-        SketchyDrawer.DrawPolygon(_ctx.RenderTarget, points, null, brush, stroke, conn.Id.ToString(), close: false, strokeStyle: conn.Dashed ? _ctx.DashedStroke : null);
+        // Render connectors as a single clean Direct2D path geometry (cubic/quadratic
+        // bezier for Curved routes, polyline for Straight/Orthogonal). Previously the
+        // curve was sampled into ~64 short segments and pushed through SketchyDrawer,
+        // which per-segment overshoots / bows produced a wobbly chunky stroke.
+        DrawCleanConnectionPath(connVis, brush, stroke, conn.Dashed ? _ctx.DashedStroke : null);
 
         if (conn.ArrowKind == ConnectorArrowKind.None)
         {
@@ -58,7 +61,9 @@ internal sealed class ConnectionRenderer
 
         if (!string.IsNullOrWhiteSpace(conn.Label))
         {
-            Point mid = new((connVis.Start.X + connVis.End.X) / 2, (connVis.Start.Y + connVis.End.Y) / 2);
+            // Place the label on the actual rendered path (curve/orthogonal/bent), not the
+            // straight Start→End midpoint — otherwise it floats away from bent connectors.
+            Point mid = CanvasDrawingUtils.EvaluateConnectionPoint(connVis, 0.5);
             _ctx.DrawText(conn.Label!, (float)mid.X - 60, (float)mid.Y - 10, 120, 10, WpfColor.FromRgb(83, 96, 112), sketchy: true);
         }
 
@@ -90,32 +95,95 @@ internal sealed class ConnectionRenderer
             c2 = new(endLead.X + targetNormal.X * tangent, endLead.Y + targetNormal.Y * tangent);
         }
 
-        List<Vector2> previewPoints = new();
-        previewPoints.Add(new Vector2((float)start.X, (float)start.Y));
-        previewPoints.Add(new Vector2((float)startLead.X, (float)startLead.Y));
-        int bezierSamples = 16;
-        for (int i = 1; i < bezierSamples; i++)
-        {
-            float t = i / (float)bezierSamples;
-            float omt = 1f - t;
-            float xVal = omt * omt * omt * (float)startLead.X +
-                         3f * omt * omt * t * (float)c1.X +
-                         3f * omt * t * t * (float)c2.X +
-                         t * t * t * (float)endLead.X;
-            float yVal = omt * omt * omt * (float)startLead.Y +
-                         3f * omt * omt * t * (float)c1.Y +
-                         3f * omt * t * t * (float)c2.Y +
-                         t * t * t * (float)endLead.Y;
-            previewPoints.Add(new Vector2(xVal, yVal));
-        }
-        previewPoints.Add(new Vector2((float)endLead.X, (float)endLead.Y));
-        previewPoints.Add(new Vector2((float)end.X, (float)end.Y));
-
         float strokeW = _ctx.InvStroke(isHoveringTarget ? 2.8f : 2.0f);
         var brush = _ctx.GetBrush(color);
-        SketchyDrawer.DrawPolygon(_ctx.RenderTarget, previewPoints.ToArray(), null, brush, strokeW, "connection_preview", close: false);
+
+        // Draw start lead-in, the cubic bezier, and the end lead-out as one continuous
+        // Direct2D path so the preview is a smooth curve. (Previously this sampled the
+        // bezier into ~16 short segments and ran them through SketchyDrawer, which
+        // added per-segment overshoot + bow noise — that's why the in-flight connector
+        // looked like a chunky wobbly snake.)
+        using (var path = _ctx.Factory.CreatePathGeometry())
+        using (var sink = path.Open())
+        {
+            sink.BeginFigure(new Vector2((float)start.X, (float)start.Y), FigureBegin.Hollow);
+            sink.AddLine(new Vector2((float)startLead.X, (float)startLead.Y));
+            sink.AddBezier(new Vortice.Direct2D1.BezierSegment
+            {
+                Point1 = new Vector2((float)c1.X, (float)c1.Y),
+                Point2 = new Vector2((float)c2.X, (float)c2.Y),
+                Point3 = new Vector2((float)endLead.X, (float)endLead.Y)
+            });
+            sink.AddLine(new Vector2((float)end.X, (float)end.Y));
+            sink.EndFigure(FigureEnd.Open);
+            sink.Close();
+            _ctx.RenderTarget.DrawGeometry(path, brush, strokeW);
+        }
+
         if (draftMid is Point p)
             DrawControlPoint(p, _ctx.GetBrush(WpfColor.FromArgb(230, 35, 162, 109)));
+    }
+
+    // Draws a committed connection as a single clean Direct2D path. Routes:
+    //   - Curved      : start→startLead line + cubic/quadratic bezier + endLead→end line
+    //   - Straight    : start→end line
+    //   - Orthogonal  : full polyline from BuildConnectionPolyline
+    private void DrawCleanConnectionPath(SceneConnectionVisual connVis, ID2D1Brush brush, float strokeWidth, ID2D1StrokeStyle? strokeStyle)
+    {
+        var conn = connVis.Connection;
+        using var path = _ctx.Factory.CreatePathGeometry();
+        using var sink = path.Open();
+
+        if (conn.RouteKind == ConnectorRouteKind.Curved)
+        {
+            CanvasDrawingUtils.GetConnectionPathPoints(connVis, out Point startLead, out Point mid, out Point endLead);
+            sink.BeginFigure(new Vector2((float)connVis.Start.X, (float)connVis.Start.Y), FigureBegin.Hollow);
+            sink.AddLine(new Vector2((float)startLead.X, (float)startLead.Y));
+
+            if (CanvasDrawingUtils.HasCustomConnectionMidPoint(conn) && conn.MidControlBends)
+            {
+                Point control = CanvasDrawingUtils.GetQuadraticControlThroughMid(startLead, mid, endLead);
+                sink.AddQuadraticBezier(new QuadraticBezierSegment
+                {
+                    Point1 = new Vector2((float)control.X, (float)control.Y),
+                    Point2 = new Vector2((float)endLead.X, (float)endLead.Y)
+                });
+            }
+            else
+            {
+                CanvasDrawingUtils.GetAutoCubicControls(connVis, startLead, endLead, out Point cc1, out Point cc2);
+                sink.AddBezier(new Vortice.Direct2D1.BezierSegment
+                {
+                    Point1 = new Vector2((float)cc1.X, (float)cc1.Y),
+                    Point2 = new Vector2((float)cc2.X, (float)cc2.Y),
+                    Point3 = new Vector2((float)endLead.X, (float)endLead.Y)
+                });
+            }
+            sink.AddLine(new Vector2((float)connVis.End.X, (float)connVis.End.Y));
+        }
+        else
+        {
+            var pts = CanvasDrawingUtils.BuildConnectionPolyline(connVis);
+            if (pts.Count < 2)
+            {
+                sink.BeginFigure(new Vector2((float)connVis.Start.X, (float)connVis.Start.Y), FigureBegin.Hollow);
+                sink.AddLine(new Vector2((float)connVis.End.X, (float)connVis.End.Y));
+            }
+            else
+            {
+                sink.BeginFigure(new Vector2((float)pts[0].X, (float)pts[0].Y), FigureBegin.Hollow);
+                for (int i = 1; i < pts.Count; i++)
+                    sink.AddLine(new Vector2((float)pts[i].X, (float)pts[i].Y));
+            }
+        }
+
+        sink.EndFigure(FigureEnd.Open);
+        sink.Close();
+
+        if (strokeStyle is not null)
+            _ctx.RenderTarget.DrawGeometry(path, brush, strokeWidth, strokeStyle);
+        else
+            _ctx.RenderTarget.DrawGeometry(path, brush, strokeWidth);
     }
 
     private void DrawConnectionControlNodes(SceneConnectionVisual connVis, Guid? selectedConnectionId, ConnectionControlNodeKind selectedConnectionControlKind)
@@ -165,15 +233,4 @@ internal sealed class ConnectionRenderer
         DrawArrowhead(center, from, brush, stroke);
     }
 
-    private static IReadOnlyList<Vector2> SampleConnectionPoints(SceneConnectionVisual connVis)
-    {
-        const int samples = 64;
-        var points = new Vector2[samples];
-        for (int i = 0; i < samples; i++)
-        {
-            Point p = CanvasDrawingUtils.EvaluateConnectionPoint(connVis, i / (double)(samples - 1));
-            points[i] = new Vector2((float)p.X, (float)p.Y);
-        }
-        return points;
-    }
 }

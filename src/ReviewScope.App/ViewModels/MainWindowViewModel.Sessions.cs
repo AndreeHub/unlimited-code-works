@@ -6,6 +6,7 @@ using ReviewScope.Analysis;
 using ReviewScope.App.Persistence;
 using ReviewScope.Canvas;
 using ReviewScope.Domain;
+using ReviewScope.Domain.Outline;
 using System.Collections.ObjectModel;
 using System.IO;
 
@@ -26,6 +27,8 @@ public sealed partial class MainWindowViewModel
             await CreateNewSessionAsync();
         else
             await ActivateSessionAsync(Sessions[0]);
+
+        await EnsureTodayJournalAsync();
     }
 
     [RelayCommand]
@@ -49,6 +52,10 @@ public sealed partial class MainWindowViewModel
     public async Task ActivateSelectedSessionAsync()
     {
         if (SelectedSession is null) return;
+        // Both the header strip and the Project browser bind SelectedSession; selecting in one
+        // syncs the other, which re-fires SelectionChanged. Skip when the selection is already
+        // the active document so we don't reactivate (and reset the outline caret/scroll) twice.
+        if (_activeSession is not null && _activeSession.Id == SelectedSession.Id) return;
         await ActivateSessionAsync(SelectedSession);
     }
 
@@ -98,10 +105,23 @@ public sealed partial class MainWindowViewModel
 
     private async Task ActivateSessionAsync(ReviewSession session, bool hydrateCode = true)
     {
+        // Switching away from an outline doc: flush its pending debounced save first so a fast
+        // doc-switch can't drop the last keystrokes.
+        await FlushPendingOutlineSaveAsync();
+
         _activeSession = session;
         SelectedSession = session;
         SessionNameDraft = session.Name;
-        Scene = BuildSceneFromSession(session);
+
+        if (session.Kind != DocumentKind.Canvas)
+        {
+            ActivateOutlineDocument(session);
+            return;
+        }
+
+        IsOutlineDocumentActive = false;
+        IsCanvasDocumentActive = true;
+        Scene = ResolveTransclusions(BuildSceneFromSession(session));
         UpdateSelectedObject(Scene);
         RefreshBoardDetails();
         ResetHistory();
@@ -150,6 +170,17 @@ public sealed partial class MainWindowViewModel
         await _sessions.SaveSessionOrderAsync(workspace.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), CancellationToken.None);
     }
 
+    /// <summary>Swaps an existing session instance in the <see cref="Sessions"/> collection for an
+    /// updated copy, keeping <see cref="SelectedSession"/>/<c>_activeSession</c> pointing at the
+    /// new instance. Use after mutating a non-active document (e.g. allocating an anchor).</summary>
+    private void ReplaceSession(ReviewSession original, ReviewSession updated)
+    {
+        int index = Sessions.ToList().FindIndex(s => s.Id == original.Id);
+        if (index >= 0) Sessions[index] = updated;
+        if (SelectedSession?.Id == updated.Id) SelectedSession = updated;
+        if (_activeSession?.Id == updated.Id) _activeSession = updated;
+    }
+
     private string NextSessionName()
     {
         const string baseName = "New Board";
@@ -187,7 +218,8 @@ public sealed partial class MainWindowViewModel
             Source: b.Source,
             GroupState: b.GroupState,
             Tags: b.Tags,
-            WikiLinks: b.WikiLinks);
+            WikiLinks: b.WikiLinks,
+            RefAnchorId: b.RefAnchorId);
         }).ToList();
 
         var connections = session.Connections
@@ -225,6 +257,53 @@ public sealed partial class MainWindowViewModel
 
         return new RenderScene(blocks, connections, swimLanes, annotations, layers);
     }
+
+    /// <summary>
+    /// Re-resolves every <see cref="BlockKind.Transclusion"/> block in the scene against the
+    /// current set of outline documents, baking the mirrored bullet's subtree markdown into the
+    /// block's <c>Body</c> for read-only render. The source-of-truth pointer (<c>RefAnchorId</c>)
+    /// is never touched, so a transclusion stays live: edit the source bullet, reopen the canvas,
+    /// and the mirror updates. Unresolved anchors render a visible placeholder rather than vanish.
+    /// </summary>
+    private RenderScene ResolveTransclusions(RenderScene scene)
+    {
+        if (!scene.Blocks.Any(b => b.Kind == BlockKind.Transclusion))
+            return scene;
+
+        var index = BuildReferenceIndex();
+        var blocks = scene.Blocks.Select(b =>
+        {
+            if (b.Kind != BlockKind.Transclusion)
+                return b;
+
+            var style = (b.Style ?? new BoardItemStyle()) with { OutlineEnabled = true };
+            if (b.RefAnchorId is { Length: > 0 } anchor && index.TryResolveBlock(anchor, out var loc))
+            {
+                return b with
+                {
+                    Body = OutlineTree.SerializeSubtree(loc.Block),
+                    Subtitle = loc.Document.Name,
+                    Style = style,
+                };
+            }
+
+            return b with
+            {
+                Body = "- ⚠ Unresolved block reference",
+                Subtitle = b.RefAnchorId is null ? string.Empty : $"^{b.RefAnchorId}",
+                Style = style,
+            };
+        }).ToList();
+
+        return scene with { Blocks = blocks };
+    }
+
+    /// <summary>Builds a reference index over all outline documents (pages + journals) in the
+    /// project so <c>[[Page]]</c> and <c>((^anchor))</c> targets can be resolved.</summary>
+    private ReferenceIndex BuildReferenceIndex() => ReferenceIndex.Build(
+        Sessions
+            .Where(s => s.Kind != DocumentKind.Canvas)
+            .Select(s => new DocumentSource(s.Id, s.Name, s.Kind, s.OutlineBody)));
 
     private async Task HydrateCodeBlocksAsync()
     {
@@ -292,6 +371,13 @@ public sealed partial class MainWindowViewModel
             await SaveCurrentSessionSnapshotAsync(CancellationToken.None);
         }
         catch (OperationCanceledException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Background autosave hit a transient file-system lock (AV/indexer/another
+            // in-flight save). Don't tear down the editor over it — the next edit
+            // re-triggers a save, and the prior snapshot on disk is still intact.
+            _logger.LogWarning(ex, "Autosave failed; will retry on next change.");
+        }
     }
 
     public async Task SaveActiveSessionNowAsync(bool showStatus = true)
@@ -299,6 +385,13 @@ public sealed partial class MainWindowViewModel
         if (_activeSession is null)
         {
             if (showStatus) StatusMessage = "Create a board before saving.";
+            return;
+        }
+
+        if (_activeSession.Kind != DocumentKind.Canvas)
+        {
+            await FlushPendingOutlineSaveAsync();
+            if (showStatus) StatusMessage = $"Saved {_activeSession.Kind}: {_activeSession.Name}";
             return;
         }
 
@@ -361,7 +454,7 @@ public sealed partial class MainWindowViewModel
             b.Id, b.Kind, b.Key, b.Title, b.Subtitle,
             b.FilePath, b.StartLine, b.EndLine,
             b.X, b.Y, b.Width, b.Height, b.IsCollapsed, b.Focused,
-            b.ZIndex, b.LayerKey, b.IsLocked, b.ShapeType, b.Style, b.Source, b.GroupState, PersistedBodyFor(b), b.Tags, b.WikiLinks)).ToList();
+            b.ZIndex, b.LayerKey, b.IsLocked, b.ShapeType, b.Style, b.Source, b.GroupState, PersistedBodyFor(b), b.Tags, b.WikiLinks, b.RefAnchorId)).ToList();
 
         var connections = scene.Connections
             .Select(c => new ConnectionSnapshot(c.Id, c.SourceKey, c.TargetKey, c.Label,
@@ -411,7 +504,9 @@ public sealed partial class MainWindowViewModel
 
     private static string? ResolvePersistedBlockBody(BlockPlacement block)
     {
-        if (block.Kind is BlockKind.File or BlockKind.Extract)
+        // Transclusion bodies aren't persisted — only RefAnchorId is. The mirrored markdown is
+        // re-resolved on canvas activation (ResolveTransclusions) so it stays live.
+        if (block.Kind is BlockKind.File or BlockKind.Extract or BlockKind.Transclusion)
             return null;
 
         if (!string.IsNullOrEmpty(block.Body))
@@ -441,7 +536,7 @@ public sealed partial class MainWindowViewModel
     }
 
     private static string? PersistedBodyFor(RenderBlock block) =>
-        block.Kind is BlockKind.File or BlockKind.Extract ? null : block.Body;
+        block.Kind is BlockKind.File or BlockKind.Extract or BlockKind.Transclusion ? null : block.Body;
 
     private static IReadOnlyList<BoardLayerSnapshot> DefaultBoardLayers() => new[]
     {

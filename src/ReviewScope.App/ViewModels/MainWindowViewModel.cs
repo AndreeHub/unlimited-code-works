@@ -64,6 +64,8 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _isToolboxFloating = true;
     [ObservableProperty] private string? _activeCanvasShapeTool;
     [ObservableProperty] private string? _pendingCanvasItemPlacement;
+    [ObservableProperty] private bool _isTransclusionPickerOpen;
+    [ObservableProperty] private string _transclusionPickerFilter = string.Empty;
 
     /// <summary>
     /// Raised after a new Text/Note block is added programmatically (toolbox button path).
@@ -150,6 +152,7 @@ public partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<SymbolExplorerItemViewModel> SymbolRoots { get; } = new();
     public ObservableCollection<BoardSearchResultViewModel> BoardSearchResults { get; } = new();
     public ObservableCollection<BoardFileUsageViewModel> BoardFileUsages { get; } = new();
+    public ObservableCollection<TransclusionCandidateViewModel> TransclusionCandidates { get; } = new();
 
     private readonly Stack<RenderScene> _undoStack = new();
     private readonly Stack<RenderScene> _redoStack = new();
@@ -185,14 +188,23 @@ public partial class MainWindowViewModel : ObservableObject
     {
         if (_currentSnapshot is null) return Array.Empty<string>();
         var snapshot = _tagIndex.GetSnapshot(_currentSnapshot.WorkspaceKey);
-        var source = kind == TagTokenKind.Tag ? snapshot.Tags : snapshot.WikiLinks;
-        if (source.Count == 0) return Array.Empty<string>();
-        if (string.IsNullOrEmpty(prefix)) return source.Take(8).ToArray();
-        return source
-            .Where(s => s.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            .Take(8)
-            .ToArray();
+
+        // [[ ]] links resolve to documents, so offer real Page/Journal names first (the navigable
+        // targets), then fall back to the typed wikilink vocabulary. #tags use the tag vocab only.
+        IEnumerable<string> source = kind == TagTokenKind.Tag
+            ? snapshot.Tags
+            : DocumentLinkNames().Concat(snapshot.WikiLinks);
+
+        var ordered = source.Distinct(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(prefix))
+            ordered = ordered.Where(s => s.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        return ordered.Take(8).ToArray();
     }
+
+    /// <summary>Names of all navigable documents (pages + journals), newest-journal-first feel
+    /// preserved by the Sessions order. Canvases aren't <c>[[link]]</c> targets.</summary>
+    private IEnumerable<string> DocumentLinkNames() =>
+        Sessions.Where(s => s.Kind != DocumentKind.Canvas).Select(s => s.Name);
 
     internal void RecordTagsFromBody(string? body)
     {
@@ -276,7 +288,11 @@ public partial class MainWindowViewModel : ObservableObject
                 {
                     BlockKind.Text => typeof(TextBlockInspectorViewModel),
                     BlockKind.Note => typeof(StickyNoteInspectorViewModel),
-                    BlockKind.Shape or BlockKind.Container => typeof(ShapeInspectorViewModel),
+                    // Image cards reuse the Shape inspector so the Style tab (fill,
+                    // stroke, corner radius, opacity, fill-style) is available — the
+                    // image bitmap is rendered on top of the card chrome that those
+                    // properties drive.
+                    BlockKind.Shape or BlockKind.Container or BlockKind.Image => typeof(ShapeInspectorViewModel),
                     _ => typeof(DefaultBlockInspectorViewModel)
                 };
             }

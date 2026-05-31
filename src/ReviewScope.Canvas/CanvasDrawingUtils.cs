@@ -193,12 +193,23 @@ internal static class CanvasDrawingUtils
         return new WpfPoint(center.X + dx * scale, center.Y + dy * scale);
     }
 
+    // Bullet anchors sit at the left edge of an outline block and carry no side index,
+    // so a connector should emerge horizontally toward the other endpoint rather than
+    // defaulting to a fixed side (which makes the line loop around the block).
+    private static Vector2 GetSourceLeadNormal(SceneConnectionVisual connVis) =>
+        connVis.Connection.SourceLineId is not null
+            ? new Vector2(connVis.End.X >= connVis.Start.X ? 1f : -1f, 0f)
+            : GetConnectionAnchorNormal(connVis.Connection.SourceAnchorIndex ?? 4);
+
+    private static Vector2 GetTargetLeadNormal(SceneConnectionVisual connVis) =>
+        connVis.Connection.TargetLineId is not null
+            ? new Vector2(connVis.Start.X >= connVis.End.X ? 1f : -1f, 0f)
+            : GetConnectionAnchorNormal(connVis.Connection.TargetAnchorIndex ?? 10);
+
     public static void GetConnectionPathPoints(SceneConnectionVisual connVis, out WpfPoint startLead, out WpfPoint middlePoint, out WpfPoint endLead)
     {
-        int sourceAnchor = connVis.Connection.SourceAnchorIndex ?? 4;
-        int targetAnchor = connVis.Connection.TargetAnchorIndex ?? 10;
-        Vector2 sourceNormal = GetConnectionAnchorNormal(sourceAnchor);
-        Vector2 targetNormal = GetConnectionAnchorNormal(targetAnchor);
+        Vector2 sourceNormal = GetSourceLeadNormal(connVis);
+        Vector2 targetNormal = GetTargetLeadNormal(connVis);
 
         startLead = new WpfPoint(
             connVis.Start.X + sourceNormal.X * ConnectionLeadDistance,
@@ -413,10 +424,8 @@ internal static class CanvasDrawingUtils
 
     public static void GetAutoCubicControls(SceneConnectionVisual connVis, WpfPoint startLead, WpfPoint endLead, out WpfPoint c1, out WpfPoint c2)
     {
-        int sourceAnchor = connVis.Connection.SourceAnchorIndex ?? 4;
-        int targetAnchor = connVis.Connection.TargetAnchorIndex ?? 10;
-        Vector2 sourceNormal = GetConnectionAnchorNormal(sourceAnchor);
-        Vector2 targetNormal = GetConnectionAnchorNormal(targetAnchor);
+        Vector2 sourceNormal = GetSourceLeadNormal(connVis);
+        Vector2 targetNormal = GetTargetLeadNormal(connVis);
 
         double dx = endLead.X - startLead.X;
         double dy = endLead.Y - startLead.Y;

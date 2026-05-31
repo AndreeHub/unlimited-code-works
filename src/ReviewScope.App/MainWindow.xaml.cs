@@ -50,6 +50,54 @@ public partial class MainWindow : Window
         // Feed inline autocomplete (#tag, [[wiki link]]) from the per-workspace
         // TagIndex held by the view-model.
         CanvasViewport.AutocompleteSuggestionsProvider = vm.GetAutocompleteSuggestions;
+
+        // Project browser: an independent grouped view (by document Kind) over the same
+        // Sessions collection, so it doesn't disturb the header strip's default view /
+        // drag-reorder logic.
+        var projectView = new System.Windows.Data.CollectionViewSource { Source = vm.Sessions };
+        projectView.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription(nameof(ReviewSession.Kind)));
+        ProjectDocList.ItemsSource = projectView.View;
+
+        // Outline editor (Page/Journal) <-> view-model wiring.
+        vm.OutlineDocumentReloadRequested += OnOutlineReloadRequested;
+        OutlineEditor.DocumentChanged += body => _vm.OnOutlineBodyEdited(body);
+        OutlineEditor.CollapsedChanged += ids => _vm.OnOutlineCollapsedChanged(ids);
+        OutlineEditor.PageLinkActivated += name => _ = _vm.NavigateToDocumentAsync(name);
+    }
+
+    private void OnOutlineReloadRequested()
+    {
+        OutlineEditor.Document = _vm.OutlineDocumentBody;
+        OutlineEditor.SetCollapsed(SplitCollapsed(_vm.OutlineDocumentCollapsed));
+    }
+
+    private async void OnOutlineTitleKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Return || e.Key == Key.Enter)
+        {
+            e.Handled = true;
+            await _vm.CommitOutlineTitleAsync();
+            OutlineEditor.Focus();   // drop into the body, Logseq-style
+        }
+        else if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            OutlineEditor.Focus();
+        }
+    }
+
+    private async void OnOutlineTitleLostFocus(object sender, KeyboardFocusChangedEventArgs e) =>
+        await _vm.CommitOutlineTitleAsync();
+
+    private static IEnumerable<string> SplitCollapsed(string? s) =>
+        string.IsNullOrEmpty(s)
+            ? Array.Empty<string>()
+            : s.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private async void OnProjectDocSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (IsLoaded && e.AddedItems.Count > 0)
+            await _vm.ActivateSelectedSessionAsync();
     }
 
     private void OnCanvasEditStarted(Domain.BlockKind kind)
@@ -82,6 +130,13 @@ public partial class MainWindow : Window
     private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (IsTextInputSource(e.OriginalSource as DependencyObject))
+            return;
+
+        // When a Page/Journal outline is the active document, ALL keystrokes belong to the
+        // OutlineView editor (its own HwndHost handles Tab/arrows/typing). Bail out before the
+        // canvas tool shortcuts below, which would otherwise consume single letters like
+        // q/w/e/t/v (the canvas tool keys) and stop them ever reaching the outline.
+        if (_vm.IsOutlineDocumentActive)
             return;
 
         // While editing a Text/Note/group title in-canvas, navigation keys (Tab and
@@ -138,16 +193,6 @@ public partial class MainWindow : Window
             return;
 
         CanvasViewport.DeleteSelection();
-        e.Handled = true;
-    }
-
-    private void OnFileMenuButtonClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button button || button.ContextMenu is null)
-            return;
-
-        button.ContextMenu.PlacementTarget = button;
-        button.ContextMenu.IsOpen = true;
         e.Handled = true;
     }
 

@@ -1,4 +1,5 @@
 using ReviewScope.Domain;
+using ReviewScope.Domain.Outline;
 using System.Numerics;
 using System.Windows;
 using System.Windows.Input;
@@ -164,9 +165,9 @@ public sealed partial class CanvasViewport
             {
                 // Outline overlays that respond before cursor positioning: collapse
                 // toggle on parent bullets, and TODO/DONE checkboxes.
-                if (OutlineDocument.TryHitToggle(editVis.Block, editVis.Bounds, world, out string editToggleLineId, _dwrite))
+                if (OutlineDocument.TryHitToggle(editVis.Block, editVis.Bounds, world, out int editToggleLineIndex, _dwrite))
                 {
-                    ToggleOutlineLineCollapseInEdit(editToggleLineId);
+                    ToggleOutlineLineCollapseInEdit(editToggleLineIndex);
                     return;
                 }
                 int editTodoLine = OutlineDocument.TryHitTodoCheckbox(editVis.Block, editVis.Bounds, world, _dwrite);
@@ -221,9 +222,9 @@ public sealed partial class CanvasViewport
         if (modifiers.HasFlag(ModifierKeys.Control)) { SetTool("Marquee"); _currentTool?.HandleLDown(screen, world, modifiers); return; }
 
         var outlineToggleHit = HitBlock(world);
-        if (outlineToggleHit is not null && OutlineDocument.TryHitToggle(outlineToggleHit.Block, outlineToggleHit.Bounds, world, out string outlineLineId, _dwrite))
+        if (outlineToggleHit is not null && OutlineDocument.TryHitToggle(outlineToggleHit.Block, outlineToggleHit.Bounds, world, out int outlineLineIndex, _dwrite))
         {
-            ToggleOutlineLineCollapse(outlineToggleHit.Block.Key, outlineLineId);
+            ToggleOutlineLineCollapse(outlineToggleHit.Block.Key, outlineLineIndex);
             return;
         }
         if (outlineToggleHit is not null)
@@ -447,16 +448,22 @@ public sealed partial class CanvasViewport
         if (selectedGroup is not null) ToggleGroupCollapse(selectedGroup.Key);
     }
 
-    private void ToggleOutlineLineCollapse(string blockKey, string lineId)
+    private void ToggleOutlineLineCollapse(string blockKey, int lineIndex)
     {
         var target = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(blockKey, StringComparison.OrdinalIgnoreCase));
         if (target is null || target.IsLocked) return;
+
+        // Collapse state is keyed on the bullet's persistent ^anchor id (the same id
+        // connections use), so the collapse survives later edits to the bullet's text.
+        // Allocate it lazily on first collapse, bundling the body + style change into a
+        // single scene change so one undo reverts the whole collapse.
+        var (newBody, anchorId) = OutlineDocument.GetOrAllocateBulletAnchorId(target.Body ?? string.Empty, lineIndex);
         var style = target.Style ?? new BoardItemStyle();
         var collapsed = OutlineDocument.ParseCollapsedSet(style);
-        if (!collapsed.Add(lineId))
-            collapsed.Remove(lineId);
+        if (!collapsed.Add(anchorId))
+            collapsed.Remove(anchorId);
 
-        var next = target with { Style = style with { OutlineCollapsedItems = OutlineDocument.FormatCollapsedSet(collapsed) } };
+        var next = target with { Body = newBody, Style = style with { OutlineCollapsedItems = OutlineDocument.FormatCollapsedSet(collapsed) } };
         var blocks = Scene.Blocks.Select(b => b.Key.Equals(blockKey, StringComparison.OrdinalIgnoreCase) ? next : b).ToList();
         ApplySceneChange(Scene with { Blocks = blocks });
         RebuildSnapshot();
@@ -498,27 +505,66 @@ public sealed partial class CanvasViewport
     /// <summary>Same as <see cref="ToggleOutlineLineCollapse"/> but for the block being
     /// edited — updates the live block's style so the visual reflects immediately, then
     /// snaps the cursor to a visible line if it ended up inside collapsed content.</summary>
-    private void ToggleOutlineLineCollapseInEdit(string lineId)
+    private void ToggleOutlineLineCollapseInEdit(int lineIndex)
     {
         if (_editingNoteKey is null) return;
-        ToggleOutlineLineCollapse(_editingNoteKey, lineId);
-
         var block = CurrentEditingBlock();
-        if (block is null) return;
-        var doc = OutlineDocument.Parse(_editBody, block.Style ?? new BoardItemStyle());
+        if (block is null || block.IsLocked) return;
+
+        // Allocate the ^anchor into the LIVE edit body (the scene body is stale during
+        // editing). The suffix is appended at the toggled line's end, so shift the caret
+        // only when it sits past that point.
+        var (newBody, anchorId) = OutlineDocument.GetOrAllocateBulletAnchorId(_editBody, lineIndex);
+        if (newBody.Length != _editBody.Length)
+        {
+            int lineEnd = LineEndOffsetForIndex(_editBody, lineIndex);
+            if (_editCursorPos > lineEnd) _editCursorPos += newBody.Length - _editBody.Length;
+        }
+        _editBody = newBody;
+
+        // Toggle the collapse set in the editing block's style. The body change stays in
+        // _editBody until commit (which writes _editBody back), keeping the two in sync.
+        var style = block.Style ?? new BoardItemStyle();
+        var collapsed = OutlineDocument.ParseCollapsedSet(style);
+        if (!collapsed.Add(anchorId))
+            collapsed.Remove(anchorId);
+        var next = block with { Style = style with { OutlineCollapsedItems = OutlineDocument.FormatCollapsedSet(collapsed) } };
+        var blocks = Scene.Blocks.Select(b => b.Key.Equals(_editingNoteKey, StringComparison.OrdinalIgnoreCase) ? next : b).ToList();
+        ApplySceneChange(Scene with { Blocks = blocks });
+        RebuildSnapshot();
+
+        // If the caret ended up inside the now-collapsed subtree, snap it to a visible line.
+        var doc = OutlineDocument.Parse(_editBody, next.Style);
         var cursorLine = doc.Lines.FirstOrDefault(l =>
             _editCursorPos >= l.Start && _editCursorPos <= l.Start + l.Length);
-        if (cursorLine is null || !cursorLine.IsHidden) return;
-
-        var fallback = doc.VisibleLines.LastOrDefault(l => l.Index < cursorLine.Index);
-        if (fallback is not null)
-            _editCursorPos = fallback.Start + fallback.Length;
-        else
+        if (cursorLine is not null && cursorLine.IsHidden)
         {
-            var first = doc.VisibleLines.FirstOrDefault();
-            _editCursorPos = first is not null ? first.Start + first.PrefixLength : 0;
+            var fallback = doc.VisibleLines.LastOrDefault(l => l.Index < cursorLine.Index);
+            if (fallback is not null)
+                _editCursorPos = fallback.Start + fallback.Length;
+            else
+            {
+                var first = doc.VisibleLines.FirstOrDefault();
+                _editCursorPos = first is not null ? first.Start + first.PrefixLength : 0;
+            }
         }
         _editSelectionAnchor = -1;
+        _editCursorVisible = true;
+        RenderNative();
+    }
+
+    /// <summary>Raw offset of the end of the <paramref name="lineIndex"/>-th line (the
+    /// position just before its trailing '\n', or the text end for the last line).</summary>
+    private static int LineEndOffsetForIndex(string text, int lineIndex)
+    {
+        int line = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] != '\n') continue;
+            if (line == lineIndex) return i;
+            line++;
+        }
+        return text.Length;
     }
 
     private void UngroupSelectedGroups()
@@ -644,11 +690,16 @@ public sealed partial class CanvasViewport
 
     internal bool TryCompleteConnectionToBlock(SceneBlockVisual targetBlock, WpfPoint world)
     {
-        if (targetBlock.Block.Kind == BlockKind.Note || targetBlock.Block.Key.Equals(_connectionSourceKey, StringComparison.OrdinalIgnoreCase)) return false;
+        if (targetBlock.Block.Key.Equals(_connectionSourceKey, StringComparison.OrdinalIgnoreCase)) return false;
         int targetAnchorIndex = FindNearestConnectionAnchor(targetBlock, world);
         if (_rewireConnectionId is Guid id) { CompleteConnectionRewire(new ConnectionAnchorHit(targetBlock, targetAnchorIndex, CanvasDrawingUtils.GetConnectionAnchorPoint(targetBlock, targetAnchorIndex))); return true; }
         if (_connectionSourceKey is null || ConnectionDrawnCommand?.CanExecute(null) != true) return false;
-        ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(_connectionSourceKey, targetBlock.Block.Key, _connectionSourceAnchorIndex, targetAnchorIndex, _connectionDraftMidPoint?.X, _connectionDraftMidPoint?.Y, _connectionDraftMidPointBends));
+        // Allocate the source bullet ^id at completion (deferred from mousedown) so an
+        // abandoned drag leaves no orphan ^id; a plain-block source keeps its null id.
+        string? sourceLineId = _connectionSourceBulletLineIndex >= 0
+            ? EnsureBulletAnchorId(_connectionSourceKey, _connectionSourceBulletLineIndex)
+            : _connectionSourceLineId;
+        ConnectionDrawnCommand.Execute(new ConnectionDrawnArgs(_connectionSourceKey, targetBlock.Block.Key, _connectionSourceAnchorIndex, targetAnchorIndex, _connectionDraftMidPoint?.X, _connectionDraftMidPoint?.Y, _connectionDraftMidPointBends, SourceLineId: sourceLineId));
         return true;
     }
 
@@ -697,6 +748,9 @@ public sealed partial class CanvasViewport
     // -----------------------------------------------------------------------
     internal void BeginNoteEdit(RenderBlock block, WpfPoint? clickWorld = null)
     {
+        // Transclusions are read-only mirrors of a source bullet; edit the source, not the mirror.
+        if (block.Kind == BlockKind.Transclusion) return;
+
         _editingNoteKey = block.Key; _editTitle = block.Title; _editBody = block.Body ?? string.Empty; _editSelectionAnchor = -1; _editMouseSelecting = false; _editingTitle = false;
 
         // Outline blocks always need a leading "- " on every line so Tab / Shift+Tab
@@ -857,7 +911,11 @@ public sealed partial class CanvasViewport
         // those keys don't bubble down to outline navigation / commit.
         if (TryHandleAutocompleteKey(key)) return;
 
-        bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift); bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control); bool alt = Keyboard.Modifiers.HasFlag(ModifierKeys.Alt); string text = _editingTitle ? _editTitle : _editBody;
+        bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift); bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+        // Alt arrives via WM_SYSKEYDOWN, which WPF's input stack doesn't see for this HwndHost
+        // child window, so Keyboard.Modifiers can miss it — read the live key state natively too.
+        bool alt = Keyboard.Modifiers.HasFlag(ModifierKeys.Alt) || (NativeMethods.GetKeyState(0x12) & 0x8000) != 0;
+        string text = _editingTitle ? _editTitle : _editBody;
         if (ctrl && key == Key.A) { _editSelectionAnchor = 0; _editCursorPos = text.Length; _editCursorVisible = true; RenderNative(); return; }
         if (ctrl && (key == Key.C || key == Key.X)) { var selCx = GetEditSelection(); if (selCx is not null) { int s = selCx.Value.Item1, e = selCx.Value.Item2; try { System.Windows.Clipboard.SetText(text.Substring(s, e - s)); } catch { } if (key == Key.X) DeleteEditSelection(); } _editCursorVisible = true; RenderNative(); return; }
         if (ctrl && key == Key.V) { try { if (System.Windows.Clipboard.ContainsText()) { string clip = System.Windows.Clipboard.GetText(); if (_editingTitle) clip = clip.Replace("\r", "").Replace("\n", " "); else clip = clip.Replace("\r\n", "\n").Replace("\r", "\n"); InsertEditText(clip); } } catch { } _editCursorVisible = true; RenderNative(); return; }
@@ -878,9 +936,10 @@ public sealed partial class CanvasViewport
 
             if (alt && key is Key.Up or Key.Down)
             {
-                _editBody = OutlineDocument.MoveSubtree(_editBody, _editCursorPos, key == Key.Up ? -1 : 1, out _editCursorPos);
+                if (key == Key.Up) _edit.MoveUp(); else _edit.MoveDown();
                 _editSelectionAnchor = -1;
                 _editCursorVisible = true;
+                RebuildSnapshot();
                 RenderNative();
                 return;
             }
@@ -890,17 +949,20 @@ public sealed partial class CanvasViewport
                 case Key.Return:
                     InsertOutlineContinuation();
                     _editCursorVisible = true;
+                    RebuildSnapshot();
                     RenderNative();
                     return;
                 case Key.Tab:
                     IndentCurrentOutlineSubtree(shift ? -1 : 1);
                     _editCursorVisible = true;
+                    RebuildSnapshot();
                     RenderNative();
                     return;
                 case Key.Back:
                     if (TryHandleOutlineBackspace())
                     {
                         _editCursorVisible = true;
+                        RebuildSnapshot();
                         RenderNative();
                         return;
                     }
@@ -939,96 +1001,37 @@ public sealed partial class CanvasViewport
             ? null
             : Scene.Blocks.FirstOrDefault(b => b.Key.Equals(_editingNoteKey, StringComparison.OrdinalIgnoreCase));
 
-    private void InsertOutlineContinuation()
-    {
-        DeleteEditSelection();
-        var line = OutlineDocument.LineAt(_editBody, _editCursorPos);
-        string beforeCursor = _editBody[line.Start.._editCursorPos];
-        string currentPrefix = OutlineDocument.BulletPrefixForLine(line.Text);
-        string currentContent = line.Text[OutlineDocument.PrefixLengthForLine(line.Text)..].Trim();
+    /// <summary>
+    /// Parse the editing body into an <see cref="OutlineTree"/> (carrying the editing
+    /// block's collapse state so Enter respects collapsed subtrees), so an
+    /// <see cref="OutlineEdit"/> structural op can be applied to the caret.
+    /// </summary>
+    private OutlineTree ParseEditTree() =>
+        OutlineTree.Parse(_editBody, CurrentCollapsedSet());
 
-        if (currentContent.Length == 0 && _editCursorPos >= line.Start + OutlineDocument.PrefixLengthForLine(line.Text))
-        {
-            // Empty bullet: if indented, outdent one level (Logseq-style); if already at
-            // the top level, strip the bullet prefix and leave a plain blank line.
-            bool isIndented = line.Text.StartsWith("  ", StringComparison.Ordinal)
-                           || line.Text.StartsWith("\t", StringComparison.Ordinal);
-            if (isIndented)
-            {
-                IndentCurrentOutlineSubtree(-1);
-            }
-            else
-            {
-                int remove = OutlineDocument.PrefixLengthForLine(line.Text);
-                _editBody = _editBody.Remove(line.Start, remove);
-                _editCursorPos = line.Start;
-                _editSelectionAnchor = -1;
-            }
-            return;
-        }
+    private HashSet<string> CurrentCollapsedSet() =>
+        OutlineDocument.ParseCollapsedSet(CurrentEditingBlock()?.Style);
 
-        string prefix = string.IsNullOrWhiteSpace(beforeCursor) ? "- " : currentPrefix;
-        InsertEditText("\n" + prefix);
-    }
+    private void InsertOutlineContinuation() => _edit.Enter();
 
     private bool TryHandleOutlineBackspace()
     {
+        // A selection deletes via the default handler; the structural backspace is only for a
+        // collapsed caret sitting at the very start of a block's content.
         if (GetEditSelection() is not null) return false;
-        var line = OutlineDocument.LineAt(_editBody, _editCursorPos);
-        int prefixLength = OutlineDocument.PrefixLengthForLine(line.Text);
-        if (prefixLength <= 0) return false;
-        int contentStart = line.Start + prefixLength;
-        if (_editCursorPos != contentStart) return false;
+        var tree = ParseEditTree();
+        if (!OutlineEdit.IsAtBlockStart(tree, _editCursorPos)) return false; // mid-content → char delete
 
-        if (line.Text.StartsWith("  ", StringComparison.Ordinal) || line.Text.StartsWith("\t", StringComparison.Ordinal))
-        {
-            IndentCurrentOutlineSubtree(-1);
-            return true;
-        }
-
-        _editBody = _editBody.Remove(line.Start, prefixLength);
-        _editCursorPos = line.Start;
-        _editSelectionAnchor = -1;
+        // At a block start we always consume the key: the controller either merges into the
+        // previous block or no-ops when nothing precedes. Never fall through to deleting the bullet.
+        _edit.Backspace();
         return true;
     }
 
     private void IndentCurrentOutlineSubtree(int direction)
     {
-        if (GetEditSelection() is not null) DeleteEditSelection();
-        var lines = _editBody.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n').ToList();
-        if (lines.Count == 0) return;
-        int current = Math.Clamp(OutlineDocument.LineIndexAt(_editBody, _editCursorPos), 0, lines.Count - 1);
-        int currentStartOffset = LineStart(_editBody, _editCursorPos);
-        int column = Math.Max(0, _editCursorPos - currentStartOffset);
-        int currentLevel = LeadingOutlineLevel(lines[current]);
-        int end = current + 1;
-        while (end < lines.Count && LeadingOutlineLevel(lines[end]) > currentLevel) end++;
-
-        int delta = 0;
-        for (int i = current; i < end; i++)
-        {
-            string original = lines[i];
-            string next = direction > 0 ? OutlineDocument.IndentLine(original) : OutlineDocument.OutdentLine(original);
-            lines[i] = next;
-            if (i == current) delta = next.Length - original.Length;
-        }
-
-        _editBody = string.Join('\n', lines);
-        _editCursorPos = Math.Clamp(currentStartOffset + Math.Max(0, column + delta), 0, _editBody.Length);
-        _editSelectionAnchor = -1;
-    }
-
-    private static int LeadingOutlineLevel(string line)
-    {
-        int spaces = 0;
-        int tabs = 0;
-        foreach (char c in line)
-        {
-            if (c == ' ') spaces++;
-            else if (c == '\t') tabs++;
-            else break;
-        }
-        return tabs + spaces / 2;
+        if (direction > 0) _edit.Indent();
+        else _edit.Outdent();
     }
 
     private void HandleChar(char c)
@@ -1056,29 +1059,8 @@ public sealed partial class CanvasViewport
     /// </summary>
     private void WrapSelectionWithMarkers(string open, string close)
     {
-        if (_editingTitle) return;
-        var sel = GetEditSelection();
-        if (sel is null)
-        {
-            _editBody = _editBody.Insert(_editCursorPos, open + close);
-            _editCursorPos += open.Length;
-            _editSelectionAnchor = -1;
-            return;
-        }
-        int s = sel.Value.Item1, e = sel.Value.Item2;
-        // Toggle: if the selection is already wrapped, unwrap instead.
-        if (s >= open.Length && e + close.Length <= _editBody.Length
-            && _editBody.Substring(s - open.Length, open.Length) == open
-            && _editBody.Substring(e, close.Length) == close)
-        {
-            _editBody = _editBody.Remove(e, close.Length).Remove(s - open.Length, open.Length);
-            _editSelectionAnchor = s - open.Length;
-            _editCursorPos = e - open.Length;
-            return;
-        }
-        _editBody = _editBody.Insert(e, close).Insert(s, open);
-        _editSelectionAnchor = s + open.Length;
-        _editCursorPos = e + open.Length;
+        if (_editingTitle) return; // title editing has no selection model wired here
+        _edit.WrapSelection(open, close);
     }
 
     private (int, int)? GetEditSelection() { if (_editSelectionAnchor < 0 || _editSelectionAnchor == _editCursorPos) return null; int a = _editSelectionAnchor, b = _editCursorPos; return a < b ? (a, b) : (b, a); }

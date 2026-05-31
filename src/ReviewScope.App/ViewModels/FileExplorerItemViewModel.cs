@@ -146,3 +146,29 @@ public sealed class BoardFileUsageViewModel
     public string Title { get; }
     public string Detail { get; }
 }
+
+/// <summary>One selectable bullet in the transclusion (block-reference) picker. Identifies
+/// the source document and the bullet's line within it, so an anchor can be allocated on
+/// demand if the bullet doesn't have one yet.</summary>
+public sealed class TransclusionCandidateViewModel
+{
+    public TransclusionCandidateViewModel(Guid documentId, string documentName, int lineIndex, string? anchorId, string preview, int depth)
+    {
+        DocumentId = documentId;
+        DocumentName = documentName;
+        LineIndex = lineIndex;
+        AnchorId = anchorId;
+        Preview = preview;
+        Depth = depth;
+    }
+
+    public Guid DocumentId { get; }
+    public string DocumentName { get; }
+    public int LineIndex { get; }
+    public string? AnchorId { get; }
+    public string Preview { get; }
+    public int Depth { get; }
+
+    /// <summary>Visual indent applied in the picker so the bullet hierarchy reads at a glance.</summary>
+    public System.Windows.Thickness Indent => new(Depth * 14.0, 0, 0, 0);
+}

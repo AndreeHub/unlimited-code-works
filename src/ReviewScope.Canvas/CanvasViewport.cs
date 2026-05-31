@@ -275,12 +275,23 @@ public sealed partial class CanvasViewport : HwndHost
     internal string? _editingNoteKey;
     internal string? _editingGroupKey;
     internal string _editTitle = string.Empty;
-    internal string _editBody = string.Empty;
     internal bool _editingTitle = true;
-    internal int _editCursorPos;
-    internal int _editSelectionAnchor = -1;
     internal bool _editMouseSelecting;
-    internal bool _editCursorVisible = true;
+
+    /// <summary>
+    /// The shared, UI-free editing engine. Owns the body text and caret/selection state for
+    /// outline (and body) editing; the same engine drives the dedicated outline window so
+    /// editing fidelity stays identical across both hosts. Title editing reuses the caret
+    /// fields here (via the proxy properties below) but keeps its own text in <see cref="_editTitle"/>.
+    /// </summary>
+    internal readonly ReviewScope.Domain.Outline.OutlineEditController _edit = new();
+
+    // The historical field names are kept as thin proxies over the controller so the large
+    // body of editing code (caret math, hit-testing, rendering) reads/writes one source of truth.
+    internal string _editBody { get => _edit.Body; set => _edit.Body = value; }
+    internal int _editCursorPos { get => _edit.CursorPos; set => _edit.CursorPos = value; }
+    internal int _editSelectionAnchor { get => _edit.SelectionAnchor; set => _edit.SelectionAnchor = value; }
+    internal bool _editCursorVisible { get => _edit.CursorVisible; set => _edit.CursorVisible = value; }
     internal System.Threading.Timer? _cursorBlinkTimer;
 
     // Tool architecture
@@ -300,7 +311,11 @@ public sealed partial class CanvasViewport : HwndHost
         _tools["Pan"] = new PanTool(this);
         _tools["Marquee"] = new MarqueeTool(this);
         _currentTool = _tools["Selection"];
-        
+
+        // The controller needs the collapse state of whatever block is being edited so Enter
+        // can tell an expanded parent (new first child) from a collapsed one (sibling after subtree).
+        _edit.CollapsedProvider = CurrentCollapsedSet;
+
         _hwndMap[IntPtr.Zero] = new WeakReference<CanvasViewport>(this);
     }
     
@@ -516,6 +531,11 @@ public sealed partial class CanvasViewport : HwndHost
         if (_connectionSourceKey is null || ConnectionDrawnCommand?.CanExecute(null) != true) return false;
 
         // For bullet anchors, allocate (or retrieve) the stable ^id in the body text.
+        // The source id is allocated here (not on mousedown) so an abandoned drag never
+        // leaves an orphan ^id behind in the note body.
+        string? sourceLineId = _connectionSourceBulletLineIndex >= 0
+            ? EnsureBulletAnchorId(_connectionSourceKey, _connectionSourceBulletLineIndex)
+            : _connectionSourceLineId;
         string? targetLineId = anchor.LineIndex >= 0
             ? EnsureBulletAnchorId(anchor.Block.Block.Key, anchor.LineIndex)
             : null;
@@ -525,7 +545,7 @@ public sealed partial class CanvasViewport : HwndHost
             _connectionSourceKey, anchor.Block.Block.Key,
             _connectionSourceAnchorIndex, targetAnchorIndex,
             _connectionDraftMidPoint?.X, _connectionDraftMidPoint?.Y, _connectionDraftMidPointBends,
-            SourceLineId: _connectionSourceLineId,
+            SourceLineId: sourceLineId,
             TargetLineId: targetLineId));
         return true;
     }
@@ -692,6 +712,14 @@ public sealed partial class CanvasViewport : HwndHost
             case 0x0200: viewport.HandleMove(GetMousePoint(lParam)); return IntPtr.Zero;
             case 0x020A: viewport.HandleWheel(GetScreenPtAsClient(hwnd, lParam), GetWheelDelta(wParam)); return IntPtr.Zero;
             case 0x0100: viewport.HandleKeyDown(wParam); return IntPtr.Zero;
+            case 0x0104: // WM_SYSKEYDOWN: keys pressed while Alt is held arrive here, not WM_KEYDOWN.
+            {
+                // Route only the arrow keys (Alt+Up/Down move outline subtrees); let everything
+                // else (Alt+F4, menu activation, Alt-tab, etc.) reach DefWindowProc untouched.
+                long vk = wParam.ToInt64();
+                if (vk is 0x25 or 0x26 or 0x27 or 0x28) { viewport.HandleKeyDown(wParam); return IntPtr.Zero; }
+                break;
+            }
             case 0x0101: viewport.HandleKeyUp(wParam); return IntPtr.Zero;
             case 0x0102: viewport.HandleChar((char)wParam.ToInt64()); return IntPtr.Zero;
         }
