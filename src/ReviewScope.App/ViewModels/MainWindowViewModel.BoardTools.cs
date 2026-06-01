@@ -199,15 +199,24 @@ public sealed partial class MainWindowViewModel
         return (string.Join('\n', lines), newId);
     }
 
+    /// <summary>Creates a Transclusion block mirroring the chosen bullet, auto-positioned in a
+    /// cascade. Used by the picker's click-to-add path.</summary>
+    [RelayCommand]
+    public Task AddTransclusionAsync(TransclusionCandidateViewModel? candidate) =>
+        AddTransclusionAtAsync(candidate, null, null);
+
     /// <summary>Creates a Transclusion block mirroring the chosen bullet. Allocates the source
     /// bullet's anchor on demand (and persists the source doc) so the reference stays stable
-    /// across edits, then drops a live read-only mirror on the canvas.</summary>
-    [RelayCommand]
-    public async Task AddTransclusionAsync(TransclusionCandidateViewModel? candidate)
+    /// across edits, then drops a live read-only mirror on the canvas. When
+    /// <paramref name="worldX"/>/<paramref name="worldY"/> are supplied (drag-and-drop from the
+    /// picker), the block is centered on that point; otherwise it cascades from the top-left.</summary>
+    public async Task AddTransclusionAtAsync(TransclusionCandidateViewModel? candidate, double? worldX, double? worldY)
     {
         if (candidate is null) return;
         var doc = Sessions.FirstOrDefault(s => s.Id == candidate.DocumentId);
         if (doc is null) return;
+
+        const double width = 360, height = 120;
 
         string anchorId = candidate.AnchorId ?? string.Empty;
         if (anchorId.Length == 0)
@@ -222,11 +231,14 @@ public sealed partial class MainWindowViewModel
         IsTransclusionPickerOpen = false;
         TransclusionCandidates.Clear();
 
+        double x = worldX.HasValue ? worldX.Value - width / 2 : 180 + Scene.Blocks.Count * 22;
+        double y = worldY.HasValue ? worldY.Value - height / 2 : 140 + Scene.Blocks.Count * 18;
+
         var id = Guid.NewGuid();
         var block = new RenderBlock(
             id, $"transclusion::{id:N}", BlockKind.Transclusion,
             "Block reference", doc.Name,
-            180 + Scene.Blocks.Count * 22, 140 + Scene.Blocks.Count * 18, 360, 120,
+            x, y, width, height,
             IsSelected: true,
             LayerKey: "layer::notes",
             ShapeType: "transclusion",

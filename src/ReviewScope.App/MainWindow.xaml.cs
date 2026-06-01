@@ -608,10 +608,12 @@ public partial class MainWindow : Window
 
     private void OnFrameAll(object sender, RoutedEventArgs e) => CanvasViewport.FrameAll();
 
-    // Canvas drag-drop from explorer
+    // Canvas drag-drop from explorer (files) or the block-reference picker (transclusions)
     private void OnCanvasDragOver(object sender, DragEventArgs e)
     {
-        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        bool accepts = e.Data.GetDataPresent(DataFormats.FileDrop)
+            || e.Data.GetDataPresent(TransclusionDragFormat);
+        e.Effects = accepts ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
 
@@ -680,11 +682,20 @@ public partial class MainWindow : Window
 
     private async void OnCanvasDrop(object sender, DragEventArgs e)
     {
+        Point screen = e.GetPosition(CanvasViewport);
+        Point world = CanvasViewport.ScreenPointToWorld(screen);
+
+        // Block reference dragged out of the picker — place a live transclusion at the drop point.
+        if (e.Data.GetDataPresent(TransclusionDragFormat))
+        {
+            if (e.Data.GetData(TransclusionDragFormat) is TransclusionCandidateViewModel candidate)
+                await _vm.AddTransclusionAtAsync(candidate, world.X, world.Y);
+            return;
+        }
+
         if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
         string[]? files = e.Data.GetData(DataFormats.FileDrop) as string[];
         if (files is null) return;
-        Point screen = e.GetPosition(CanvasViewport);
-        Point world = CanvasViewport.ScreenPointToWorld(screen);
         foreach (string file in files.Where(IsSupportedBoardFile))
         {
             if (IsImageFile(file))
@@ -692,6 +703,38 @@ public partial class MainWindow : Window
             else
                 await _vm.AddFileToCanvasAsync(file, world.X, world.Y);
         }
+    }
+
+    // -------- Block-reference picker: drag a bullet onto the canvas --------
+    // A private clipboard format carrying the dragged candidate in-process.
+    private const string TransclusionDragFormat = "ReviewScope.TransclusionCandidate";
+    private Point _transclusionDragStart;
+    private TransclusionCandidateViewModel? _transclusionDragCandidate;
+
+    private void OnTransclusionCandidateMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        _transclusionDragStart = e.GetPosition(this);
+        _transclusionDragCandidate = (sender as FrameworkElement)?.DataContext as TransclusionCandidateViewModel;
+    }
+
+    private void OnTransclusionCandidateMouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed || _transclusionDragCandidate is null) return;
+
+        Point pos = e.GetPosition(this);
+        if (Math.Abs(pos.X - _transclusionDragStart.X) < SystemParameters.MinimumHorizontalDragDistance
+            && Math.Abs(pos.Y - _transclusionDragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
+            return;
+
+        var candidate = _transclusionDragCandidate;
+        _transclusionDragCandidate = null;
+
+        // Close the overlay so its dimming layer stops covering the canvas drop target. The
+        // candidate is captured in the drag payload, so clearing the list here is safe.
+        _vm.CloseTransclusionPickerCommand.Execute(null);
+
+        var data = new DataObject(TransclusionDragFormat, candidate);
+        DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy);
     }
 
     private static bool IsSupportedBoardFile(string file)

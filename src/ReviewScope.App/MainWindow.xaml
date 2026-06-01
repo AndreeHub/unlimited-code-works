@@ -757,6 +757,9 @@
                                     <DataTemplate>
                                         <Button HorizontalContentAlignment="Stretch" Cursor="Hand"
                                                 Background="Transparent" BorderThickness="0" Padding="6,5"
+                                                ToolTip="Click to add, or drag onto the canvas to place"
+                                                PreviewMouseLeftButtonDown="OnTransclusionCandidateMouseDown"
+                                                PreviewMouseMove="OnTransclusionCandidateMouseMove"
                                                 Command="{Binding DataContext.AddTransclusionCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                                 CommandParameter="{Binding}">
                                             <StackPanel>
