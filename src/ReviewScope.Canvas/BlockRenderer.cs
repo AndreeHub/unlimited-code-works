@@ -157,11 +157,12 @@ internal sealed class BlockRenderer
             BlockKind.Container => WpfColor.FromRgb(248, 250, 252),
             _ => WpfColor.FromRgb(255, 255, 255)
         };
+        var microAcc = CanvasTheme.Accent;
         WpfColor border = block.IsSelected
-            ? WpfColor.FromArgb(230, 46, 125, 215)
+            ? WpfColor.FromArgb(230, microAcc.R, microAcc.G, microAcc.B)
             : block.Kind == BlockKind.Extract
                 ? WpfColor.FromArgb(150, 35, 162, 109)
-                : WpfColor.FromArgb(130, 46, 125, 215);
+                : WpfColor.FromArgb(130, microAcc.R, microAcc.G, microAcc.B);
 
         var rr = new RoundedRectangle(CanvasDrawingUtils.ToRF(blockVis.Bounds), 8, 8);
         _ctx.RenderTarget.FillRoundedRectangle(rr, _ctx.GetBrush(fill));
@@ -195,8 +196,9 @@ internal sealed class BlockRenderer
                 ? WpfColor.FromRgb(35, 162, 109)
                 : WpfColor.FromRgb(46, 125, 215);
 
+        var selAcc = CanvasTheme.Accent;
         WpfColor border = block.IsSelected
-            ? WpfColor.FromArgb(235, 46, 125, 215)
+            ? WpfColor.FromArgb(235, selAcc.R, selAcc.G, selAcc.B)
             : isMarkdown
                 ? WpfColor.FromArgb(210, 148, 163, 184)
             : WpfColor.FromArgb(170, accent.R, accent.G, accent.B);
@@ -218,7 +220,7 @@ internal sealed class BlockRenderer
         if (block.IsSelected)
         {
             var glow = new RoundedRectangle(new RectangleF((float)outer.X - 2.5f, (float)outer.Y - 2.5f, (float)outer.Width + 5f, (float)outer.Height + 5f), 10, 10);
-            _ctx.RenderTarget.DrawRoundedRectangle(glow, _ctx.GetBrush(WpfColor.FromArgb(45, 46, 125, 215)), _ctx.InvStroke(4.0f));
+            _ctx.RenderTarget.DrawRoundedRectangle(glow, _ctx.GetBrush(WpfColor.FromArgb(45, selAcc.R, selAcc.G, selAcc.B)), _ctx.InvStroke(4.0f));
         }
 
         _ctx.RenderTarget.DrawRoundedRectangle(rr, _ctx.GetBrush(border), _ctx.InvStroke(block.IsSelected ? 2.0f : 1.15f));

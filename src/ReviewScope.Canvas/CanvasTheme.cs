@@ -13,6 +13,9 @@ public static class CanvasTheme
 {
     public static bool IsDark { get; private set; }
 
+    /// <summary>Accent used for selection/active cues on the canvas (brighter in dark).</summary>
+    public static WpfColor Accent { get; private set; }
+
     // --- Canvas surface ---------------------------------------------------------------
     public static WpfColor Surface { get; private set; }
     public static WpfColor Dot { get; private set; }
@@ -48,6 +51,7 @@ public static class CanvasTheme
         IsDark = dark;
         if (!dark)
         {
+            Accent           = Rgb(46, 125, 215);
             Surface          = Rgb(0xFA, 0xFB, 0xFC);
             Dot              = Argb(132, 176, 186, 200);
             GridMinor        = Argb(62, 198, 207, 219);
@@ -71,6 +75,7 @@ public static class CanvasTheme
         }
         else
         {
+            Accent           = Rgb(0x4F, 0xA0, 0xEA);
             Surface          = Rgb(0x0E, 0x11, 0x15);
             Dot              = Rgb(0x26, 0x2D, 0x37);
             GridMinor        = Argb(80, 0x2A, 0x31, 0x3B);
