@@ -217,6 +217,20 @@ public partial class MainWindow : Window
 
     private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // Command palette is global (works in any mode / focus, including text fields).
+        if (e.Key == Key.K && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            e.Handled = true;
+            ToggleCommandPalette();
+            return;
+        }
+        if (e.Key == Key.Escape && CommandPalettePopup.IsOpen)
+        {
+            e.Handled = true;
+            CloseCommandPalette();
+            return;
+        }
+
         if (IsTextInputSource(e.OriginalSource as DependencyObject))
             return;
 
@@ -742,6 +756,136 @@ public partial class MainWindow : Window
         if (target is null) { _vm.OpenTodayJournalCommand.Execute(null); return; }
         _vm.SelectedSession = target;
         await _vm.ActivateSelectedSessionAsync();
+    }
+
+    // -----------------------------------------------------------------------
+    // Command palette (Ctrl+K) — phase 7
+    // -----------------------------------------------------------------------
+    private sealed class PaletteItem
+    {
+        public string Title { get; init; } = "";
+        public string Group { get; init; } = "";
+        public string Shortcut { get; init; } = "";
+        public Action Run { get; init; } = () => { };
+    }
+
+    private readonly System.Collections.ObjectModel.ObservableCollection<PaletteItem> _paletteItems = new();
+    private List<PaletteItem> _allPaletteItems = new();
+
+    private void OnOpenCommandPalette(object sender, RoutedEventArgs e) => OpenCommandPalette();
+
+    private void ToggleCommandPalette()
+    {
+        if (CommandPalettePopup.IsOpen) CloseCommandPalette();
+        else OpenCommandPalette();
+    }
+
+    private void OpenCommandPalette()
+    {
+        BuildPaletteItems();
+        if (PaletteList.ItemsSource is null)
+        {
+            var cvs = new System.Windows.Data.CollectionViewSource { Source = _paletteItems };
+            cvs.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription(nameof(PaletteItem.Group)));
+            PaletteList.ItemsSource = cvs.View;
+        }
+        PaletteInput.Text = "";
+        FilterPalette("");
+        CommandPalettePopup.IsOpen = true;
+        // Focus the input once the popup HWND is realized.
+        Dispatcher.BeginInvoke(new Action(() => { PaletteInput.Focus(); Keyboard.Focus(PaletteInput); }),
+            System.Windows.Threading.DispatcherPriority.Input);
+    }
+
+    private void CloseCommandPalette() => CommandPalettePopup.IsOpen = false;
+
+    private void Exec(System.Windows.Input.ICommand cmd)
+    {
+        if (cmd.CanExecute(null)) cmd.Execute(null);
+    }
+
+    private void BuildPaletteItems()
+    {
+        _allPaletteItems = new List<PaletteItem>();
+
+        foreach (var s in _vm.Sessions)
+        {
+            var doc = s;
+            _allPaletteItems.Add(new PaletteItem
+            {
+                Title = s.Name,
+                Group = "Jump to",
+                Shortcut = s.Kind.ToString(),
+                Run = async () => { _vm.SelectedSession = doc; await _vm.ActivateSelectedSessionAsync(); }
+            });
+        }
+
+        _allPaletteItems.Add(new PaletteItem { Title = "Switch to Canvas", Group = "Commands", Run = () => OnSelectCanvasMode(this, new RoutedEventArgs()) });
+        _allPaletteItems.Add(new PaletteItem { Title = "Switch to Outline", Group = "Commands", Run = () => OnSelectOutlineMode(this, new RoutedEventArgs()) });
+        _allPaletteItems.Add(new PaletteItem { Title = "Toggle dark mode", Group = "Commands", Run = () => Theming.ThemeManager.Toggle() });
+        _allPaletteItems.Add(new PaletteItem { Title = "Toggle grid (dots / lines)", Group = "Commands", Run = () => Exec(_vm.ToggleBackgroundCommand) });
+        _allPaletteItems.Add(new PaletteItem { Title = "Frame all", Group = "Commands", Run = () => CanvasViewport.FrameAll() });
+
+        _allPaletteItems.Add(new PaletteItem { Title = "New page", Group = "Create", Run = () => Exec(_vm.CreateNewPageCommand) });
+        _allPaletteItems.Add(new PaletteItem { Title = "New board", Group = "Create", Run = () => Exec(_vm.CreateNewSessionCommand) });
+        _allPaletteItems.Add(new PaletteItem { Title = "Today's journal", Group = "Create", Run = () => Exec(_vm.OpenTodayJournalCommand) });
+    }
+
+    private void FilterPalette(string query)
+    {
+        _paletteItems.Clear();
+        foreach (var it in _allPaletteItems)
+        {
+            if (string.IsNullOrWhiteSpace(query)
+                || it.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || it.Group.Contains(query, StringComparison.OrdinalIgnoreCase))
+                _paletteItems.Add(it);
+        }
+        if (PaletteList.Items.Count > 0) PaletteList.SelectedIndex = 0;
+    }
+
+    private void OnPaletteInputChanged(object sender, TextChangedEventArgs e) => FilterPalette(PaletteInput.Text);
+
+    private void OnPaletteInputKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.K && Keyboard.Modifiers == ModifierKeys.Control) { CloseCommandPalette(); e.Handled = true; return; }
+        switch (e.Key)
+        {
+            case Key.Down:
+                if (PaletteList.Items.Count > 0)
+                    PaletteList.SelectedIndex = Math.Min(PaletteList.SelectedIndex + 1, PaletteList.Items.Count - 1);
+                PaletteList.ScrollIntoView(PaletteList.SelectedItem);
+                e.Handled = true;
+                break;
+            case Key.Up:
+                if (PaletteList.Items.Count > 0)
+                    PaletteList.SelectedIndex = Math.Max(PaletteList.SelectedIndex - 1, 0);
+                PaletteList.ScrollIntoView(PaletteList.SelectedItem);
+                e.Handled = true;
+                break;
+            case Key.Enter:
+                ExecuteSelectedPaletteItem();
+                e.Handled = true;
+                break;
+            case Key.Escape:
+                CloseCommandPalette();
+                e.Handled = true;
+                break;
+        }
+    }
+
+    private void OnPaletteListClick(object sender, MouseButtonEventArgs e) => ExecuteSelectedPaletteItem();
+
+    private void OnPaletteScrimMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (ReferenceEquals(e.OriginalSource, CommandPaletteOverlay)) CloseCommandPalette();
+    }
+
+    private void ExecuteSelectedPaletteItem()
+    {
+        if (PaletteList.SelectedItem is not PaletteItem item) return;
+        CloseCommandPalette();
+        item.Run();
     }
 
     // Canvas drag-drop from explorer (files) or the block-reference picker (transclusions)
