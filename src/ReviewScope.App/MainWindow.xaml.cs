@@ -87,11 +87,14 @@ public partial class MainWindow : Window
     {
         bool canvas = _vm.IsCanvasDocumentActive;
 
-        RightPanelCol.Width = canvas ? new GridLength(320) : new GridLength(0);
-        RightPanelCol.MinWidth = canvas ? 220 : 0;
-        RightSplitterCol.Width = canvas ? new GridLength(5) : new GridLength(0);
-        RightSplitter.Visibility = canvas ? Visibility.Visible : Visibility.Collapsed;
-        RightSidebar.Visibility = canvas ? Visibility.Visible : Visibility.Collapsed;
+        // Right panel exists only in canvas mode, and only when the user hasn't collapsed it.
+        bool showRight = canvas && !_rightUserCollapsed;
+        RightPanelCol.Width = showRight ? new GridLength(320) : new GridLength(0);
+        RightPanelCol.MinWidth = showRight ? 220 : 0;
+        RightSplitterCol.Width = showRight ? new GridLength(5) : new GridLength(0);
+        RightSplitter.Visibility = showRight ? Visibility.Visible : Visibility.Collapsed;
+        RightSidebar.Visibility = showRight ? Visibility.Visible : Visibility.Collapsed;
+        RightPanelToggle.IsEnabled = canvas;
 
         // Keep a visible left tab selected for the current mode.
         var sel = LeftTabs.SelectedItem as TabItem;
@@ -104,6 +107,51 @@ public partial class MainWindow : Window
             if (sel == LeftTabExplorer || sel == LeftTabSymbols) LeftTabs.SelectedItem = LeftTabNotes;
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Collapsible panels (phase 4)
+    // -----------------------------------------------------------------------
+    private bool _leftCollapsed;
+    private bool _rightUserCollapsed;
+    private const double LeftPanelWidth = 270;
+    private const double LeftRailWidth = 44;
+
+    private void OnToggleLeftPanel(object sender, RoutedEventArgs e)
+    {
+        _leftCollapsed = !_leftCollapsed;
+        ApplyLeftPanelState();
+    }
+
+    private void ApplyLeftPanelState()
+    {
+        LeftPanelCol.Width = _leftCollapsed ? new GridLength(LeftRailWidth) : new GridLength(LeftPanelWidth);
+        LeftPanelCol.MinWidth = _leftCollapsed ? LeftRailWidth : 160;
+        LeftPanelFull.Visibility = _leftCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        LeftRail.Visibility = _leftCollapsed ? Visibility.Visible : Visibility.Collapsed;
+        LeftSplitter.Visibility = _leftCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        LeftSplitterCol.Width = _leftCollapsed ? new GridLength(0) : new GridLength(5);
+        LeftPanelToggle.IsEnabled = true;
+    }
+
+    private void OnToggleRightPanel(object sender, RoutedEventArgs e)
+    {
+        if (!_vm.IsCanvasDocumentActive) return;
+        _rightUserCollapsed = !_rightUserCollapsed;
+        UpdateModeChrome();
+    }
+
+    private void ExpandLeftToTab(TabItem tab)
+    {
+        _leftCollapsed = false;
+        ApplyLeftPanelState();
+        LeftTabs.SelectedItem = tab;
+    }
+
+    private void OnRailExplorer(object sender, RoutedEventArgs e) => ExpandLeftToTab(LeftTabExplorer);
+    private void OnRailSymbols(object sender, RoutedEventArgs e) => ExpandLeftToTab(LeftTabSymbols);
+    private void OnRailNotes(object sender, RoutedEventArgs e) => ExpandLeftToTab(LeftTabNotes);
+    private void OnRailGraph(object sender, RoutedEventArgs e) => ExpandLeftToTab(LeftTabGraph);
+    private void OnRailSearch(object sender, RoutedEventArgs e) => ExpandLeftToTab(LeftTabSearch);
 
     private void OnOutlineReloadRequested()
     {
