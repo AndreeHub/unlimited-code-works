@@ -64,6 +64,45 @@ public partial class MainWindow : Window
         OutlineEditor.DocumentChanged += body => _vm.OnOutlineBodyEdited(body);
         OutlineEditor.CollapsedChanged += ids => _vm.OnOutlineCollapsedChanged(ids);
         OutlineEditor.PageLinkActivated += name => _ = _vm.NavigateToDocumentAsync(name);
+
+        // Mode-aware chrome: collapse the right inspector panel and swap the left tab set
+        // when the active document switches between Canvas and Outline.
+        _vm.PropertyChanged += OnVmPropertyChanged;
+        Loaded += (_, _) => UpdateModeChrome();
+    }
+
+    private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainWindowViewModel.IsCanvasDocumentActive)
+            || e.PropertyName == nameof(MainWindowViewModel.IsOutlineDocumentActive))
+            UpdateModeChrome();
+    }
+
+    /// <summary>
+    /// Canvas mode shows Explorer/Symbols/Search on the left and the Inspector + Overview on
+    /// the right. Outline mode swaps the left tabs to Notes/Graph/Search and hides the right
+    /// panel entirely so the writing column gets the full width.
+    /// </summary>
+    private void UpdateModeChrome()
+    {
+        bool canvas = _vm.IsCanvasDocumentActive;
+
+        RightPanelCol.Width = canvas ? new GridLength(320) : new GridLength(0);
+        RightPanelCol.MinWidth = canvas ? 220 : 0;
+        RightSplitterCol.Width = canvas ? new GridLength(5) : new GridLength(0);
+        RightSplitter.Visibility = canvas ? Visibility.Visible : Visibility.Collapsed;
+        RightSidebar.Visibility = canvas ? Visibility.Visible : Visibility.Collapsed;
+
+        // Keep a visible left tab selected for the current mode.
+        var sel = LeftTabs.SelectedItem as TabItem;
+        if (canvas)
+        {
+            if (sel == LeftTabNotes || sel == LeftTabGraph) LeftTabs.SelectedItem = LeftTabExplorer;
+        }
+        else
+        {
+            if (sel == LeftTabExplorer || sel == LeftTabSymbols) LeftTabs.SelectedItem = LeftTabNotes;
+        }
     }
 
     private void OnOutlineReloadRequested()
