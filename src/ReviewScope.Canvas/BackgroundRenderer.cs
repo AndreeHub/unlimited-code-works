@@ -34,8 +34,8 @@ internal sealed class BackgroundRenderer
         float screenSpacing = worldSpacing * (float)camera.Zoom;
         if (screenSpacing < 3f) return;
 
-        var minor = _ctx.GetBrush(WpfColor.FromArgb(62, 198, 207, 219));
-        var major = _ctx.GetBrush(WpfColor.FromArgb(104, 172, 184, 199));
+        var minor = _ctx.GetBrush(CanvasTheme.GridMinor);
+        var major = _ctx.GetBrush(CanvasTheme.GridMajor);
 
         // World-anchored: world line at x = i*worldSpacing is at screen x = i*screenSpacing + offsetX.
         // Find the first world index whose screen position is >= 0.
@@ -71,7 +71,7 @@ internal sealed class BackgroundRenderer
         // Keep dot size readable but proportional to zoom (clamped).
         float radius = System.Math.Clamp(worldRadius * (float)camera.Zoom, 0.6f, 3.0f);
 
-        var dot = _ctx.GetBrush(WpfColor.FromArgb(132, 176, 186, 200));
+        var dot = _ctx.GetBrush(CanvasTheme.Dot);
 
         int firstIx = (int)System.Math.Floor(-camera.OffsetX / screenSpacing);
         int firstIy = (int)System.Math.Floor(-camera.OffsetY / screenSpacing);
@@ -94,10 +94,10 @@ internal sealed class BackgroundRenderer
         float cw = 480, ch = 180;
         float x = (float)((viewSize.Width - cw) / 2), y = (float)((viewSize.Height - ch) / 2);
         var rr = new RoundedRectangle(new RectangleF(x, y, cw, ch), 8, 8);
-        _ctx.RenderTarget.FillRoundedRectangle(rr, _ctx.GetBrush(WpfColor.FromRgb(255, 255, 255)));
-        _ctx.RenderTarget.DrawRoundedRectangle(rr, _ctx.GetBrush(WpfColor.FromArgb(220, 226, 232, 240)), 1f);
-        _ctx.DrawText("ReviewScope", x + 24, y + 22, cw - 48, 16, WpfColor.FromRgb(31, 41, 51));
-        _ctx.DrawText("Open a project, then place files and extracted methods on the canvas.", x + 24, y + 52, cw - 48, 13, WpfColor.FromRgb(83, 96, 112));
-        _ctx.DrawText("Use the explorer, command bar, and note tools to map review context.", x + 24, y + 90, cw - 48, 11, WpfColor.FromRgb(119, 132, 150));
+        _ctx.RenderTarget.FillRoundedRectangle(rr, _ctx.GetBrush(CanvasTheme.HintCardFill));
+        _ctx.RenderTarget.DrawRoundedRectangle(rr, _ctx.GetBrush(CanvasTheme.HintCardBorder), 1f);
+        _ctx.DrawText("ReviewScope", x + 24, y + 22, cw - 48, 16, CanvasTheme.HintTitle);
+        _ctx.DrawText("Open a project, then place files and extracted methods on the canvas.", x + 24, y + 52, cw - 48, 13, CanvasTheme.HintSub);
+        _ctx.DrawText("Use the explorer, command bar, and note tools to map review context.", x + 24, y + 90, cw - 48, 11, CanvasTheme.HintMuted);
     }
 }

@@ -220,13 +220,13 @@ public sealed partial class OutlineView
         panelY = Math.Clamp(panelY, 6f, Math.Max(6f, viewH - panelH - 6f));
 
         var bounds = new RectangleF(panelX, panelY, panelW, panelH);
-        _rt.FillRoundedRectangle(new RoundedRectangle(bounds, 6, 6), GetBrush(WpfColor.FromArgb(250, 255, 255, 255)));
-        _rt.DrawRoundedRectangle(new RoundedRectangle(bounds, 6, 6), GetBrush(WpfColor.FromArgb(235, 207, 215, 226)), 1f);
+        _rt.FillRoundedRectangle(new RoundedRectangle(bounds, 6, 6), GetBrush(CanvasTheme.PopupBg));
+        _rt.DrawRoundedRectangle(new RoundedRectangle(bounds, 6, 6), GetBrush(CanvasTheme.PopupBorder), 1f);
 
         var headerFmt = GetTextFormat(10f, false);
         _rt.DrawText("BASIC", headerFmt,
             new D2DRect(panelX + SlashPadding + 2, panelY + 4, panelW - SlashPadding * 2, 14),
-            GetBrush(WpfColor.FromRgb(150, 158, 170)));
+            GetBrush(CanvasTheme.PopupHeader));
 
         var labelFmt = GetTextFormat(13f, false);
         var hintFmt = GetTextFormat(11f, false);
@@ -243,18 +243,18 @@ public sealed partial class OutlineView
             var rowRect = new RectangleF(panelX + 3, rowY, panelW - 6, SlashRowHeight - 1);
             bool selected = i == _slashSelected;
             if (selected)
-                _rt.FillRoundedRectangle(new RoundedRectangle(rowRect, 4, 4), GetBrush(WpfColor.FromArgb(255, 232, 242, 255)));
+                _rt.FillRoundedRectangle(new RoundedRectangle(rowRect, 4, 4), GetBrush(CanvasTheme.PopupSelectedRow));
 
             _rt.DrawText(_slashItems[i].Label, labelFmt,
                 new D2DRect(panelX + SlashPadding + 2, rowY + 4, panelW - SlashPadding * 2, SlashRowHeight - 4),
-                GetBrush(WpfColor.FromRgb(38, 47, 64)));
+                GetBrush(CanvasTheme.PopupLabel));
 
             // Right-aligned dim hint (e.g. "[[ ]]").
             string hint = _slashItems[i].Hint;
             if (!string.IsNullOrEmpty(hint))
                 _rt.DrawText(hint, hintFmt,
                     new D2DRect(panelX + SlashPadding, rowY + 5, panelW - SlashPadding * 2 - 4, SlashRowHeight - 4),
-                    GetBrush(WpfColor.FromRgb(170, 178, 190)));
+                    GetBrush(CanvasTheme.PopupHint));
         }
     }
 

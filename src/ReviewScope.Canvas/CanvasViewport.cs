@@ -317,6 +317,15 @@ public sealed partial class CanvasViewport : HwndHost
         _edit.CollapsedProvider = CurrentCollapsedSet;
 
         _hwndMap[IntPtr.Zero] = new WeakReference<CanvasViewport>(this);
+
+        CanvasTheme.Changed += OnCanvasThemeChanged;
+    }
+
+    private void OnCanvasThemeChanged()
+    {
+        if (_disposed) return;
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(RenderNative)); return; }
+        RenderNative();
     }
     
     internal void SetTool(string name)
@@ -680,6 +689,7 @@ public sealed partial class CanvasViewport : HwndHost
     protected override void DestroyWindowCore(HandleRef hwnd)
     {
         _disposed = true;
+        CanvasTheme.Changed -= OnCanvasThemeChanged;
         _cursorBlinkTimer?.Dispose();
         _cursorBlinkTimer = null;
         DisposeRenderTarget();

@@ -4,21 +4,35 @@
     <Application.Resources>
         <ResourceDictionary>
             <FontFamily x:Key="AppFont">JetBrains Mono NL Light, JetBrains Mono NL, JetBrains Mono, Consolas</FontFamily>
-            <SolidColorBrush x:Key="ShellBg" Color="#F7F8FA"/>
+            <!--
+                Theme tokens. Values below are the LIGHT palette; ThemeManager mutates each
+                brush's Color in place at runtime to swap light/dark (see Theming/ThemeManager.cs).
+                Keep these as plain, non-frozen SolidColorBrush resources so every StaticResource
+                consumer shares the instance and updates live on theme change.
+            -->
+            <SolidColorBrush x:Key="ShellBg" Color="#F4F6F9"/>
             <SolidColorBrush x:Key="PanelBg" Color="#FFFFFF"/>
-            <SolidColorBrush x:Key="CanvasBg" Color="#FBFCFD"/>
+            <SolidColorBrush x:Key="CanvasBg" Color="#FAFBFC"/>
             <SolidColorBrush x:Key="PanelBorder" Color="#E3E7ED"/>
-            <SolidColorBrush x:Key="SoftBorder" Color="#EEF1F5"/>
-            <SolidColorBrush x:Key="ForegroundBrush" Color="#1F2933"/>
-            <SolidColorBrush x:Key="SubtleForeground" Color="#687385"/>
-            <SolidColorBrush x:Key="MutedForeground" Color="#97A1AF"/>
+            <SolidColorBrush x:Key="SoftBorder" Color="#EDF0F4"/>
+            <SolidColorBrush x:Key="ForegroundBrush" Color="#1B2530"/>
+            <SolidColorBrush x:Key="SubtleForeground" Color="#56616F"/>
+            <SolidColorBrush x:Key="MutedForeground" Color="#98A1AE"/>
             <SolidColorBrush x:Key="AccentBrush" Color="#2E7DD7"/>
-            <SolidColorBrush x:Key="AccentSoft" Color="#EAF3FF"/>
-            <SolidColorBrush x:Key="SuccessBrush" Color="#23A26D"/>
-            <SolidColorBrush x:Key="SuccessSoft" Color="#EAF8F1"/>
-            <SolidColorBrush x:Key="WarningSoft" Color="#FFF3C7"/>
-            <SolidColorBrush x:Key="SelectionBg" Color="#EFF6FF"/>
-            <SolidColorBrush x:Key="HoverBg" Color="#F4F7FB"/>
+            <SolidColorBrush x:Key="AccentHover" Color="#2467B5"/>
+            <SolidColorBrush x:Key="AccentSoft" Color="#E7F0FB"/>
+            <SolidColorBrush x:Key="AccentBorder" Color="#CFE3FA"/>
+            <SolidColorBrush x:Key="SuccessBrush" Color="#2F9E66"/>
+            <SolidColorBrush x:Key="SuccessSoft" Color="#E4F4EC"/>
+            <SolidColorBrush x:Key="WarningBrush" Color="#C2891C"/>
+            <SolidColorBrush x:Key="WarningSoft" Color="#FAF0DC"/>
+            <SolidColorBrush x:Key="SelectionBg" Color="#D3E5F9"/>
+            <SolidColorBrush x:Key="HoverBg" Color="#F0F3F7"/>
+            <!-- Canvas-render tokens (mirror CanvasTheme; available to XAML that needs them). -->
+            <SolidColorBrush x:Key="CanvasDot" Color="#D2D8E0"/>
+            <SolidColorBrush x:Key="ShapeFill" Color="#FFFFFF"/>
+            <SolidColorBrush x:Key="ShapeStroke" Color="#C2CAD4"/>
+            <SolidColorBrush x:Key="ConnectorStroke" Color="#9AA4B2"/>
 
             <Style x:Key="ToolButton" TargetType="Button">
                 <Setter Property="Background" Value="Transparent"/>
@@ -61,7 +75,7 @@
             <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource ToolButton}">
                 <Setter Property="Background" Value="{StaticResource AccentSoft}"/>
                 <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
-                <Setter Property="BorderBrush" Value="#CFE3FA"/>
+                <Setter Property="BorderBrush" Value="{StaticResource AccentBorder}"/>
             </Style>
 
             <Style x:Key="RailButton" TargetType="Button" BasedOn="{StaticResource ToolButton}">
@@ -154,7 +168,7 @@
             </Style>
 
             <Style TargetType="TextBox">
-                <Setter Property="Background" Value="#FFFFFF"/>
+                <Setter Property="Background" Value="{StaticResource PanelBg}"/>
                 <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
                 <Setter Property="BorderBrush" Value="{StaticResource PanelBorder}"/>
                 <Setter Property="BorderThickness" Value="1"/>

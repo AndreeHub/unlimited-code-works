@@ -41,9 +41,10 @@ public sealed partial class OutlineView : HwndHost
     private const float MaxContentWidth = 720f;
     private const float FontSize = 15f;
     private const string FontFamily = "Segoe UI";
-    private static readonly WpfColor TextColor = WpfColor.FromRgb(0x20, 0x24, 0x2B);
-    // White to match the surrounding panel / title strip (Logseq-like clean page).
-    private static readonly WpfColor BgColor = WpfColor.FromRgb(0xFF, 0xFF, 0xFF);
+    // Body text + page background are theme-driven (see CanvasTheme) so the outliner
+    // tracks the rest of the chrome between light and dark.
+    private static WpfColor TextColor => CanvasTheme.OutlineText;
+    private static WpfColor BgColor => CanvasTheme.OutlineBg;
 
     // --- native window / D2D state -------------------------------------------------
     private IntPtr _hwnd;
@@ -76,6 +77,14 @@ public sealed partial class OutlineView : HwndHost
     {
         Focusable = true;
         _edit.CollapsedProvider = () => _collapsed;
+        CanvasTheme.Changed += OnCanvasThemeChanged;
+    }
+
+    private void OnCanvasThemeChanged()
+    {
+        if (_disposed) return;
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(RenderNative)); return; }
+        RenderNative();
     }
 
     /// <summary>The full markdown document being edited. Setting it resets the caret/scroll.</summary>
@@ -185,6 +194,7 @@ public sealed partial class OutlineView : HwndHost
     protected override void DestroyWindowCore(HandleRef hwnd)
     {
         _disposed = true;
+        CanvasTheme.Changed -= OnCanvasThemeChanged;
         _blinkTimer?.Stop();
         _blinkTimer = null;
         DisposeRenderTarget();
@@ -278,7 +288,8 @@ public sealed partial class OutlineView : HwndHost
         float maxScroll = Math.Max(1f, total - visible);
         float thumbY = (_scrollY / maxScroll) * (visible - thumbH);
         var thumb = new RoundedRectangle(new RectangleF(trackX, thumbY + 2, ScrollbarW - 4, thumbH - 4), 3, 3);
-        _rt.FillRoundedRectangle(thumb, _ctx.GetBrush(WpfColor.FromArgb(70, 0x20, 0x24, 0x2B)));
+        var t = CanvasTheme.OutlineText;
+        _rt.FillRoundedRectangle(thumb, _ctx.GetBrush(WpfColor.FromArgb(70, t.R, t.G, t.B)));
     }
 
     private RenderBlock BuildDocBlock()

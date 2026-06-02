@@ -235,7 +235,7 @@
                             </Trigger>
                             <Trigger Property="IsSubmenuOpen" Value="True">
                                 <Setter TargetName="ItemChrome" Property="Background" Value="{StaticResource SelectionBg}"/>
-                                <Setter TargetName="ItemChrome" Property="BorderBrush" Value="#CFE3FA"/>
+                                <Setter TargetName="ItemChrome" Property="BorderBrush" Value="{StaticResource AccentBorder}"/>
                             </Trigger>
                             <Trigger Property="Role" Value="TopLevelHeader">
                                 <Setter TargetName="PART_Popup" Property="Placement" Value="Bottom"/>
@@ -275,7 +275,7 @@
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorder}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -312,7 +312,7 @@
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="Chrome" Property="Background" Value="{StaticResource PanelBg}"/>
-                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#CFE3FA"/>
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource AccentBorder}"/>
                                 <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -355,7 +355,7 @@
                             </DataTrigger>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBg}"/>
-                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#CFE3FA"/>
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource AccentBorder}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SelectionBg}"/>
@@ -370,7 +370,7 @@
         </Style>
 
         <Style x:Key="ToolboxCardButton" TargetType="Button" BasedOn="{StaticResource ToolButton}">
-            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="Background" Value="{StaticResource PanelBg}"/>
             <Setter Property="BorderBrush" Value="{StaticResource PanelBorder}"/>
             <Setter Property="Padding" Value="10"/>
             <Setter Property="Margin" Value="0,0,0,8"/>
@@ -389,7 +389,7 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBg}"/>
-                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#CFE3FA"/>
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource AccentBorder}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SelectionBg}"/>

@@ -55,7 +55,7 @@ public sealed partial class CanvasViewport
 
         _rt.BeginDraw();
         _rt.Transform = Matrix3x2.Identity;
-        _rt.Clear(_drawingContext.ToColor4(WpfColor.FromRgb(251, 252, 253)));
+        _rt.Clear(_drawingContext.ToColor4(CanvasTheme.Surface));
         
         _backgroundRenderer?.DrawBackground(viewSize, BackgroundMode, _camera);
 

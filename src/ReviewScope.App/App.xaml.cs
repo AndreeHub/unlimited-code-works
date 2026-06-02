@@ -24,6 +24,10 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // Apply the persisted (or default-light) theme before any window is shown so the
+        // shared brush resources carry the right colors from the first frame.
+        Theming.ThemeManager.Initialize();
+
         if (!MSBuildLocator.IsRegistered)
             MSBuildLocator.RegisterDefaults();
 

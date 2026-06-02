@@ -142,6 +142,7 @@
                 </Border>
 
                 <StackPanel Grid.Row="1" Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
+                    <Button Style="{StaticResource ToolButton}" Content="Theme" Click="OnToggleTheme" Margin="0,0,4,0" ToolTip="Toggle light / dark"/>
                     <Button Style="{StaticResource ToolButton}" Content="Frame" Click="OnFrameAll" Margin="0,0,4,0"/>
                     <Button Style="{StaticResource ToolButton}" Content="Grid" Command="{Binding ToggleBackgroundCommand}"/>
                 </StackPanel>

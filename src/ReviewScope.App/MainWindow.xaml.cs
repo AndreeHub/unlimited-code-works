@@ -608,6 +608,8 @@ public partial class MainWindow : Window
 
     private void OnFrameAll(object sender, RoutedEventArgs e) => CanvasViewport.FrameAll();
 
+    private void OnToggleTheme(object sender, RoutedEventArgs e) => Theming.ThemeManager.Toggle();
+
     // Canvas drag-drop from explorer (files) or the block-reference picker (transclusions)
     private void OnCanvasDragOver(object sender, DragEventArgs e)
     {
