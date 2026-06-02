@@ -369,6 +369,127 @@
             </Setter>
         </Style>
 
+        <!-- ===================== Redesign: unified toolbar ===================== -->
+
+        <!-- 32x32 ghost icon button used across the toolbar. -->
+        <Style x:Key="IconButton" TargetType="Button">
+            <Setter Property="Width" Value="32"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBg}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SelectionBg}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Toolbar icon glyph: stroke follows SubtleForeground, 16px, uniform. -->
+        <Style x:Key="ToolbarGlyph" TargetType="Path">
+            <Setter Property="Width" Value="17"/>
+            <Setter Property="Height" Value="17"/>
+            <Setter Property="Stretch" Value="Uniform"/>
+            <Setter Property="Fill" Value="Transparent"/>
+            <Setter Property="Stroke" Value="{StaticResource SubtleForeground}"/>
+            <Setter Property="StrokeThickness" Value="1.5"/>
+            <Setter Property="StrokeLineJoin" Value="Round"/>
+            <Setter Property="StrokeStartLineCap" Value="Round"/>
+            <Setter Property="StrokeEndLineCap" Value="Round"/>
+        </Style>
+
+        <!-- 1px vertical separator between toolbar clusters. -->
+        <Style x:Key="ToolbarSeparator" TargetType="Rectangle">
+            <Setter Property="Width" Value="1"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="Fill" Value="{StaticResource PanelBorder}"/>
+            <Setter Property="Margin" Value="4,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <!-- Project pill: the File-menu host, styled as a bordered chip. -->
+        <Style x:Key="ProjectPillMenuItem" TargetType="{x:Type MenuItem}" BasedOn="{StaticResource AppMenuItemStyle}">
+            <Setter Property="Padding" Value="8,0,8,0"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <!-- Document tab (in the tab strip). Active tab raises onto PanelBg with a top-rounded
+             border so it reads as merging into the surface below. -->
+        <Style x:Key="DocumentTabItem" TargetType="ListBoxItem">
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,5,2,0"/>
+            <Setter Property="Foreground" Value="{StaticResource SubtleForeground}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="TabChrome" Height="33" Background="Transparent"
+                                BorderBrush="Transparent" BorderThickness="1,1,1,0"
+                                CornerRadius="8,8,0,0" Padding="11,0">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabChrome" Property="Background" Value="{StaticResource HoverBg}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabChrome" Property="Background" Value="{StaticResource PanelBg}"/>
+                                <Setter TargetName="TabChrome" Property="BorderBrush" Value="{StaticResource PanelBorder}"/>
+                                <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Document-tab type glyph: tints to accent on the active tab via Selector.IsSelected. -->
+        <Style x:Key="DocumentTabGlyph" TargetType="Path">
+            <Setter Property="Width" Value="13"/>
+            <Setter Property="Height" Value="13"/>
+            <Setter Property="Stretch" Value="Uniform"/>
+            <Setter Property="Fill" Value="Transparent"/>
+            <Setter Property="Stroke" Value="{StaticResource MutedForeground}"/>
+            <Setter Property="StrokeThickness" Value="1.5"/>
+            <Setter Property="StrokeLineJoin" Value="Round"/>
+            <Setter Property="StrokeStartLineCap" Value="Round"/>
+            <Setter Property="StrokeEndLineCap" Value="Round"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,7,0"/>
+            <Setter Property="Data" Value="M3.5,2.5 H7.5 L9.5,4.5 V12.5 H3.5 Z"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Kind}" Value="Canvas">
+                    <Setter Property="Data" Value="M2.5,3.5 H12.5 V11.5 H2.5 Z M2.5,6 H12.5 M6,6 V11.5"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="Journal">
+                    <Setter Property="Data" Value="M3,3.5 H12 V12.5 H3 Z M3,6 H12 M5.5,2.3 V4 M9.5,2.3 V4"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                    <Setter Property="Stroke" Value="{StaticResource AccentBrush}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
         <Style x:Key="ToolboxCardButton" TargetType="Button" BasedOn="{StaticResource ToolButton}">
             <Setter Property="Background" Value="{StaticResource PanelBg}"/>
             <Setter Property="BorderBrush" Value="{StaticResource PanelBorder}"/>

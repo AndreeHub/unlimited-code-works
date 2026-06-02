@@ -30,186 +30,195 @@
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="118"/>
+            <RowDefinition Height="48"/>
+            <RowDefinition Height="38"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="26"/>
         </Grid.RowDefinitions>
 
+        <!-- ============================ Unified toolbar (Row 0) ============================ -->
         <Border Grid.Row="0" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,0,0,1">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="25"/>
-                    <RowDefinition Height="54"/>
-                    <RowDefinition Height="39"/>
-                </Grid.RowDefinitions>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+            <DockPanel Margin="10,0" LastChildFill="True">
 
-                <Border Grid.Row="0" Grid.ColumnSpan="4"
-                        BorderBrush="{StaticResource PanelBorder}"
-                        BorderThickness="0,0,0,1"
-                        Padding="12,2">
-                    <Border BorderBrush="{StaticResource PanelBorder}"
-                            BorderThickness="1"
-                            CornerRadius="5"
-                            HorizontalAlignment="Left"
-                            VerticalAlignment="Center"
-                            Height="20"
-                            Background="{StaticResource PanelBg}">
-                        <!--
-                            Native Menu instead of Button+ContextMenu: ContextMenu hosts in its
-                            own popup HWND that WPF lazy-creates on first open (100-300ms of
-                            "did I click it?" lag), and the re-click flow flickers because the
-                            menu auto-closes from click-outside *before* the button's Click
-                            handler reopens it. A real Menu + MenuItem pre-realizes the popup
-                            host with the menu and handles click-to-toggle natively.
-                        -->
-                        <Menu Background="Transparent"
-                              Padding="0"
-                              VerticalAlignment="Stretch">
-                            <MenuItem Header="File"
-                                      Padding="7,0"
-                                      FontSize="11"
-                                      FontWeight="SemiBold">
-                                <MenuItem Header="Settings"
-                                          Command="{Binding OpenSettingsCommand}"/>
+                <!-- Right cluster: view actions + theme -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource IconButton}" Click="OnFrameAll" ToolTip="Frame all (zoom to fit)">
+                        <Path Style="{StaticResource ToolbarGlyph}" Data="M3 6V3h3 M14 3h3v3 M17 14v3h-3 M6 17H3v-3"/>
+                    </Button>
+                    <Button Style="{StaticResource IconButton}" Command="{Binding ToggleBackgroundCommand}" ToolTip="Toggle dot / line grid">
+                        <Path Style="{StaticResource ToolbarGlyph}" Data="M3.5 3.5h13v13h-13z M3.5 8h13 M3.5 12.5h13 M8 3.5v13 M12.5 3.5v13"/>
+                    </Button>
+                    <Rectangle Style="{StaticResource ToolbarSeparator}"/>
+                    <Button Style="{StaticResource IconButton}" Click="OnToggleTheme" ToolTip="Toggle light / dark">
+                        <Path Style="{StaticResource ToolbarGlyph}" Data="M16 11.5A6.5 6.5 0 0 1 8.5 4a6.5 6.5 0 1 0 7.5 7.5z"/>
+                    </Button>
+                </StackPanel>
+
+                <!-- Search field (command palette opens here in a later phase) -->
+                <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Margin="8,0,0,0" Height="32" MinHeight="0"
+                        Width="240" Padding="10,0" Background="{StaticResource ShellBg}" Cursor="Arrow"
+                        ToolTip="Search (command palette — coming soon)">
+                    <DockPanel LastChildFill="True">
+                        <Path DockPanel.Dock="Left" Style="{StaticResource ToolbarGlyph}" Width="14" Height="14" Margin="0,0,8,0"
+                              Data="M9 15A6 6 0 1 0 9 3a6 6 0 0 0 0 12z M13.5 13.5 17 17"/>
+                        <Border DockPanel.Dock="Right" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" CornerRadius="4"
+                                Padding="5,1" VerticalAlignment="Center">
+                            <TextBlock Text="Ctrl K" FontSize="9.5" Foreground="{StaticResource MutedForeground}"/>
+                        </Border>
+                        <TextBlock Text="Search everything…" FontSize="12" Foreground="{StaticResource MutedForeground}" VerticalAlignment="Center"/>
+                    </DockPanel>
+                </Button>
+
+                <!-- Left cluster: project pill, IO, history, mode toggle -->
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- Project pill (hosts the File menu) -->
+                    <Border BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" CornerRadius="6"
+                            Height="32" Background="{StaticResource PanelBg}" VerticalAlignment="Center">
+                        <Menu Background="Transparent" Padding="0" VerticalAlignment="Stretch">
+                            <MenuItem Style="{StaticResource ProjectPillMenuItem}">
+                                <MenuItem.Header>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Border Width="22" Height="18" CornerRadius="3" Background="{StaticResource AccentBrush}" Margin="0,0,8,0">
+                                            <TextBlock Text="UCW" Foreground="White" FontSize="8" FontWeight="Bold"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock Text="unlimited-code-works" FontSize="12.5" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                        <Path Style="{StaticResource ToolbarGlyph}" Width="12" Height="12" Margin="7,0,0,0"
+                                              Stroke="{StaticResource MutedForeground}" Data="M5.5 8l4.5 4.5L14.5 8"/>
+                                    </StackPanel>
+                                </MenuItem.Header>
+                                <MenuItem Header="Open Project…" Command="{Binding OpenWorkspaceCommand}"/>
+                                <MenuItem Header="Open Folder…" Command="{Binding OpenFolderCommand}"/>
+                                <MenuItem Header="Reload Code" Command="{Binding ReloadCodeCommand}"/>
                                 <Separator/>
-                                <MenuItem Header="Save"
-                                          Command="{Binding SaveWorkCommand}"
-                                          InputGestureText="Ctrl+S"/>
-                                <MenuItem Header="Save As"
-                                          Command="{Binding SaveWorkAsCommand}"
-                                          InputGestureText="Ctrl+Shift+S"/>
+                                <MenuItem Header="Settings" Command="{Binding OpenSettingsCommand}"/>
                                 <Separator/>
-                                <MenuItem Header="Load"
-                                          Command="{Binding LoadWorkCommand}"/>
+                                <MenuItem Header="Save" Command="{Binding SaveWorkCommand}" InputGestureText="Ctrl+S"/>
+                                <MenuItem Header="Save As" Command="{Binding SaveWorkAsCommand}" InputGestureText="Ctrl+Shift+S"/>
+                                <Separator/>
+                                <MenuItem Header="Load" Command="{Binding LoadWorkCommand}"/>
                             </MenuItem>
                         </Menu>
                     </Border>
-                </Border>
 
-                <Border Grid.Row="1" Grid.Column="0"
-                        BorderBrush="{StaticResource PanelBorder}"
-                        BorderThickness="1"
-                        CornerRadius="5"
-                        Padding="5,3"
-                        Margin="12,0,10,0"
-                        HorizontalAlignment="Left"
-                        VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal">
-                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Open Project" Command="{Binding OpenWorkspaceCommand}"/>
-                        <TextBlock Style="{StaticResource HeaderSeparatorText}"/>
-                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Folder" Command="{Binding OpenFolderCommand}"/>
-                        <TextBlock Style="{StaticResource HeaderSeparatorText}"/>
-                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Reload" Command="{Binding ReloadCodeCommand}"/>
-                    </StackPanel>
-                </Border>
+                    <Rectangle Style="{StaticResource ToolbarSeparator}"/>
 
-                <Border Grid.Row="1" Grid.Column="0"
-                        BorderBrush="{StaticResource PanelBorder}"
-                        BorderThickness="1"
-                        CornerRadius="5"
-                        Padding="5,3"
-                        Margin="236,0,10,0"
-                        HorizontalAlignment="Left"
-                        VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal">
-                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Undo" Command="{Binding UndoCommand}"/>
-                        <TextBlock Style="{StaticResource HeaderSeparatorText}"/>
-                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Redo" Command="{Binding RedoCommand}"/>
-                    </StackPanel>
-                </Border>
+                    <!-- IO cluster -->
+                    <Button Style="{StaticResource IconButton}" Command="{Binding OpenFolderCommand}" ToolTip="Open folder / .sln">
+                        <Path Style="{StaticResource ToolbarGlyph}" Data="M3 6.5A1.5 1.5 0 0 1 4.5 5h3.4l1.3 1.6h6.3A1.5 1.5 0 0 1 17 8.1v6.4A1.5 1.5 0 0 1 15.5 16h-11A1.5 1.5 0 0 1 3 14.5z"/>
+                    </Button>
+                    <Button Style="{StaticResource IconButton}" Command="{Binding ReloadCodeCommand}" ToolTip="Reload">
+                        <Path Style="{StaticResource ToolbarGlyph}" Data="M15.5 6.5A6 6 0 1 0 16.4 12 M15.8 4v3h-3"/>
+                    </Button>
 
-                <Border Grid.Row="1" Grid.Column="2"
-                        BorderBrush="{StaticResource PanelBorder}"
-                        BorderThickness="1"
-                        CornerRadius="5"
-                        Padding="8,6"
-                        Margin="0,0,10,0"
-                        VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal">
-                        <Border Width="18" Height="18" CornerRadius="4" Background="{StaticResource AccentSoft}" Margin="0,0,7,0">
-                            <TextBlock Text="UCW" Foreground="{StaticResource AccentBrush}" FontSize="7" FontWeight="Bold"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <TextBlock Text="unlimited-code-works" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"
-                                   VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Border>
+                    <Rectangle Style="{StaticResource ToolbarSeparator}"/>
 
-                <StackPanel Grid.Row="1" Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
-                    <Button Style="{StaticResource ToolButton}" Content="Theme" Click="OnToggleTheme" Margin="0,0,4,0" ToolTip="Toggle light / dark"/>
-                    <Button Style="{StaticResource ToolButton}" Content="Frame" Click="OnFrameAll" Margin="0,0,4,0"/>
-                    <Button Style="{StaticResource ToolButton}" Content="Grid" Command="{Binding ToggleBackgroundCommand}"/>
-                </StackPanel>
+                    <!-- History cluster -->
+                    <Button Style="{StaticResource IconButton}" Command="{Binding UndoCommand}" ToolTip="Undo (Ctrl+Z)">
+                        <Path Style="{StaticResource ToolbarGlyph}" Data="M7 8H13.5a3.5 3.5 0 0 1 0 7H8 M7 8l3-3 M7 8l3 3"/>
+                    </Button>
+                    <Button Style="{StaticResource IconButton}" Command="{Binding RedoCommand}" ToolTip="Redo (Ctrl+Y)">
+                        <Path Style="{StaticResource ToolbarGlyph}" Data="M13 8H6.5a3.5 3.5 0 0 0 0 7H12 M13 8l-3-3 M13 8l-3 3"/>
+                    </Button>
 
-                <Border Grid.Row="2" Grid.ColumnSpan="4" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,1,0,0">
-                    <DockPanel Margin="12,5,12,5">
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                            <Button x:Name="NewSessionButton" Style="{StaticResource HeaderRibbonButton}" Content="New Board" Command="{Binding CreateNewSessionCommand}"/>
-                            <TextBlock Style="{StaticResource HeaderSeparatorText}"/>
-                            <Button Style="{StaticResource HeaderRibbonButton}" Content="Delete" Command="{Binding DeleteSelectedSessionCommand}"/>
+                    <Rectangle Style="{StaticResource ToolbarSeparator}"/>
+
+                    <!-- Mode toggle (the active-mode indicator) -->
+                    <Border Background="{StaticResource HoverBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1"
+                            CornerRadius="8" Padding="3" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton GroupName="WorkspaceMode" Style="{StaticResource SegmentedStyleTarget}"
+                                         Click="OnSelectCanvasMode" IsChecked="{Binding IsCanvasDocumentActive, Mode=OneWay}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Style="{StaticResource ToolbarGlyph}" Width="15" Height="15" Margin="0,0,6,0"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}"
+                                          Data="M3.5 5.5h13v9h-13z M3.5 9h13 M8 9v5.5"/>
+                                    <TextBlock Text="Canvas" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </RadioButton>
+                            <RadioButton GroupName="WorkspaceMode" Style="{StaticResource SegmentedStyleTarget}"
+                                         Click="OnSelectOutlineMode" IsChecked="{Binding IsOutlineDocumentActive, Mode=OneWay}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Style="{StaticResource ToolbarGlyph}" Width="15" Height="15" Margin="0,0,6,0"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}"
+                                          Data="M5 6h2 M9 6h6 M5 10h2 M9 10h6 M5 14h2 M9 14h6"/>
+                                    <TextBlock Text="Outline" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </RadioButton>
                         </StackPanel>
-                        <TextBlock DockPanel.Dock="Left" Text="Boards:" Foreground="{StaticResource SubtleForeground}"
-                                   FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <ListBox x:Name="SessionTabs"
-                                 ItemsSource="{Binding Sessions}"
-                                 SelectedItem="{Binding SelectedSession}"
-                                 SelectionChanged="OnSessionTabSelectionChanged"
-                                 MouseDoubleClick="OnSessionDoubleClick"
-                                 PreviewMouseLeftButtonDown="OnSessionTabMouseLeftButtonDown"
-                                 PreviewMouseMove="OnSessionTabMouseMove"
-                                 PreviewMouseLeftButtonUp="OnSessionTabMouseLeftButtonUp"
-                                 LostMouseCapture="OnSessionTabLostMouseCapture"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                 ScrollViewer.VerticalScrollBarVisibility="Disabled">
-                            <ListBox.ItemContainerStyle>
-                                <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
-                                    <Setter Property="VerticalContentAlignment" Value="Center"/>
-                                    <EventSetter Event="Loaded" Handler="OnSessionTabLoaded"/>
-                                </Style>
-                            </ListBox.ItemContainerStyle>
-                            <ListBox.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <VirtualizingStackPanel Orientation="Horizontal"/>
-                                </ItemsPanelTemplate>
-                            </ListBox.ItemsPanel>
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid>
-                                        <TextBlock x:Name="SessionNameText"
-                                                   Text="{Binding Name}"
-                                                   FontSize="11"
-                                                   FontWeight="SemiBold"
-                                                   VerticalAlignment="Center"
-                                                   ToolTip="Double-click to rename. Drag to reorder boards."/>
-                                        <TextBox x:Name="SessionNameEditor"
-                                                 Text="{Binding Name, Mode=OneWay}"
-                                                 Visibility="Collapsed"
-                                                 MinWidth="110"
-                                                 MaxWidth="220"
-                                                 Height="22"
-                                                 MinHeight="0"
-                                                 FontSize="11"
-                                                 Padding="6,1"
-                                                 VerticalAlignment="Center"
-                                                 VerticalContentAlignment="Center"
-                                                 KeyDown="OnSessionNameEditKeyDown"
-                                                 LostFocus="OnSessionNameEditLostFocus"/>
-                                    </Grid>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </DockPanel>
-                </Border>
-            </Grid>
+                    </Border>
+                </StackPanel>
+            </DockPanel>
         </Border>
 
-        <Grid Grid.Row="1">
+        <!-- ============================ Document tab strip (Row 1) ============================ -->
+        <Border Grid.Row="1" Background="{StaticResource ShellBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,0,0,1">
+            <DockPanel Margin="8,0,8,0" LastChildFill="True">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="NewSessionButton" Style="{StaticResource IconButton}" Width="26" Height="26"
+                            Command="{Binding CreateNewSessionCommand}" ToolTip="New board">
+                        <Path Style="{StaticResource ToolbarGlyph}" Width="14" Height="14" Data="M10 4.5v11 M4.5 10h11"/>
+                    </Button>
+                    <Button Style="{StaticResource IconButton}" Width="26" Height="26"
+                            Command="{Binding DeleteSelectedSessionCommand}" ToolTip="Delete document">
+                        <Path Style="{StaticResource ToolbarGlyph}" Width="14" Height="14" Data="M4 5.5h12 M7.5 5.5V4h5v1.5 M5.5 5.5l.7 10h7.6l.7-10"/>
+                    </Button>
+                </StackPanel>
+                <ListBox x:Name="SessionTabs"
+                         Background="Transparent" BorderThickness="0" VerticalAlignment="Stretch"
+                         ItemsSource="{Binding Sessions}"
+                         SelectedItem="{Binding SelectedSession}"
+                         SelectionChanged="OnSessionTabSelectionChanged"
+                         MouseDoubleClick="OnSessionDoubleClick"
+                         PreviewMouseLeftButtonDown="OnSessionTabMouseLeftButtonDown"
+                         PreviewMouseMove="OnSessionTabMouseMove"
+                         PreviewMouseLeftButtonUp="OnSessionTabMouseLeftButtonUp"
+                         LostMouseCapture="OnSessionTabLostMouseCapture"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                         ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource DocumentTabItem}">
+                            <EventSetter Event="Loaded" Handler="OnSessionTabLoaded"/>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Path Style="{StaticResource DocumentTabGlyph}"/>
+                                <Grid>
+                                    <TextBlock x:Name="SessionNameText"
+                                               Text="{Binding Name}"
+                                               FontSize="11.5"
+                                               VerticalAlignment="Center"
+                                               ToolTip="Double-click to rename. Drag to reorder."/>
+                                    <TextBox x:Name="SessionNameEditor"
+                                             Text="{Binding Name, Mode=OneWay}"
+                                             Visibility="Collapsed"
+                                             MinWidth="110"
+                                             MaxWidth="220"
+                                             Height="22"
+                                             MinHeight="0"
+                                             FontSize="11.5"
+                                             Padding="6,1"
+                                             VerticalAlignment="Center"
+                                             VerticalContentAlignment="Center"
+                                             KeyDown="OnSessionNameEditKeyDown"
+                                             LostFocus="OnSessionNameEditLostFocus"/>
+                                </Grid>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="270" MinWidth="160"/>
                 <ColumnDefinition Width="5"/>
@@ -821,7 +830,7 @@
                                    ViewportHeight="{Binding ActualHeight, ElementName=CanvasViewport}"/>
         </Grid>
 
-        <Border Grid.Row="2" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="3" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,1,0,0">
             <Grid Margin="12,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>

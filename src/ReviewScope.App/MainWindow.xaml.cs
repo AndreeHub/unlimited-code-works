@@ -1,6 +1,7 @@
 using ReviewScope.App.ViewModels;
 using ReviewScope.Canvas;
 using ReviewScope.Domain;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -609,6 +610,26 @@ public partial class MainWindow : Window
     private void OnFrameAll(object sender, RoutedEventArgs e) => CanvasViewport.FrameAll();
 
     private void OnToggleTheme(object sender, RoutedEventArgs e) => Theming.ThemeManager.Toggle();
+
+    // The header mode toggle derives from the active document and, when clicked, switches to
+    // the most-recent document of the chosen mode (creating one if none exists yet).
+    private async void OnSelectCanvasMode(object sender, RoutedEventArgs e)
+    {
+        if (_vm.IsCanvasDocumentActive) return;
+        var target = _vm.Sessions.LastOrDefault(s => s.Kind == DocumentKind.Canvas);
+        if (target is null) { _vm.CreateNewSessionCommand.Execute(null); return; }
+        _vm.SelectedSession = target;
+        await _vm.ActivateSelectedSessionAsync();
+    }
+
+    private async void OnSelectOutlineMode(object sender, RoutedEventArgs e)
+    {
+        if (_vm.IsOutlineDocumentActive) return;
+        var target = _vm.Sessions.LastOrDefault(s => s.Kind != DocumentKind.Canvas);
+        if (target is null) { _vm.OpenTodayJournalCommand.Execute(null); return; }
+        _vm.SelectedSession = target;
+        await _vm.ActivateSelectedSessionAsync();
+    }
 
     // Canvas drag-drop from explorer (files) or the block-reference picker (transclusions)
     private void OnCanvasDragOver(object sender, DragEventArgs e)
