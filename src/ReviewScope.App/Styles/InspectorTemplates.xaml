@@ -217,7 +217,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ListBoxItem">
                     <Grid>
-                        <Border x:Name="Swatch" CornerRadius="5" Background="{TemplateBinding Background}" BorderBrush="#CBD5E1" BorderThickness="1"/>
+                        <Border x:Name="Swatch" CornerRadius="5" Background="{TemplateBinding Background}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1"/>
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         <Border x:Name="SelectionIndicator" CornerRadius="5" BorderBrush="{StaticResource AccentBrush}" BorderThickness="2" Visibility="Collapsed"/>
                     </Grid>
@@ -427,7 +427,7 @@
         <Setter Property="Height" Value="22"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="BorderBrush" Value="#CBD5E1"/>
+        <Setter Property="BorderBrush" Value="{StaticResource PanelBorder}"/>
         <Setter Property="Padding" Value="0"/>
         <Setter Property="Template">
             <Setter.Value>

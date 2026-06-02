@@ -49,6 +49,51 @@
                         <Path Style="{StaticResource ToolbarGlyph}" Data="M3.5 3.5h13v13h-13z M3.5 8h13 M3.5 12.5h13 M8 3.5v13 M12.5 3.5v13"/>
                     </Button>
                     <Rectangle Style="{StaticResource ToolbarSeparator}"/>
+                    <ToggleButton x:Name="GearToggle" Style="{StaticResource IconToggleButton}" Checked="OnViewSettingsOpened" ToolTip="View settings">
+                        <Path Style="{StaticResource ToolbarGlyph}"
+                              Data="M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M10 2.5v2 M10 15.5v2 M2.5 10h2 M15.5 10h2 M4.7 4.7l1.4 1.4 M13.9 13.9l1.4 1.4 M15.3 4.7l-1.4 1.4 M6.1 13.9l-1.4 1.4"/>
+                    </ToggleButton>
+                    <Popup PlacementTarget="{Binding ElementName=GearToggle}" Placement="Bottom" StaysOpen="False"
+                           AllowsTransparency="True" PopupAnimation="Fade"
+                           IsOpen="{Binding IsChecked, ElementName=GearToggle, Mode=TwoWay}">
+                        <Border Width="280" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}"
+                                BorderThickness="1" CornerRadius="8" Margin="0,4,8,8">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="22" ShadowDepth="4" Opacity="0.16" Color="#0F172A"/>
+                            </Border.Effect>
+                            <StackPanel>
+                                <!-- Appearance -->
+                                <StackPanel Margin="14,12,14,10">
+                                    <TextBlock Text="APPEARANCE" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource MutedForeground}" Margin="0,0,0,8"/>
+                                    <DockPanel LastChildFill="False" Margin="0,2">
+                                        <TextBlock DockPanel.Dock="Left" Text="Dark mode" FontSize="12.5" Foreground="{StaticResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                        <CheckBox x:Name="DarkModeSwitch" DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}"
+                                                  Checked="OnDarkModeToggled" Unchecked="OnDarkModeToggled"/>
+                                    </DockPanel>
+                                </StackPanel>
+                                <Border Height="1" Background="{StaticResource SoftBorder}"/>
+                                <!-- Canvas -->
+                                <StackPanel Margin="14,10,14,12">
+                                    <TextBlock Text="CANVAS" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource MutedForeground}" Margin="0,0,0,8"/>
+                                    <DockPanel LastChildFill="False" Margin="0,2">
+                                        <TextBlock DockPanel.Dock="Left" Text="Line grid" FontSize="12.5" Foreground="{StaticResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                        <CheckBox x:Name="LineGridSwitch" DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}"
+                                                  Checked="OnLineGridToggled" Unchecked="OnLineGridToggled"/>
+                                    </DockPanel>
+                                    <DockPanel LastChildFill="False" Margin="0,6,0,0">
+                                        <TextBlock DockPanel.Dock="Left" Text="Snap to grid" FontSize="12.5" Foreground="{StaticResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                        <CheckBox DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}"
+                                                  IsChecked="{Binding SnapToGrid, Mode=TwoWay}"/>
+                                    </DockPanel>
+                                    <DockPanel LastChildFill="False" Margin="0,6,0,0">
+                                        <TextBlock DockPanel.Dock="Left" Text="Show connectors" FontSize="12.5" Foreground="{StaticResource ForegroundBrush}" VerticalAlignment="Center"/>
+                                        <CheckBox DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}"
+                                                  IsChecked="{Binding ConnectorsEnabled, Mode=TwoWay}"/>
+                                    </DockPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
                     <Button Style="{StaticResource IconButton}" Click="OnToggleTheme" ToolTip="Toggle light / dark">
                         <Path Style="{StaticResource ToolbarGlyph}" Data="M16 11.5A6.5 6.5 0 0 1 8.5 4a6.5 6.5 0 1 0 7.5 7.5z"/>
                     </Button>

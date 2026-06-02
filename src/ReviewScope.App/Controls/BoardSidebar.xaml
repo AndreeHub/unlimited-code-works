@@ -224,7 +224,7 @@
                     <TextBlock Grid.Row="0" Text="Overview" FontSize="11" FontWeight="SemiBold"
                                Foreground="{StaticResource SubtleForeground}" Margin="0,0,0,6"/>
 
-                    <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Height="140" ClipToBounds="True">
+                    <Border Grid.Row="1" Background="{StaticResource CanvasBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" CornerRadius="6" Height="140" ClipToBounds="True">
                         <controls:SceneMiniMap
                             Scene="{Binding Scene}"
                             Camera="{Binding Camera, ElementName=Root, Mode=TwoWay}"

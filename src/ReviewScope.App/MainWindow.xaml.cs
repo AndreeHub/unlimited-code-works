@@ -698,6 +698,32 @@ public partial class MainWindow : Window
 
     private void OnToggleTheme(object sender, RoutedEventArgs e) => Theming.ThemeManager.Toggle();
 
+    // ----- View settings popover -----
+    private bool _syncingViewSettings;
+
+    private void OnViewSettingsOpened(object sender, RoutedEventArgs e)
+    {
+        // Reflect current state into the switches without re-triggering their handlers.
+        _syncingViewSettings = true;
+        DarkModeSwitch.IsChecked = Theming.ThemeManager.IsDark;
+        LineGridSwitch.IsChecked = _vm.BackgroundMode == CanvasBackgroundMode.Grid;
+        _syncingViewSettings = false;
+    }
+
+    private void OnDarkModeToggled(object sender, RoutedEventArgs e)
+    {
+        if (_syncingViewSettings) return;
+        Theming.ThemeManager.Apply(DarkModeSwitch.IsChecked == true);
+    }
+
+    private void OnLineGridToggled(object sender, RoutedEventArgs e)
+    {
+        if (_syncingViewSettings) return;
+        _vm.BackgroundMode = LineGridSwitch.IsChecked == true
+            ? CanvasBackgroundMode.Grid
+            : CanvasBackgroundMode.Dots;
+    }
+
     // The header mode toggle derives from the active document and, when clicked, switches to
     // the most-recent document of the chosen mode (creating one if none exists yet).
     private async void OnSelectCanvasMode(object sender, RoutedEventArgs e)
