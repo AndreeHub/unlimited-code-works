@@ -39,7 +39,7 @@ public sealed partial class OutlineView : HwndHost
     // Logseq-style centered writing column: cap the text width and center it in the window
     // rather than letting lines run the full width.
     private const float MaxContentWidth = 720f;
-    private const float FontSize = 15f;
+    private const float FontSize = 15.5f;
     private const string FontFamily = "Segoe UI";
     // Body text + page background are theme-driven (see CanvasTheme) so the outliner
     // tracks the rest of the chrome between light and dark.

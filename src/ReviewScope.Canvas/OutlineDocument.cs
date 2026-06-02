@@ -315,7 +315,9 @@ internal sealed class OutlineDocument
             }
 
             if (hasToggle)
-                DrawToggle(ctx, toggleX, y + (rowH - ToggleSize) * 0.5f, line.IsCollapsed, color);
+                // Collapsed parents get an accent-tinted chevron so hidden children are obvious.
+                DrawToggle(ctx, toggleX, y + (rowH - ToggleSize) * 0.5f, line.IsCollapsed,
+                           line.IsCollapsed ? WpfColor.FromRgb(46, 125, 215) : color);
             if (hasCheckbox)
                 DrawTodoCheckbox(ctx, checkboxX, y + (rowH - CheckboxSize) * 0.5f, todo == TodoState.Done, color);
             else if (!hasToggle)
@@ -508,10 +510,11 @@ internal sealed class OutlineDocument
         var tagBg = ctx.GetBrush(WpfColor.FromArgb(70, 59, 130, 246));      // soft blue
         var refBg = ctx.GetBrush(WpfColor.FromArgb(70, 139, 92, 246));      // soft purple
         var blockRefBg = ctx.GetBrush(WpfColor.FromArgb(70, 16, 185, 129)); // soft teal
+        var codeBg = ctx.GetBrush(WpfColor.FromArgb(38, 128, 138, 150));    // neutral tint (themes via alpha)
 
         foreach (var span in spans)
         {
-            if (span.Kind is not (InlineKind.Tag or InlineKind.Ref or InlineKind.BlockRef)) continue;
+            if (span.Kind is not (InlineKind.Tag or InlineKind.Ref or InlineKind.BlockRef or InlineKind.Code)) continue;
             layout.HitTestTextPosition((uint)span.Start, false, out float sx, out _, out _);
             layout.HitTestTextPosition((uint)(span.Start + span.Length), false, out float ex, out _, out _);
             float padX = 3f;
@@ -522,6 +525,7 @@ internal sealed class OutlineDocument
             {
                 InlineKind.Tag => tagBg,
                 InlineKind.Ref => refBg,
+                InlineKind.Code => codeBg,
                 _ => blockRefBg,
             };
             ctx.RenderTarget.FillRoundedRectangle(rect, bg);
