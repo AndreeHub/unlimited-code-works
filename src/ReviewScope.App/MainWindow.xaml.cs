@@ -77,12 +77,12 @@ public partial class MainWindow : Window
         {
             e.Handled = true;
             await _vm.CommitOutlineTitleAsync();
-            OutlineEditor.Focus();   // drop into the body, Logseq-style
+            OutlineEditor.FocusEditor();   // drop into the body, Logseq-style
         }
         else if (e.Key == Key.Escape)
         {
             e.Handled = true;
-            OutlineEditor.Focus();
+            OutlineEditor.FocusEditor();
         }
     }
 

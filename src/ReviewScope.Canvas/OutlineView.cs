@@ -30,7 +30,7 @@ namespace ReviewScope.Canvas;
  * Please read the first ~20 lines of this file for a summary before reading the whole file.
  */
 
-public sealed class OutlineView : HwndHost
+public sealed partial class OutlineView : HwndHost
 {
     // --- layout constants ----------------------------------------------------------
     private const float PadLeft = 18f;
@@ -88,6 +88,7 @@ public sealed class OutlineView : HwndHost
             _edit.CursorPos = 0;
             _edit.SelectionAnchor = -1;
             _scrollY = 0;
+            HideSlashMenu();
             RenderNative();
         }
     }
@@ -101,6 +102,23 @@ public sealed class OutlineView : HwndHost
     }
 
     public IReadOnlyCollection<string> CollapsedIds => _collapsed;
+
+    /// <summary>
+    /// Move keyboard focus into the outline body and park the caret on the first editable
+    /// position. Used when the user presses Enter in the page-title box to "drop into" the
+    /// body, Logseq-style. WPF's <see cref="UIElement.Focus"/> alone only focuses the host
+    /// element; the hosted native window needs an explicit Win32 SetFocus to receive keys.
+    /// </summary>
+    public void FocusEditor()
+    {
+        Focus();
+        if (_hwnd != IntPtr.Zero) NativeMethods.SetFocus(_hwnd);
+        _edit.CursorPos = OutlineDocument.SnapToVisible(_edit.Body, BuildDocBlock().Style, 0, +1);
+        _edit.SelectionAnchor = -1;
+        _edit.CursorVisible = true;
+        HideSlashMenu();
+        RenderNative();
+    }
 
     // -----------------------------------------------------------------------
     // HWND lifecycle
@@ -243,6 +261,7 @@ public sealed class OutlineView : HwndHost
             editCursorVisible: _edit.CursorVisible);
 
         DrawScrollbar(viewW, viewH, docHeight);
+        DrawSlashMenu();
 
         _rt.EndDraw();
     }
@@ -375,6 +394,7 @@ public sealed class OutlineView : HwndHost
     {
         NativeMethods.SetFocus(_hwnd);
         NativeMethods.SetCapture(_hwnd);
+        HideSlashMenu();
 
         var block = BuildDocBlock();
         var content = CurrentContentRect();
@@ -490,6 +510,10 @@ public sealed class OutlineView : HwndHost
         bool alt = (NativeMethods.GetKeyState(0x12) & 0x8000) != 0;
         string before = _edit.Body;
 
+        // The slash command menu, when open, claims navigation/accept/dismiss keys before the
+        // editor sees them (Up/Down move the selection, Enter/Tab accept, Escape closes).
+        if (_slashVisible && TryHandleSlashKey(vk)) return;
+
         if (ctrl && !alt)
         {
             switch (vk)
@@ -544,6 +568,7 @@ public sealed class OutlineView : HwndHost
 
         _edit.CursorVisible = true;
         EnsureCaretVisible();
+        RefreshSlashMenu();
         RenderNative();
         if (!ReferenceEquals(before, _edit.Body) && before != _edit.Body)
             DocumentChanged?.Invoke(_edit.Body);

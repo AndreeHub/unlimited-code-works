@@ -226,6 +226,23 @@ public sealed partial class MainWindowViewModel
         _outlineSaveCts?.Cancel();
         _outlineSaveCts = null;
         await SaveActiveOutlineSnapshotAsync(CancellationToken.None);
+        SyncActiveOutlineIntoCollection();
+    }
+
+    /// <summary>
+    /// Push the freshly-saved outline body/collapsed-state back into the bound
+    /// <see cref="Sessions"/> item, which is the source of truth when a document is reactivated.
+    /// Without this the mid-type debounced save updates only <c>_activeSession</c> + disk, so
+    /// switching page→board→page reloads the stale collection item and the body looks empty.
+    /// Done only on flush (doc switch / close), never on the mid-type save, so the header
+    /// ListBox selection isn't bounced while editing.
+    /// </summary>
+    private void SyncActiveOutlineIntoCollection()
+    {
+        if (_activeSession is null) return;
+        int index = Sessions.ToList().FindIndex(s => s.Id == _activeSession.Id);
+        if (index >= 0 && !ReferenceEquals(Sessions[index], _activeSession))
+            Sessions[index] = _activeSession;
     }
 
     /// <summary>Configure VM state for the active outline document and signal the host to reload it.</summary>

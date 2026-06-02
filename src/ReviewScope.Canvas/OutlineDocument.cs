@@ -284,6 +284,21 @@ internal sealed class OutlineDocument
             bool hasToggle = line.HasChildren;
             bool hasCheckbox = todo != TodoState.None;
 
+            // Logseq-style horizontal divider: a bullet whose content is exactly "---" renders
+            // as a full-width page rule with NO bullet glyph — it visually splits the page rather
+            // than reading as a list item. The caret line still shows the raw "---" so it stays
+            // editable (type a 4th char or backspace to dissolve the divider).
+            int divRawEnd = line.Start + line.Length - line.AnchorLength;
+            bool caretOnLine = hasCursor && editCursorPos >= line.Start && editCursorPos <= divRawEnd;
+            if (IsDividerText(line.Text) && !caretOnLine)
+            {
+                float ruleY = y + rowH * 0.5f;
+                var ruleBrush = ctx.GetBrush(WpfColor.FromArgb(110, color.R, color.G, color.B));
+                ctx.RenderTarget.DrawLine(new Vector2(x, ruleY), new Vector2(x + maxW, ruleY), ruleBrush, ctx.InvStroke(1.4f));
+                y += rowH;
+                continue;
+            }
+
             // When a row needs BOTH the collapse toggle and a TODO/DONE checkbox, the
             // checkbox slides right of the toggle and the text shifts to match so the
             // two glyphs don't stack on top of each other.
@@ -305,21 +320,6 @@ internal sealed class OutlineDocument
                 DrawTodoCheckbox(ctx, checkboxX, y + (rowH - CheckboxSize) * 0.5f, todo == TodoState.Done, color);
             else if (!hasToggle)
                 ctx.RenderTarget.FillEllipse(new Ellipse(new Vector2(bulletX, y + rowH * 0.5f), BulletRadius, BulletRadius), bulletBrush);
-
-            // Logseq-style horizontal divider: a bullet whose content is exactly "---"
-            // renders as a horizontal rule. The caret line still shows the raw "---" so
-            // it stays editable (type a 4th char or backspace to dissolve the divider).
-            int divRawStart = line.Start + line.PrefixLength;
-            int divRawEnd = line.Start + line.Length - line.AnchorLength;
-            bool caretOnLine = hasCursor && editCursorPos >= line.Start && editCursorPos <= divRawEnd;
-            if (IsDividerText(line.Text) && !caretOnLine)
-            {
-                float ruleY = y + rowH * 0.5f;
-                var ruleBrush = ctx.GetBrush(WpfColor.FromArgb(110, color.R, color.G, color.B));
-                ctx.RenderTarget.DrawLine(new Vector2(textX, ruleY), new Vector2(x + maxW, ruleY), ruleBrush, ctx.InvStroke(1.4f));
-                y += rowH;
-                continue;
-            }
 
             // When the cursor is in this block, render raw text so cursor positions
             // and the markers themselves stay visible for editing. Otherwise strip
