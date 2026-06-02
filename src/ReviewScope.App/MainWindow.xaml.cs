@@ -15,10 +15,14 @@ public partial class MainWindow : Window
     private readonly MainWindowViewModel _vm;
     private TextBox? _activeSessionNameEditor;
     private bool _isCompletingSessionRename;
-    private Point _sessionDragStartPoint;
-    private ReviewSession? _draggedSession;
-    private bool _isSessionTabDragging;
-    private double _sessionDragPointerOffsetX;
+    private System.Windows.Data.CollectionViewSource? _projectView;
+
+    // Code panel dock state (phase: dockable/floating code tools).
+    private enum CodeDock { Closed, Right, Left, Floating }
+    private CodeDock _codeDock = CodeDock.Closed;
+    private CodeDock _lastCodeDock = CodeDock.Right;
+    private Controls.CodeToolsPanel? _codePanel;
+    private Window? _codeFloatWindow;
 
     public MainWindow(MainWindowViewModel vm)
     {
@@ -55,9 +59,19 @@ public partial class MainWindow : Window
         // Project browser: an independent grouped view (by document Kind) over the same
         // Sessions collection, so it doesn't disturb the header strip's default view /
         // drag-reorder logic.
-        var projectView = new System.Windows.Data.CollectionViewSource { Source = vm.Sessions };
-        projectView.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription(nameof(ReviewSession.Kind)));
-        ProjectDocList.ItemsSource = projectView.View;
+        _projectView = new System.Windows.Data.CollectionViewSource { Source = vm.Sessions };
+        _projectView.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription(nameof(ReviewSession.Kind)));
+        ProjectDocList.ItemsSource = _projectView.View;
+
+        // The code search/extraction tools live in a re-parentable panel (docked right/left or
+        // floating). Created once; DataContext pinned to the VM so bindings survive re-parenting.
+        _codePanel = new Controls.CodeToolsPanel { DataContext = vm };
+        _codePanel.DockLeftRequested += () => PlaceCodePanel(CodeDock.Left);
+        _codePanel.DockRightRequested += () => PlaceCodePanel(CodeDock.Right);
+        _codePanel.FloatRequested += () => PlaceCodePanel(CodeDock.Floating);
+        _codePanel.CloseRequested += () => PlaceCodePanel(CodeDock.Closed);
+        _codePanel.FileActivated += OnPanelFileActivated;
+        _codePanel.BoardSearchActivated += OnPanelBoardSearchActivated;
 
         // Outline editor (Page/Journal) <-> view-model wiring.
         vm.OutlineDocumentReloadRequested += OnOutlineReloadRequested;
@@ -86,26 +100,131 @@ public partial class MainWindow : Window
     private void UpdateModeChrome()
     {
         bool canvas = _vm.IsCanvasDocumentActive;
+        bool codeRight = _codeDock == CodeDock.Right;
+        bool codeLeft = _codeDock == CodeDock.Left;
 
-        // Right panel exists only in canvas mode, and only when the user hasn't collapsed it.
-        bool showRight = canvas && !_rightUserCollapsed;
-        RightPanelCol.Width = showRight ? new GridLength(320) : new GridLength(0);
-        RightPanelCol.MinWidth = showRight ? 220 : 0;
-        RightSplitterCol.Width = showRight ? new GridLength(5) : new GridLength(0);
-        RightSplitter.Visibility = showRight ? Visibility.Visible : Visibility.Collapsed;
-        RightSidebar.Visibility = showRight ? Visibility.Visible : Visibility.Collapsed;
-        RightPanelToggle.IsEnabled = canvas;
+        // Inspector shows in canvas mode unless the user collapsed it or the Code panel owns the
+        // right dock. The right dock column is visible when either occupant is shown.
+        bool showInspector = canvas && !_rightUserCollapsed && !codeRight;
+        bool showRightDock = showInspector || codeRight;
 
-        // Keep a visible left tab selected for the current mode.
-        var sel = LeftTabs.SelectedItem as TabItem;
-        if (canvas)
-        {
-            if (sel == LeftTabNotes || sel == LeftTabGraph) LeftTabs.SelectedItem = LeftTabExplorer;
-        }
+        RightPanelCol.Width = showRightDock ? new GridLength(320) : new GridLength(0);
+        RightPanelCol.MinWidth = showRightDock ? 220 : 0;
+        RightSplitterCol.Width = showRightDock ? new GridLength(5) : new GridLength(0);
+        RightSplitter.Visibility = showRightDock ? Visibility.Visible : Visibility.Collapsed;
+        RightSidebar.Visibility = showInspector ? Visibility.Visible : Visibility.Collapsed;
+        CodeRightHost.Visibility = codeRight ? Visibility.Visible : Visibility.Collapsed;
+        RightPanelToggle.IsEnabled = canvas && !codeRight;
+
+        // Code panel dock-left column.
+        CodeLeftCol.Width = codeLeft ? new GridLength(300) : new GridLength(0);
+        CodeLeftCol.MinWidth = codeLeft ? 220 : 0;
+        CodeLeftSplitterCol.Width = codeLeft ? new GridLength(5) : new GridLength(0);
+        CodeLeftSplitter.Visibility = codeLeft ? Visibility.Visible : Visibility.Collapsed;
+
+        // Reflect open state on the toolbar Code button.
+        CodePanelToggle.Background = _codeDock == CodeDock.Closed
+            ? System.Windows.Media.Brushes.Transparent
+            : (System.Windows.Media.Brush)FindResource("AccentSoft");
+    }
+
+    // -----------------------------------------------------------------------
+    // Code panel: dock right/left, float, close
+    // -----------------------------------------------------------------------
+    private void OnToggleCodePanel(object sender, RoutedEventArgs e)
+    {
+        if (_codeDock == CodeDock.Closed)
+            PlaceCodePanel(_lastCodeDock == CodeDock.Closed ? CodeDock.Right : _lastCodeDock);
         else
+            PlaceCodePanel(CodeDock.Closed);
+    }
+
+    private void PlaceCodePanel(CodeDock dock)
+    {
+        if (_codePanel is null) return;
+
+        DetachCodePanel();
+        _codeDock = dock;
+        if (dock is CodeDock.Right or CodeDock.Left) _lastCodeDock = dock;
+
+        switch (dock)
         {
-            if (sel == LeftTabExplorer || sel == LeftTabSymbols) LeftTabs.SelectedItem = LeftTabNotes;
+            case CodeDock.Right: CodeRightHost.Content = _codePanel; break;
+            case CodeDock.Left: CodeLeftHost.Content = _codePanel; break;
+            case CodeDock.Floating: ShowCodeFloatWindow(); break;
+            case CodeDock.Closed: break;
         }
+        UpdateModeChrome();
+    }
+
+    /// <summary>Remove the panel from whatever currently hosts it, without firing the float-closed
+    /// handler (so re-docking doesn't recurse).</summary>
+    private void DetachCodePanel()
+    {
+        if (CodeRightHost.Content == _codePanel) CodeRightHost.Content = null;
+        if (CodeLeftHost.Content == _codePanel) CodeLeftHost.Content = null;
+        if (_codeFloatWindow is not null)
+        {
+            var w = _codeFloatWindow;
+            _codeFloatWindow = null;
+            w.Closed -= OnCodeFloatClosed;
+            w.Content = null;
+            w.Close();
+        }
+    }
+
+    private void ShowCodeFloatWindow()
+    {
+        _codeFloatWindow = new Window
+        {
+            Title = "Code — ReviewScope",
+            Width = 360,
+            Height = 620,
+            Owner = this,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = _codePanel,
+            Background = (System.Windows.Media.Brush)FindResource("PanelBg"),
+        };
+        _codeFloatWindow.Closed += OnCodeFloatClosed;
+        _codeFloatWindow.Show();
+    }
+
+    private void OnCodeFloatClosed(object? sender, EventArgs e)
+    {
+        if (_codeFloatWindow is not null) { _codeFloatWindow.Content = null; _codeFloatWindow = null; }
+        if (_codeDock == CodeDock.Floating)
+        {
+            _codeDock = CodeDock.Closed;
+            UpdateModeChrome();
+        }
+    }
+
+    // Re-homed from the old inline handlers (need host helpers / canvas access).
+    private async void OnPanelFileActivated(FileExplorerItemViewModel item)
+    {
+        if (!item.IsFile || item.FilePath is null) return;
+        if (IsImageFile(item.FilePath)) { await _vm.AddImageFileToCanvasAsync(item.FilePath); return; }
+        if (IsTextLikeBoardFile(item.FilePath))
+        {
+            await _vm.LoadSymbolsForFileAsync(item.FilePath);
+            await _vm.AddFileToCanvasAsync(item.FilePath);
+        }
+    }
+
+    private async void OnPanelBoardSearchActivated(BoardSearchResultViewModel result)
+    {
+        await _vm.NavigateBoardSearchResultAsync(result.Key);
+        CanvasViewport.Scene = _vm.Scene;
+        CanvasViewport.FrameSelection();
+    }
+
+    private void OnNavFilterChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_projectView?.View is null) return;
+        string q = ProjectNavFilter.Text?.Trim() ?? string.Empty;
+        _projectView.View.Filter = string.IsNullOrEmpty(q)
+            ? null
+            : o => o is ReviewSession s && s.Name.Contains(q, StringComparison.OrdinalIgnoreCase);
     }
 
     // -----------------------------------------------------------------------
@@ -113,7 +232,7 @@ public partial class MainWindow : Window
     // -----------------------------------------------------------------------
     private bool _leftCollapsed;
     private bool _rightUserCollapsed;
-    private const double LeftPanelWidth = 270;
+    private const double LeftPanelWidth = 264;
     private const double LeftRailWidth = 44;
 
     private void OnToggleLeftPanel(object sender, RoutedEventArgs e)
@@ -139,19 +258,6 @@ public partial class MainWindow : Window
         _rightUserCollapsed = !_rightUserCollapsed;
         UpdateModeChrome();
     }
-
-    private void ExpandLeftToTab(TabItem tab)
-    {
-        _leftCollapsed = false;
-        ApplyLeftPanelState();
-        LeftTabs.SelectedItem = tab;
-    }
-
-    private void OnRailExplorer(object sender, RoutedEventArgs e) => ExpandLeftToTab(LeftTabExplorer);
-    private void OnRailSymbols(object sender, RoutedEventArgs e) => ExpandLeftToTab(LeftTabSymbols);
-    private void OnRailNotes(object sender, RoutedEventArgs e) => ExpandLeftToTab(LeftTabNotes);
-    private void OnRailGraph(object sender, RoutedEventArgs e) => ExpandLeftToTab(LeftTabGraph);
-    private void OnRailSearch(object sender, RoutedEventArgs e) => ExpandLeftToTab(LeftTabSearch);
 
     private void OnOutlineReloadRequested()
     {
@@ -206,13 +312,6 @@ public partial class MainWindow : Window
             else if (kind == Domain.BlockKind.Note)
                 CanvasViewport.BeginEditLastBlockOfKind(Domain.BlockKind.Note);
         }), System.Windows.Threading.DispatcherPriority.Background);
-    }
-
-    private async void OnBranchComboSelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (e.AddedItems.Count == 0) return;
-        string branch = e.AddedItems[0] as string ?? string.Empty;
-        await _vm.LoadFromSelectedBranchAsync(branch);
     }
 
     private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
@@ -298,43 +397,6 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private async void OnSymbolsDoubleClick(object sender, MouseButtonEventArgs e)
-    {
-        var tree = (TreeView)sender;
-        if (tree.SelectedItem is SymbolExplorerItemViewModel sym && sym.StartLine.HasValue)
-            await _vm.AddSymbolToCanvasAsync(sym);
-    }
-
-    private void OnCollapseAll(object sender, RoutedEventArgs e) => _vm.SetExplorerExpanded(false);
-    private void OnExpandAll(object sender, RoutedEventArgs e) => _vm.SetExplorerExpanded(true);
-
-    private void OnExplorerSearchKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Return || e.Key == Key.Enter)
-            _vm.ApplyExplorerSearchCommand.Execute(null);
-    }
-
-    private async void OnExplorerDoubleClick(object sender, MouseButtonEventArgs e)
-    {
-        if (sender is not TreeView tree)
-            return;
-
-        if (tree.SelectedItem is FileExplorerItemViewModel item && item.IsFile && item.FilePath is not null)
-        {
-            if (IsImageFile(item.FilePath))
-            {
-                await _vm.AddImageFileToCanvasAsync(item.FilePath);
-                return;
-            }
-
-            if (IsTextLikeBoardFile(item.FilePath))
-            {
-                await _vm.LoadSymbolsForFileAsync(item.FilePath);
-                await _vm.AddFileToCanvasAsync(item.FilePath);
-            }
-        }
-    }
-
     private void OnSessionDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (GetSessionFromSource(e.OriginalSource as DependencyObject) is not ReviewSession session)
@@ -342,165 +404,6 @@ public partial class MainWindow : Window
 
         BeginSessionRename(session);
         e.Handled = true;
-    }
-
-    private void OnSessionTabLoaded(object sender, RoutedEventArgs e)
-    {
-        if (sender is not ListBoxItem item || item.DataContext is not ReviewSession session)
-            return;
-
-        if (_vm.SessionSpawnAnimationId != session.Id)
-            return;
-
-        double startX = 180;
-        try
-        {
-            startX = NewSessionButton.TransformToVisual(item).Transform(new Point(0, 0)).X;
-            if (double.IsNaN(startX) || startX < 48)
-                startX = 180;
-        }
-        catch (InvalidOperationException)
-        {
-            startX = 180;
-        }
-
-        var transform = new TranslateTransform(startX, 0);
-        item.RenderTransform = transform;
-        item.Opacity = 0.35;
-
-        var travelEase = new CubicEase { EasingMode = EasingMode.EaseOut };
-        var settleEase = new QuadraticEase { EasingMode = EasingMode.EaseOut };
-        var bounce = new DoubleAnimationUsingKeyFrames();
-        bounce.KeyFrames.Add(new EasingDoubleKeyFrame(startX, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-        bounce.KeyFrames.Add(new EasingDoubleKeyFrame(-18, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(280))) { EasingFunction = travelEase });
-        bounce.KeyFrames.Add(new EasingDoubleKeyFrame(10, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(360))) { EasingFunction = settleEase });
-        bounce.KeyFrames.Add(new EasingDoubleKeyFrame(-7, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(440))) { EasingFunction = settleEase });
-        bounce.KeyFrames.Add(new EasingDoubleKeyFrame(4, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(515))) { EasingFunction = settleEase });
-        bounce.KeyFrames.Add(new EasingDoubleKeyFrame(-2, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(585))) { EasingFunction = settleEase });
-        bounce.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(660))) { EasingFunction = settleEase });
-
-        transform.BeginAnimation(TranslateTransform.XProperty, bounce);
-        item.BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(180)));
-        _vm.ClearSessionSpawnAnimation(session.Id);
-    }
-
-    private void OnSessionTabMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        _sessionDragStartPoint = e.GetPosition(SessionTabs);
-        _draggedSession = IsTextInputSource(e.OriginalSource as DependencyObject)
-            ? null
-            : GetSessionFromSource(e.OriginalSource as DependencyObject);
-    }
-
-    private void OnSessionTabMouseMove(object sender, MouseEventArgs e)
-    {
-        if (e.LeftButton != MouseButtonState.Pressed || _draggedSession is null)
-            return;
-
-        var point = e.GetPosition(SessionTabs);
-        if (!_isSessionTabDragging)
-        {
-            if (Math.Abs(point.X - _sessionDragStartPoint.X) < SystemParameters.MinimumHorizontalDragDistance &&
-                Math.Abs(point.Y - _sessionDragStartPoint.Y) < SystemParameters.MinimumVerticalDragDistance)
-                return;
-
-            BeginSessionTabDrag(_draggedSession, point);
-        }
-
-        UpdateSessionTabDrag(point);
-        e.Handled = true;
-    }
-
-    private async void OnSessionTabMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        bool handled = _isSessionTabDragging;
-        await CompleteSessionTabDragAsync();
-        e.Handled = handled;
-    }
-
-    private async void OnSessionTabLostMouseCapture(object sender, MouseEventArgs e)
-    {
-        await CompleteSessionTabDragAsync();
-    }
-
-    private void BeginSessionTabDrag(ReviewSession session, Point pointer)
-    {
-        if (_activeSessionNameEditor is not null)
-            CompleteSessionRenameAsync(_activeSessionNameEditor, commit: true);
-
-        if (SessionTabs.ItemContainerGenerator.ContainerFromItem(session) is not ListBoxItem item)
-            return;
-
-        var bounds = item.TransformToVisual(SessionTabs).TransformBounds(new Rect(0, 0, item.ActualWidth, item.ActualHeight));
-        _sessionDragPointerOffsetX = pointer.X - bounds.Left;
-        _isSessionTabDragging = true;
-        _vm.SelectedSession = session;
-
-        item.BeginAnimation(OpacityProperty, null);
-        item.Opacity = 0.82;
-        item.RenderTransform = new TranslateTransform();
-        Panel.SetZIndex(item, 1000);
-        Mouse.Capture(SessionTabs);
-    }
-
-    private void UpdateSessionTabDrag(Point pointer)
-    {
-        if (!_isSessionTabDragging || _draggedSession is null)
-            return;
-
-        int targetIndex = GetLiveSessionTargetIndex(pointer, _draggedSession);
-        bool moved = _vm.MoveSessionInQueue(_draggedSession, targetIndex);
-        if (moved)
-            SessionTabs.UpdateLayout();
-
-        if (SessionTabs.ItemContainerGenerator.ContainerFromItem(_draggedSession) is not ListBoxItem item)
-            return;
-
-        var bounds = item.TransformToVisual(SessionTabs).TransformBounds(new Rect(0, 0, item.ActualWidth, item.ActualHeight));
-        double targetLeft = pointer.X - _sessionDragPointerOffsetX;
-        var transform = item.RenderTransform as TranslateTransform;
-        if (transform is null)
-        {
-            transform = new TranslateTransform();
-            item.RenderTransform = transform;
-        }
-
-        transform.X = targetLeft - bounds.Left;
-        transform.Y = 0;
-        item.Opacity = 0.82;
-        Panel.SetZIndex(item, 1000);
-    }
-
-    private async Task CompleteSessionTabDragAsync()
-    {
-        if (_draggedSession is null)
-            return;
-
-        var completed = _draggedSession;
-        bool wasDragging = _isSessionTabDragging;
-        _draggedSession = null;
-        _isSessionTabDragging = false;
-
-        if (Mouse.Captured == SessionTabs)
-            Mouse.Capture(null);
-
-        if (SessionTabs.ItemContainerGenerator.ContainerFromItem(completed) is ListBoxItem item)
-        {
-            if (item.RenderTransform is TranslateTransform transform)
-            {
-                var settle = new DoubleAnimation(0, TimeSpan.FromMilliseconds(140))
-                {
-                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-                };
-                transform.BeginAnimation(TranslateTransform.XProperty, settle);
-            }
-
-            item.BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(120)));
-            Panel.SetZIndex(item, 0);
-        }
-
-        if (wasDragging)
-            await _vm.PersistSessionOrderAsync();
     }
 
     private void OnSessionNameEditKeyDown(object sender, KeyEventArgs e)
@@ -580,9 +483,10 @@ public partial class MainWindow : Window
         }
     }
 
+    // Rename now happens in the Project Navigation list.
     private T? FindSessionTemplateChild<T>(ReviewSession session, string name) where T : FrameworkElement
     {
-        if (SessionTabs.ItemContainerGenerator.ContainerFromItem(session) is not ListBoxItem item)
+        if (ProjectDocList.ItemContainerGenerator.ContainerFromItem(session) is not ListBoxItem item)
             return null;
 
         item.ApplyTemplate();
@@ -602,25 +506,6 @@ public partial class MainWindow : Window
         }
 
         return null;
-    }
-
-    private int GetLiveSessionTargetIndex(Point pointer, ReviewSession dragging)
-    {
-        for (int i = 0; i < _vm.Sessions.Count; i++)
-        {
-            var session = _vm.Sessions[i];
-            if (session.Id == dragging.Id)
-                continue;
-
-            if (SessionTabs.ItemContainerGenerator.ContainerFromItem(session) is not ListBoxItem item)
-                continue;
-
-            var bounds = item.TransformToVisual(SessionTabs).TransformBounds(new Rect(0, 0, item.ActualWidth, item.ActualHeight));
-            if (pointer.X < bounds.Left + bounds.Width / 2)
-                return i;
-        }
-
-        return _vm.Sessions.Count;
     }
 
     private static bool IsTextInputSource(DependencyObject? source)
@@ -700,12 +585,6 @@ public partial class MainWindow : Window
         }
 
         await _vm.PasteBoardItemsAtAsync(args.WorldX, args.WorldY);
-    }
-
-    private async void OnSessionTabSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        if (IsLoaded)
-            await _vm.ActivateSelectedSessionAsync();
     }
 
     private void OnFrameAll(object sender, RoutedEventArgs e) => CanvasViewport.FrameAll();

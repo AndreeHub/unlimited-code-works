@@ -31,7 +31,6 @@
     <Grid x:Name="RootGrid">
         <Grid.RowDefinitions>
             <RowDefinition Height="48"/>
-            <RowDefinition Height="38"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="26"/>
         </Grid.RowDefinitions>
@@ -98,6 +97,9 @@
                         <Path Style="{StaticResource ToolbarGlyph}" Data="M16 11.5A6.5 6.5 0 0 1 8.5 4a6.5 6.5 0 1 0 7.5 7.5z"/>
                     </Button>
                     <Rectangle Style="{StaticResource ToolbarSeparator}"/>
+                    <Button x:Name="CodePanelToggle" Style="{StaticResource IconButton}" Click="OnToggleCodePanel" ToolTip="Code search &amp; extraction">
+                        <Path Style="{StaticResource ToolbarGlyph}" Data="M7 7 4 10l3 3 M13 7l3 3-3 3 M11 5.2 9 14.8"/>
+                    </Button>
                     <Button x:Name="LeftPanelToggle" Style="{StaticResource IconButton}" Click="OnToggleLeftPanel" ToolTip="Toggle left panel">
                         <Path Style="{StaticResource ToolbarGlyph}" Data="M3.5 4.5h13v11h-13z M8 4.5v11 M5.2 7.2h1.4 M5.2 9.5h1.4"/>
                     </Button>
@@ -204,76 +206,12 @@
             </DockPanel>
         </Border>
 
-        <!-- ============================ Document tab strip (Row 1) ============================ -->
-        <Border Grid.Row="1" Background="{StaticResource ShellBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,0,0,1">
-            <DockPanel Margin="8,0,8,0" LastChildFill="True">
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="NewSessionButton" Style="{StaticResource IconButton}" Width="26" Height="26"
-                            Command="{Binding CreateNewSessionCommand}" ToolTip="New board">
-                        <Path Style="{StaticResource ToolbarGlyph}" Width="14" Height="14" Data="M10 4.5v11 M4.5 10h11"/>
-                    </Button>
-                    <Button Style="{StaticResource IconButton}" Width="26" Height="26"
-                            Command="{Binding DeleteSelectedSessionCommand}" ToolTip="Delete document">
-                        <Path Style="{StaticResource ToolbarGlyph}" Width="14" Height="14" Data="M4 5.5h12 M7.5 5.5V4h5v1.5 M5.5 5.5l.7 10h7.6l.7-10"/>
-                    </Button>
-                </StackPanel>
-                <ListBox x:Name="SessionTabs"
-                         Background="Transparent" BorderThickness="0" VerticalAlignment="Stretch"
-                         ItemsSource="{Binding Sessions}"
-                         SelectedItem="{Binding SelectedSession}"
-                         SelectionChanged="OnSessionTabSelectionChanged"
-                         MouseDoubleClick="OnSessionDoubleClick"
-                         PreviewMouseLeftButtonDown="OnSessionTabMouseLeftButtonDown"
-                         PreviewMouseMove="OnSessionTabMouseMove"
-                         PreviewMouseLeftButtonUp="OnSessionTabMouseLeftButtonUp"
-                         LostMouseCapture="OnSessionTabLostMouseCapture"
-                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                         ScrollViewer.VerticalScrollBarVisibility="Disabled">
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource DocumentTabItem}">
-                            <EventSetter Event="Loaded" Handler="OnSessionTabLoaded"/>
-                        </Style>
-                    </ListBox.ItemContainerStyle>
-                    <ListBox.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <VirtualizingStackPanel Orientation="Horizontal"/>
-                        </ItemsPanelTemplate>
-                    </ListBox.ItemsPanel>
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <Path Style="{StaticResource DocumentTabGlyph}"/>
-                                <Grid>
-                                    <TextBlock x:Name="SessionNameText"
-                                               Text="{Binding Name}"
-                                               FontSize="11.5"
-                                               VerticalAlignment="Center"
-                                               ToolTip="Double-click to rename. Drag to reorder."/>
-                                    <TextBox x:Name="SessionNameEditor"
-                                             Text="{Binding Name, Mode=OneWay}"
-                                             Visibility="Collapsed"
-                                             MinWidth="110"
-                                             MaxWidth="220"
-                                             Height="22"
-                                             MinHeight="0"
-                                             FontSize="11.5"
-                                             Padding="6,1"
-                                             VerticalAlignment="Center"
-                                             VerticalContentAlignment="Center"
-                                             KeyDown="OnSessionNameEditKeyDown"
-                                             LostFocus="OnSessionNameEditLostFocus"/>
-                                </Grid>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </DockPanel>
-        </Border>
-
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="LeftPanelCol" Width="270" MinWidth="160"/>
+                <ColumnDefinition x:Name="LeftPanelCol" Width="264" MinWidth="160"/>
                 <ColumnDefinition x:Name="LeftSplitterCol" Width="5"/>
+                <ColumnDefinition x:Name="CodeLeftCol" Width="0"/>
+                <ColumnDefinition x:Name="CodeLeftSplitterCol" Width="0"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition x:Name="RightSplitterCol" Width="5"/>
                 <ColumnDefinition x:Name="RightPanelCol" Width="320" MinWidth="220" MaxWidth="400"/>
@@ -281,303 +219,92 @@
 
             <Border x:Name="LeftPanelFull" Grid.Column="0" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,0,1,0">
                 <Grid>
-                    <TabControl x:Name="LeftTabs" SelectedIndex="{Binding SelectedLeftTabIndex, Mode=TwoWay}" Margin="10,8,10,8">
-                        <TabItem Header="Explorer" x:Name="LeftTabExplorer"
-                                 Visibility="{Binding IsCanvasDocumentActive, Converter={StaticResource BoolVis}}">
-                            <Grid Margin="0,10,0,0">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="40"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-                                <Grid Grid.Row="0" Margin="0,0,0,8">
+                    <!-- Nav header -->
+                    <DockPanel Grid.Row="0" Margin="12,0,6,0">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Width="28" Height="28"
+                                Click="OnToggleLeftPanel" ToolTip="Collapse panel">
+                            <Path Style="{StaticResource ToolbarGlyph}" Width="15" Height="15" Data="M3.5 4.5h13v11h-13z M8 4.5v11 M5.2 7.2h1.4 M5.2 9.5h1.4"/>
+                        </Button>
+                        <TextBlock Text="PROJECT" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{StaticResource MutedForeground}" VerticalAlignment="Center"/>
+                    </DockPanel>
+
+                    <!-- New-document actions -->
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="12,0,12,8">
+                        <Button Style="{StaticResource HeaderRibbonButton}" Content="+ Board" Command="{Binding CreateNewSessionCommand}"/>
+                        <TextBlock Style="{StaticResource HeaderSeparatorText}"/>
+                        <Button Style="{StaticResource HeaderRibbonButton}" Content="+ Page" Command="{Binding CreateNewPageCommand}"/>
+                        <TextBlock Style="{StaticResource HeaderSeparatorText}"/>
+                        <Button Style="{StaticResource HeaderRibbonButton}" Content="Today" Command="{Binding OpenTodayJournalCommand}"/>
+                    </StackPanel>
+
+                    <!-- Filter -->
+                    <TextBox x:Name="ProjectNavFilter" Grid.Row="2" Margin="12,0,12,8" Height="28" MinHeight="0"
+                             Padding="8,3" FontSize="11" VerticalContentAlignment="Center"
+                             TextChanged="OnNavFilterChanged"/>
+
+                    <!-- Document list: Boards / Pages / Journals (grouped). Double-click to rename. -->
+                    <ListBox x:Name="ProjectDocList" Grid.Row="3" Margin="6,0,6,8"
+                             SelectedItem="{Binding SelectedSession}"
+                             SelectionChanged="OnProjectDocSelectionChanged"
+                             MouseDoubleClick="OnSessionDoubleClick"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" FontSize="9.5" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource MutedForeground}" Margin="2,10,0,3"/>
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ListBox.GroupStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Height="24" ToolTip="{Binding Name}">
                                     <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="18"/>
                                         <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding WorkspacePath}" Foreground="{StaticResource ForegroundBrush}"
-                                                   FontWeight="SemiBold" FontSize="11" TextTrimming="CharacterEllipsis"/>
-                                        <DockPanel Margin="0,4,0,0">
-                                            <TextBlock DockPanel.Dock="Left" Text="Branch" Foreground="{StaticResource MutedForeground}"
-                                                       FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                            <ComboBox x:Name="BranchComboBox"
-                                                      Style="{StaticResource BranchComboBox}"
-                                                      ItemsSource="{Binding AvailableBranches}"
-                                                      SelectedItem="{Binding SelectedBranch, Mode=TwoWay}"
-                                                      SelectionChanged="OnBranchComboSelectionChanged"/>
-                                        </DockPanel>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="6,0,0,0">
-                                        <Button Style="{StaticResource ToolButton}" Click="OnCollapseAll"
-                                                Width="26" Height="26" MinHeight="0" Padding="0" Margin="0,0,3,0"
-                                                ToolTip="Collapse all">
-                                            <Viewbox Width="12" Height="12">
-                                                <Path Style="{StaticResource BrowserIconPathStyle}"
-                                                      Data="M3,4 H13 M5,7 H11 M7,10 H9"/>
-                                            </Viewbox>
-                                        </Button>
-                                        <Button Style="{StaticResource ToolButton}" Click="OnExpandAll"
-                                                Width="26" Height="26" MinHeight="0" Padding="0"
-                                                ToolTip="Expand all">
-                                            <Viewbox Width="12" Height="12">
-                                                <Path Style="{StaticResource BrowserIconPathStyle}"
-                                                      Data="M3,4 H9 M3,8 H11 M3,12 H13"/>
-                                            </Viewbox>
-                                        </Button>
-                                    </StackPanel>
+                                    <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Center"/>
+                                    <Grid Grid.Column="1">
+                                        <TextBlock x:Name="SessionNameText" Text="{Binding Name}" FontSize="11"
+                                                   Foreground="{StaticResource ForegroundBrush}"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                        <TextBox x:Name="SessionNameEditor" Text="{Binding Name, Mode=OneWay}" Visibility="Collapsed"
+                                                 Height="20" MinHeight="0" FontSize="11" Padding="4,0"
+                                                 VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                                 KeyDown="OnSessionNameEditKeyDown" LostFocus="OnSessionNameEditLostFocus"/>
+                                    </Grid>
                                 </Grid>
-
-                                <DockPanel Grid.Row="1" Margin="0,0,0,8">
-                                    <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Command="{Binding ApplyExplorerSearchCommand}"
-                                            Width="32" Height="28" MinHeight="0" Padding="0" Margin="6,0,0,0" ToolTip="Find files">
-                                        <Viewbox Width="13" Height="13">
-                                            <Path Style="{StaticResource BrowserIconPathStyle}" Data="M7,3.5 C5.1,3.5 3.5,5.1 3.5,7 C3.5,8.9 5.1,10.5 7,10.5 C8.9,10.5 10.5,8.9 10.5,7 C10.5,5.1 8.9,3.5 7,3.5 Z M9.8,9.8 L12.5,12.5"/>
-                                        </Viewbox>
-                                    </Button>
-                                    <TextBox Text="{Binding ExplorerSearchQuery, UpdateSourceTrigger=PropertyChanged}" FontSize="11"
-                                             Height="28" MinHeight="0" Padding="8,3" VerticalContentAlignment="Center"
-                                             KeyDown="OnExplorerSearchKeyDown"/>
-                                </DockPanel>
-
-                                <TabControl Grid.Row="2" Margin="0">
-                                    <TabItem Header="Solution">
-                                        <TreeView x:Name="ExplorerTree"
-                                                  ItemsSource="{Binding ExplorerRoots}"
-                                                  MouseDoubleClick="OnExplorerDoubleClick"
-                                                  VirtualizingPanel.IsVirtualizing="True"
-                                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                                  Margin="0,8,0,0">
-                                            <TreeView.ItemTemplate>
-                                                <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                                                    <Grid Height="22" ToolTip="{Binding FilePath}">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="18"/>
-                                                            <ColumnDefinition Width="*"/>
-                                                        </Grid.ColumnDefinitions>
-                                                        <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Center"/>
-                                                        <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}"
-                                                                   FontSize="10.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                                    </Grid>
-                                                </HierarchicalDataTemplate>
-                                            </TreeView.ItemTemplate>
-                                            <TreeView.ItemContainerStyle>
-                                                <StaticResource ResourceKey="BrowserTreeItemStyle"/>
-                                            </TreeView.ItemContainerStyle>
-                                        </TreeView>
-                                    </TabItem>
-
-                                    <TabItem Header="Files">
-                                        <Grid Margin="0,8,0,0">
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto"/>
-                                                <RowDefinition Height="*"/>
-                                            </Grid.RowDefinitions>
-                                            <TextBlock Grid.Row="0"
-                                                       Text="{Binding FileExplorerRootPath}"
-                                                       Foreground="{StaticResource MutedForeground}"
-                                                       FontSize="9.5"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       Margin="0,0,0,6"/>
-                                            <TreeView Grid.Row="1"
-                                                      x:Name="FileExplorerTree"
-                                                      ItemsSource="{Binding FileExplorerRoots}"
-                                                      MouseDoubleClick="OnExplorerDoubleClick"
-                                                      VirtualizingPanel.IsVirtualizing="True"
-                                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                                                <TreeView.ItemTemplate>
-                                                    <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                                                        <Grid Height="22" ToolTip="{Binding FilePath}">
-                                                            <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="18"/>
-                                                                <ColumnDefinition Width="*"/>
-                                                            </Grid.ColumnDefinitions>
-                                                            <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Center"/>
-                                                            <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}"
-                                                                       FontSize="10.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                                        </Grid>
-                                                    </HierarchicalDataTemplate>
-                                                </TreeView.ItemTemplate>
-                                                <TreeView.ItemContainerStyle>
-                                                    <StaticResource ResourceKey="BrowserTreeItemStyle"/>
-                                                </TreeView.ItemContainerStyle>
-                                            </TreeView>
-                                        </Grid>
-                                    </TabItem>
-                                </TabControl>
-                            </Grid>
-                        </TabItem>
-
-                        <TabItem Header="Symbols" x:Name="LeftTabSymbols"
-                                 Visibility="{Binding IsCanvasDocumentActive, Converter={StaticResource BoolVis}}">
-                            <Grid Margin="0,10,0,0">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Text="{Binding SelectedSymbolsHeader}" Foreground="{StaticResource ForegroundBrush}"
-                                           FontSize="11" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,0,8"/>
-                                <TreeView Grid.Row="1" ItemsSource="{Binding SymbolRoots}"
-                                          MouseDoubleClick="OnSymbolsDoubleClick"
-                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                                    <TreeView.ItemTemplate>
-                                        <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                                            <Grid Margin="0,2" ToolTip="Double-click to add to canvas">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="18"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                </Grid.ColumnDefinitions>
-                                                <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Top" Margin="0,1,0,0"/>
-                                                <StackPanel Grid.Column="1">
-                                                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}"
-                                                               FontSize="10.5" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Text="{Binding RangeText}" Foreground="{StaticResource MutedForeground}"
-                                                               FontSize="9.5" TextTrimming="CharacterEllipsis"/>
-                                                </StackPanel>
-                                            </Grid>
-                                        </HierarchicalDataTemplate>
-                                    </TreeView.ItemTemplate>
-                                    <TreeView.ItemContainerStyle>
-                                        <StaticResource ResourceKey="BrowserTreeItemStyle"/>
-                                    </TreeView.ItemContainerStyle>
-                                </TreeView>
-                            </Grid>
-                        </TabItem>
-
-                        <TabItem Header="Notes" x:Name="LeftTabNotes"
-                                 Visibility="{Binding IsOutlineDocumentActive, Converter={StaticResource BoolVis}}">
-                            <Grid Margin="0,10,0,0">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                                    <Button Style="{StaticResource HeaderRibbonButton}" Content="+ Board" Command="{Binding CreateNewSessionCommand}"/>
-                                    <TextBlock Style="{StaticResource HeaderSeparatorText}"/>
-                                    <Button Style="{StaticResource HeaderRibbonButton}" Content="+ Page" Command="{Binding CreateNewPageCommand}"/>
-                                    <TextBlock Style="{StaticResource HeaderSeparatorText}"/>
-                                    <Button Style="{StaticResource HeaderRibbonButton}" Content="Today" Command="{Binding OpenTodayJournalCommand}"/>
-                                </StackPanel>
-                                <ListBox x:Name="ProjectDocList" Grid.Row="1"
-                                         SelectedItem="{Binding SelectedSession}"
-                                         SelectionChanged="OnProjectDocSelectionChanged"
-                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                                    <ListBox.GroupStyle>
-                                        <GroupStyle>
-                                            <GroupStyle.HeaderTemplate>
-                                                <DataTemplate>
-                                                    <TextBlock Text="{Binding Name}" FontSize="9.5" FontWeight="SemiBold"
-                                                               Foreground="{StaticResource MutedForeground}" Margin="2,10,0,3"/>
-                                                </DataTemplate>
-                                            </GroupStyle.HeaderTemplate>
-                                        </GroupStyle>
-                                    </ListBox.GroupStyle>
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <Grid Height="22" ToolTip="{Binding Name}">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="18"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                </Grid.ColumnDefinitions>
-                                                <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Center"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="11"
-                                                           Foreground="{StaticResource ForegroundBrush}"
-                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
-                            </Grid>
-                        </TabItem>
-
-                        <TabItem Header="Graph" x:Name="LeftTabGraph"
-                                 Visibility="{Binding IsOutlineDocumentActive, Converter={StaticResource BoolVis}}">
-                            <Grid Margin="0,10,0,0">
-                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="16,0">
-                                    <Border Width="48" Height="48" CornerRadius="12" BorderBrush="{StaticResource PanelBorder}"
-                                            BorderThickness="1.5" Background="{StaticResource PanelBg}" Margin="0,0,0,12">
-                                        <Path Style="{StaticResource ToolbarGlyph}" Width="22" Height="22"
-                                              Stroke="{StaticResource MutedForeground}"
-                                              Data="M6 6a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M14.5 8a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M8 15a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M7 5.2 13 6 M7.3 11.6 13.4 7.4"/>
-                                    </Border>
-                                    <TextBlock Text="Graph view" FontWeight="SemiBold" FontSize="12.5"
-                                               Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center"/>
-                                    <TextBlock Text="Linked-reference graph for pages and journals — coming soon."
-                                               FontSize="11" Foreground="{StaticResource MutedForeground}"
-                                               TextWrapping="Wrap" TextAlignment="Center" MaxWidth="190" Margin="0,4,0,0"/>
-                                </StackPanel>
-                            </Grid>
-                        </TabItem>
-
-                        <TabItem Header="Search" x:Name="LeftTabSearch">
-                            <Grid Margin="0,10,0,0">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                <DockPanel Grid.Row="0" Margin="0,0,0,8">
-                                    <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Command="{Binding RefreshBoardSearchCommand}"
-                                            Width="32" Height="28" MinHeight="0" Padding="0" Margin="6,0,0,0" ToolTip="Search board">
-                                        <Viewbox Width="13" Height="13">
-                                            <Path Style="{StaticResource BrowserIconPathStyle}" Data="M7,3.5 C5.1,3.5 3.5,5.1 3.5,7 C3.5,8.9 5.1,10.5 7,10.5 C8.9,10.5 10.5,8.9 10.5,7 C10.5,5.1 8.9,3.5 7,3.5 Z M9.8,9.8 L12.5,12.5"/>
-                                        </Viewbox>
-                                    </Button>
-                                    <TextBox Text="{Binding BoardSearchQuery, UpdateSourceTrigger=PropertyChanged}" FontSize="11"
-                                             Height="28" MinHeight="0" Padding="8,3" VerticalContentAlignment="Center"/>
-                                </DockPanel>
-                                <ListBox Grid.Row="1" ItemsSource="{Binding BoardSearchResults}" MouseDoubleClick="OnBoardSearchDoubleClick">
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="20"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                </Grid.ColumnDefinitions>
-                                                <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Top" Margin="0,2,0,0"/>
-                                                <StackPanel Grid.Column="1">
-                                                    <TextBlock Text="{Binding Title}" FontSize="10.5" Foreground="{StaticResource ForegroundBrush}" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Text="{Binding Detail}" FontSize="9.5" Foreground="{StaticResource MutedForeground}" TextTrimming="CharacterEllipsis"/>
-                                                </StackPanel>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
-                            </Grid>
-                        </TabItem>
-                    </TabControl>
-
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                 </Grid>
             </Border>
 
-            <!-- Collapsed left rail: mode-aware tab icons + expand. Shown when the panel is collapsed. -->
+            <!-- Collapsed left rail: expand + quick new-document actions. -->
             <Border x:Name="LeftRail" Grid.Column="0" Visibility="Collapsed"
                     Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,0,1,0">
                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center" Margin="0,8,0,0">
-                    <Button Style="{StaticResource IconButton}" Click="OnToggleLeftPanel" Margin="0,0,0,6" ToolTip="Expand panel">
+                    <Button Style="{StaticResource IconButton}" Click="OnToggleLeftPanel" Margin="0,0,0,6" ToolTip="Expand project navigation">
                         <Path Style="{StaticResource ToolbarGlyph}" Data="M3.5 4.5h13v11h-13z M8 4.5v11 M5.2 7.2h1.4 M5.2 9.5h1.4"/>
                     </Button>
-                    <!-- Canvas-mode rail icons -->
-                    <Button Style="{StaticResource IconButton}" Click="OnRailExplorer" ToolTip="Explorer"
-                            Visibility="{Binding IsCanvasDocumentActive, Converter={StaticResource BoolVis}}">
-                        <Path Style="{StaticResource ToolbarGlyph}" Data="M3 6.5A1.5 1.5 0 0 1 4.5 5h3.4l1.3 1.6h6.3A1.5 1.5 0 0 1 17 8.1v6.4A1.5 1.5 0 0 1 15.5 16h-11A1.5 1.5 0 0 1 3 14.5z"/>
+                    <Button Style="{StaticResource IconButton}" Command="{Binding CreateNewSessionCommand}" ToolTip="New board">
+                        <Path Style="{StaticResource ToolbarGlyph}" Data="M3.5 5.5h13v9h-13z M3.5 8h13 M8 8v6.5"/>
                     </Button>
-                    <Button Style="{StaticResource IconButton}" Click="OnRailSymbols" ToolTip="Symbols"
-                            Visibility="{Binding IsCanvasDocumentActive, Converter={StaticResource BoolVis}}">
-                        <Path Style="{StaticResource ToolbarGlyph}" Data="M4.5 6.5 7 4l2.5 2.5L7 9z M12 5h4v4h-4z M5 13.5h4v3H5z M14 16a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z"/>
-                    </Button>
-                    <!-- Outline-mode rail icons -->
-                    <Button Style="{StaticResource IconButton}" Click="OnRailNotes" ToolTip="Notes"
-                            Visibility="{Binding IsOutlineDocumentActive, Converter={StaticResource BoolVis}}">
+                    <Button Style="{StaticResource IconButton}" Command="{Binding CreateNewPageCommand}" ToolTip="New page">
                         <Path Style="{StaticResource ToolbarGlyph}" Data="M5.5 3.5h6L15 7v9.5h-9.5z M11.2 3.5V7H14.8"/>
                     </Button>
-                    <Button Style="{StaticResource IconButton}" Click="OnRailGraph" ToolTip="Graph"
-                            Visibility="{Binding IsOutlineDocumentActive, Converter={StaticResource BoolVis}}">
-                        <Path Style="{StaticResource ToolbarGlyph}" Data="M6 6a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M14.5 8a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M8 15a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M7 5.2 13 6 M7.3 11.6 13.4 7.4"/>
-                    </Button>
-                    <!-- Search (both modes) -->
-                    <Button Style="{StaticResource IconButton}" Click="OnRailSearch" ToolTip="Search">
-                        <Path Style="{StaticResource ToolbarGlyph}" Data="M9 15A6 6 0 1 0 9 3a6 6 0 0 0 0 12z M13.5 13.5 17 17"/>
+                    <Button Style="{StaticResource IconButton}" Command="{Binding OpenTodayJournalCommand}" ToolTip="Today's journal">
+                        <Path Style="{StaticResource ToolbarGlyph}" Data="M5 5h10v10H5z M5 8h10 M7.5 3.5v2 M12.5 3.5v2"/>
                     </Button>
                 </StackPanel>
             </Border>
@@ -595,7 +322,22 @@
                 </GridSplitter.Style>
             </GridSplitter>
 
-            <Grid Grid.Column="2" Background="{StaticResource CanvasBg}">
+            <!-- Code panel dock-left host (occupied only when the Code panel is attached left). -->
+            <ContentControl x:Name="CodeLeftHost" Grid.Column="2"/>
+            <GridSplitter x:Name="CodeLeftSplitter" Grid.Column="3" HorizontalAlignment="Stretch" Cursor="SizeWE"
+                          Visibility="Collapsed" Background="{StaticResource SoftBorder}">
+                <GridSplitter.Style>
+                    <Style TargetType="GridSplitter">
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{StaticResource PanelBorder}"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </GridSplitter.Style>
+            </GridSplitter>
+
+            <Grid Grid.Column="4" Background="{StaticResource CanvasBg}">
                 <Grid x:Name="CanvasHostGrid"
                       Visibility="{Binding IsCanvasDocumentActive, Converter={StaticResource BoolVis}}">
                 <Grid.RowDefinitions>
@@ -917,7 +659,7 @@
                 </Grid>
             </Grid>
 
-            <GridSplitter x:Name="RightSplitter" Grid.Column="3" HorizontalAlignment="Stretch" Cursor="SizeWE"
+            <GridSplitter x:Name="RightSplitter" Grid.Column="5" HorizontalAlignment="Stretch" Cursor="SizeWE"
                           Background="{StaticResource SoftBorder}">
                 <GridSplitter.Style>
                     <Style TargetType="GridSplitter">
@@ -930,13 +672,17 @@
                 </GridSplitter.Style>
             </GridSplitter>
 
-            <controls:BoardSidebar x:Name="RightSidebar" Grid.Column="4"
-                                   Camera="{Binding Camera, ElementName=CanvasViewport, Mode=TwoWay}"
-                                   ViewportWidth="{Binding ActualWidth, ElementName=CanvasViewport}"
-                                   ViewportHeight="{Binding ActualHeight, ElementName=CanvasViewport}"/>
+            <!-- Right dock: the Inspector (canvas mode) OR the Code panel (when docked right). -->
+            <Grid Grid.Column="6">
+                <controls:BoardSidebar x:Name="RightSidebar"
+                                       Camera="{Binding Camera, ElementName=CanvasViewport, Mode=TwoWay}"
+                                       ViewportWidth="{Binding ActualWidth, ElementName=CanvasViewport}"
+                                       ViewportHeight="{Binding ActualHeight, ElementName=CanvasViewport}"/>
+                <ContentControl x:Name="CodeRightHost" Visibility="Collapsed"/>
+            </Grid>
         </Grid>
 
-        <Border Grid.Row="3" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="2" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,1,0,0">
             <Grid Margin="12,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>

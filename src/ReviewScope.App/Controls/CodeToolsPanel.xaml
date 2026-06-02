@@ -1,0 +1,236 @@
+<UserControl x:Class="ReviewScope.App.Controls.CodeToolsPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Name="Root"
+             FontFamily="{StaticResource AppFont}">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/ReviewScope.App;component/Styles/MainWindowStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Border Background="{StaticResource PanelBg}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="40"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Panel header: title + dock controls -->
+            <Border Grid.Row="0" BorderBrush="{StaticResource SoftBorder}" BorderThickness="0,0,0,1">
+                <DockPanel Margin="12,0,6,0">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Style="{StaticResource IconButton}" Width="28" Height="28" Click="OnDockLeft" ToolTip="Attach left">
+                            <Path Style="{StaticResource ToolbarGlyph}" Width="15" Height="15" Data="M3.5 4.5h13v11h-13z M8 4.5v11 M5.2 7.2h1.4 M5.2 9.5h1.4"/>
+                        </Button>
+                        <Button Style="{StaticResource IconButton}" Width="28" Height="28" Click="OnDockRight" ToolTip="Attach right">
+                            <Path Style="{StaticResource ToolbarGlyph}" Width="15" Height="15" Data="M3.5 4.5h13v11h-13z M12 4.5v11 M13.4 7.2h1.4 M13.4 9.5h1.4"/>
+                        </Button>
+                        <Button Style="{StaticResource IconButton}" Width="28" Height="28" Click="OnFloat" ToolTip="Detach to a floating window">
+                            <Path Style="{StaticResource ToolbarGlyph}" Width="15" Height="15" Data="M4.5 8v7.5h7.5 M8 4.5h7.5v7.5 M15 5l-6.5 6.5"/>
+                        </Button>
+                        <Button Style="{StaticResource IconButton}" Width="28" Height="28" Click="OnClose" ToolTip="Close panel">
+                            <Path Style="{StaticResource ToolbarGlyph}" Width="14" Height="14" Data="M5.5 5.5l9 9 M14.5 5.5l-9 9"/>
+                        </Button>
+                    </StackPanel>
+                    <TextBlock Text="CODE" FontSize="11" FontWeight="SemiBold"
+                               Foreground="{StaticResource MutedForeground}" VerticalAlignment="Center"/>
+                </DockPanel>
+            </Border>
+
+            <!-- Tools: Explorer / Symbols / Search -->
+            <TabControl Grid.Row="1" Margin="10,4,10,8">
+                <TabItem Header="Explorer">
+                    <Grid Margin="0,10,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <Grid Grid.Row="0" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="{Binding WorkspacePath}" Foreground="{StaticResource ForegroundBrush}"
+                                           FontWeight="SemiBold" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                <DockPanel Margin="0,4,0,0">
+                                    <TextBlock DockPanel.Dock="Left" Text="Branch" Foreground="{StaticResource MutedForeground}"
+                                               FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <ComboBox x:Name="BranchComboBox"
+                                              Style="{StaticResource BranchComboBox}"
+                                              ItemsSource="{Binding AvailableBranches}"
+                                              SelectedItem="{Binding SelectedBranch, Mode=TwoWay}"
+                                              SelectionChanged="OnBranchComboSelectionChanged"/>
+                                </DockPanel>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="6,0,0,0">
+                                <Button Style="{StaticResource ToolButton}" Click="OnCollapseAll"
+                                        Width="26" Height="26" MinHeight="0" Padding="0" Margin="0,0,3,0" ToolTip="Collapse all">
+                                    <Viewbox Width="12" Height="12">
+                                        <Path Style="{StaticResource BrowserIconPathStyle}" Data="M3,4 H13 M5,7 H11 M7,10 H9"/>
+                                    </Viewbox>
+                                </Button>
+                                <Button Style="{StaticResource ToolButton}" Click="OnExpandAll"
+                                        Width="26" Height="26" MinHeight="0" Padding="0" ToolTip="Expand all">
+                                    <Viewbox Width="12" Height="12">
+                                        <Path Style="{StaticResource BrowserIconPathStyle}" Data="M3,4 H9 M3,8 H11 M3,12 H13"/>
+                                    </Viewbox>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+
+                        <DockPanel Grid.Row="1" Margin="0,0,0,8">
+                            <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Command="{Binding ApplyExplorerSearchCommand}"
+                                    Width="32" Height="28" MinHeight="0" Padding="0" Margin="6,0,0,0" ToolTip="Find files">
+                                <Viewbox Width="13" Height="13">
+                                    <Path Style="{StaticResource BrowserIconPathStyle}" Data="M7,3.5 C5.1,3.5 3.5,5.1 3.5,7 C3.5,8.9 5.1,10.5 7,10.5 C8.9,10.5 10.5,8.9 10.5,7 C10.5,5.1 8.9,3.5 7,3.5 Z M9.8,9.8 L12.5,12.5"/>
+                                </Viewbox>
+                            </Button>
+                            <TextBox Text="{Binding ExplorerSearchQuery, UpdateSourceTrigger=PropertyChanged}" FontSize="11"
+                                     Height="28" MinHeight="0" Padding="8,3" VerticalContentAlignment="Center"
+                                     KeyDown="OnExplorerSearchKeyDown"/>
+                        </DockPanel>
+
+                        <TabControl Grid.Row="2" Margin="0">
+                            <TabItem Header="Solution">
+                                <TreeView x:Name="ExplorerTree"
+                                          ItemsSource="{Binding ExplorerRoots}"
+                                          MouseDoubleClick="OnExplorerDoubleClick"
+                                          VirtualizingPanel.IsVirtualizing="True"
+                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                          Margin="0,8,0,0">
+                                    <TreeView.ItemTemplate>
+                                        <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                            <Grid Height="22" ToolTip="{Binding FilePath}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="18"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}"
+                                                           FontSize="10.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                            </Grid>
+                                        </HierarchicalDataTemplate>
+                                    </TreeView.ItemTemplate>
+                                    <TreeView.ItemContainerStyle>
+                                        <StaticResource ResourceKey="BrowserTreeItemStyle"/>
+                                    </TreeView.ItemContainerStyle>
+                                </TreeView>
+                            </TabItem>
+
+                            <TabItem Header="Files">
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0" Text="{Binding FileExplorerRootPath}"
+                                               Foreground="{StaticResource MutedForeground}" FontSize="9.5"
+                                               TextTrimming="CharacterEllipsis" Margin="0,0,0,6"/>
+                                    <TreeView Grid.Row="1" x:Name="FileExplorerTree"
+                                              ItemsSource="{Binding FileExplorerRoots}"
+                                              MouseDoubleClick="OnExplorerDoubleClick"
+                                              VirtualizingPanel.IsVirtualizing="True"
+                                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                        <TreeView.ItemTemplate>
+                                            <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                                <Grid Height="22" ToolTip="{Binding FilePath}">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="18"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}"
+                                                               FontSize="10.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                </Grid>
+                                            </HierarchicalDataTemplate>
+                                        </TreeView.ItemTemplate>
+                                        <TreeView.ItemContainerStyle>
+                                            <StaticResource ResourceKey="BrowserTreeItemStyle"/>
+                                        </TreeView.ItemContainerStyle>
+                                    </TreeView>
+                                </Grid>
+                            </TabItem>
+                        </TabControl>
+                    </Grid>
+                </TabItem>
+
+                <TabItem Header="Symbols">
+                    <Grid Margin="0,10,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="{Binding SelectedSymbolsHeader}" Foreground="{StaticResource ForegroundBrush}"
+                                   FontSize="11" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,0,8"/>
+                        <TreeView Grid.Row="1" ItemsSource="{Binding SymbolRoots}"
+                                  MouseDoubleClick="OnSymbolsDoubleClick"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <TreeView.ItemTemplate>
+                                <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                    <Grid Margin="0,2" ToolTip="Double-click to add to canvas">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="18"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Top" Margin="0,1,0,0"/>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="{Binding Name}" Foreground="{StaticResource ForegroundBrush}"
+                                                       FontSize="10.5" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding RangeText}" Foreground="{StaticResource MutedForeground}"
+                                                       FontSize="9.5" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </HierarchicalDataTemplate>
+                            </TreeView.ItemTemplate>
+                            <TreeView.ItemContainerStyle>
+                                <StaticResource ResourceKey="BrowserTreeItemStyle"/>
+                            </TreeView.ItemContainerStyle>
+                        </TreeView>
+                    </Grid>
+                </TabItem>
+
+                <TabItem Header="Search">
+                    <Grid Margin="0,10,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <DockPanel Grid.Row="0" Margin="0,0,0,8">
+                            <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Command="{Binding RefreshBoardSearchCommand}"
+                                    Width="32" Height="28" MinHeight="0" Padding="0" Margin="6,0,0,0" ToolTip="Search board">
+                                <Viewbox Width="13" Height="13">
+                                    <Path Style="{StaticResource BrowserIconPathStyle}" Data="M7,3.5 C5.1,3.5 3.5,5.1 3.5,7 C3.5,8.9 5.1,10.5 7,10.5 C8.9,10.5 10.5,8.9 10.5,7 C10.5,5.1 8.9,3.5 7,3.5 Z M9.8,9.8 L12.5,12.5"/>
+                                </Viewbox>
+                            </Button>
+                            <TextBox Text="{Binding BoardSearchQuery, UpdateSourceTrigger=PropertyChanged}" FontSize="11"
+                                     Height="28" MinHeight="0" Padding="8,3" VerticalContentAlignment="Center"/>
+                        </DockPanel>
+                        <ListBox Grid.Row="1" ItemsSource="{Binding BoardSearchResults}" MouseDoubleClick="OnBoardSearchDoubleClick">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="20"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Path Grid.Column="0" Style="{StaticResource BrowserIconPathStyle}" VerticalAlignment="Top" Margin="0,2,0,0"/>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="{Binding Title}" FontSize="10.5" Foreground="{StaticResource ForegroundBrush}" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding Detail}" FontSize="9.5" Foreground="{StaticResource MutedForeground}" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </TabItem>
+            </TabControl>
+        </Grid>
+    </Border>
+</UserControl>
