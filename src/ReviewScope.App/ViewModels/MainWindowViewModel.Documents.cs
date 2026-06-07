@@ -16,8 +16,71 @@ namespace ReviewScope.App.ViewModels;
 public sealed partial class MainWindowViewModel
 {
     // ---- Main-area view switching (bound by MainWindow.xaml visibility) ----
-    [ObservableProperty] private bool _isOutlineDocumentActive;
-    [ObservableProperty] private bool _isCanvasDocumentActive = true;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsOutlinePaneVisible))]
+    private bool _isOutlineDocumentActive;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsCanvasPaneVisible))]
+    private bool _isCanvasDocumentActive = true;
+
+    /// <summary>
+    /// When true the center area shows the active board's canvas and the active page's outline
+    /// side-by-side (canvas left, writing right) instead of one-at-a-time. Both
+    /// <see cref="IsCanvasDocumentActive"/> and <see cref="IsOutlineDocumentActive"/> are forced on
+    /// while split is active so the existing per-mode guards keep working for whichever pane is focused.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsCanvasPaneVisible))]
+    [NotifyPropertyChangedFor(nameof(IsOutlinePaneVisible))]
+    private bool _isSplitViewActive;
+
+    /// <summary>Canvas pane is shown in canvas mode or whenever split view is active.</summary>
+    public bool IsCanvasPaneVisible => IsCanvasDocumentActive || IsSplitViewActive;
+
+    /// <summary>Outline pane is shown in outline mode or whenever split view is active.</summary>
+    public bool IsOutlinePaneVisible => IsOutlineDocumentActive || IsSplitViewActive;
+
+    /// <summary>Toggle the side-by-side split layout. Turning it on ensures both a board and a page
+    /// are live; turning it off collapses back to the last single-document mode.</summary>
+    [RelayCommand]
+    public async Task ToggleSplitViewAsync()
+    {
+        IsSplitViewActive = !IsSplitViewActive;
+        if (IsSplitViewActive)
+        {
+            // Make sure both panes have something to show: a board for the canvas and a page for the outline.
+            await EnsureSplitDocumentsAsync();
+            StatusMessage = "Split view: canvas + writing";
+        }
+        else
+        {
+            // Collapse back to a single pane. Land on the canvas (the common primary) so the layout
+            // is predictable; the writing pane is one click away on the Outline toggle.
+            IsCanvasDocumentActive = true;
+            IsOutlineDocumentActive = false;
+            StatusMessage = "Single view";
+        }
+    }
+
+    /// <summary>Guarantees a live canvas board and a live outline page so split view has content on both
+    /// sides. Activates the first existing document of each kind, creating a page if none exists.</summary>
+    private async Task EnsureSplitDocumentsAsync()
+    {
+        if (_activeSession is null)
+        {
+            var board = Sessions.FirstOrDefault(s => s.Kind == DocumentKind.Canvas);
+            if (board is not null) await ActivateSessionAsync(board);
+            else await CreateNewSessionAsync();
+        }
+
+        if (_activeOutlineSession is null)
+        {
+            var page = Sessions.FirstOrDefault(s => s.Kind != DocumentKind.Canvas);
+            if (page is not null) await ActivateSessionAsync(page, hydrateCode: false);
+            else await OpenTodayJournalAsync();
+        }
+    }
 
     // ---- Active outline document state (pushed into OutlineView by the code-behind) ----
     [ObservableProperty] private string _outlineDocumentBody = "- ";
@@ -151,21 +214,21 @@ public sealed partial class MainWindowViewModel
     // -----------------------------------------------------------------------
     internal void OnOutlineBodyEdited(string body)
     {
-        if (_activeSession is null || _activeSession.Kind == DocumentKind.Canvas) return;
+        if (_activeOutlineSession is null || _activeOutlineSession.Kind == DocumentKind.Canvas) return;
         OutlineDocumentBody = body;
         _ = PersistOutlineAsync();
     }
 
     internal void OnOutlineCollapsedChanged(IReadOnlyCollection<string> ids)
     {
-        if (_activeSession is null || _activeSession.Kind == DocumentKind.Canvas) return;
+        if (_activeOutlineSession is null || _activeOutlineSession.Kind == DocumentKind.Canvas) return;
         _outlineDocumentCollapsed = string.Join(';', ids);
         _ = PersistOutlineAsync();
     }
 
     private async Task PersistOutlineAsync()
     {
-        if (_activeSession is null || _activeSession.Kind == DocumentKind.Canvas) return;
+        if (_activeOutlineSession is null || _activeOutlineSession.Kind == DocumentKind.Canvas) return;
         EnsureBoardWorkspace();
         _outlineSaveCts?.Cancel();
         _outlineSaveCts = new CancellationTokenSource();
@@ -184,19 +247,19 @@ public sealed partial class MainWindowViewModel
 
     private async Task SaveActiveOutlineSnapshotAsync(CancellationToken ct)
     {
-        if (_activeSession is null || _activeSession.Kind == DocumentKind.Canvas) return;
+        if (_activeOutlineSession is null || _activeOutlineSession.Kind == DocumentKind.Canvas) return;
 
-        // Only update _activeSession (not the Sessions collection / SelectedSession): replacing the
+        // Only update _activeOutlineSession (not the Sessions collection / SelectedSession): replacing the
         // bound collection item would bounce the header ListBox selection and reactivate the doc,
         // resetting the caret mid-type. The document name doesn't change while typing, so the
         // browser stays correct without a collection refresh.
-        var updated = _activeSession with
+        var updated = _activeOutlineSession with
         {
             OutlineBody = OutlineDocumentBody,
             OutlineCollapsed = _outlineDocumentCollapsed,
             UpdatedAt = DateTimeOffset.UtcNow
         };
-        _activeSession = updated;
+        _activeOutlineSession = updated;
         await _sessions.SaveSessionAsync(updated, ct);
     }
 
@@ -206,23 +269,23 @@ public sealed partial class MainWindowViewModel
     /// </summary>
     public async Task CommitOutlineTitleAsync()
     {
-        if (_activeSession is null || _activeSession.Kind == DocumentKind.Canvas) return;
+        if (_activeOutlineSession is null || _activeOutlineSession.Kind == DocumentKind.Canvas) return;
         string desired = (OutlineDocumentTitle ?? string.Empty).Trim();
         if (desired.Length == 0)
         {
             // Reject an empty title: snap the box back to the current name.
-            OutlineDocumentTitle = _activeSession.Name;
+            OutlineDocumentTitle = _activeOutlineSession.Name;
             return;
         }
-        if (string.Equals(desired, _activeSession.Name, StringComparison.Ordinal)) return;
-        await RenameSessionAsync(_activeSession, desired);
-        OutlineDocumentTitle = _activeSession.Name;
+        if (string.Equals(desired, _activeOutlineSession.Name, StringComparison.Ordinal)) return;
+        await RenameSessionAsync(_activeOutlineSession, desired);
+        OutlineDocumentTitle = _activeOutlineSession.Name;
     }
 
     /// <summary>Flush any pending debounced outline save (window close / doc switch).</summary>
     public async Task FlushPendingOutlineSaveAsync()
     {
-        if (_activeSession is null || _activeSession.Kind == DocumentKind.Canvas) return;
+        if (_activeOutlineSession is null || _activeOutlineSession.Kind == DocumentKind.Canvas) return;
         _outlineSaveCts?.Cancel();
         _outlineSaveCts = null;
         await SaveActiveOutlineSnapshotAsync(CancellationToken.None);
@@ -239,24 +302,31 @@ public sealed partial class MainWindowViewModel
     /// </summary>
     private void SyncActiveOutlineIntoCollection()
     {
-        if (_activeSession is null) return;
-        int index = Sessions.ToList().FindIndex(s => s.Id == _activeSession.Id);
-        if (index >= 0 && !ReferenceEquals(Sessions[index], _activeSession))
-            Sessions[index] = _activeSession;
+        if (_activeOutlineSession is null) return;
+        int index = Sessions.ToList().FindIndex(s => s.Id == _activeOutlineSession.Id);
+        if (index >= 0 && !ReferenceEquals(Sessions[index], _activeOutlineSession))
+            Sessions[index] = _activeOutlineSession;
     }
 
-    /// <summary>Configure VM state for the active outline document and signal the host to reload it.</summary>
+    /// <summary>Configure VM state for the active outline document and signal the host to reload it.
+    /// In split view the canvas board stays live, so we never clear the Scene or flip canvas off.</summary>
     private void ActivateOutlineDocument(ReviewSession session)
     {
-        Scene = RenderScene.Empty;
-        UpdateSelectedObject(Scene);
-        RefreshBoardDetails();
-        ResetHistory();
+        _activeOutlineSession = session;
+        OnDocumentActivated(session);
+
+        if (!IsSplitViewActive)
+        {
+            Scene = RenderScene.Empty;
+            UpdateSelectedObject(Scene);
+            RefreshBoardDetails();
+            ResetHistory();
+            IsCanvasDocumentActive = false;
+        }
 
         OutlineDocumentBody = string.IsNullOrEmpty(session.OutlineBody) ? "- " : session.OutlineBody!;
         OutlineDocumentTitle = session.Name;
         _outlineDocumentCollapsed = session.OutlineCollapsed ?? string.Empty;
-        IsCanvasDocumentActive = false;
         IsOutlineDocumentActive = true;
         StatusMessage = $"{session.Kind}: {session.Name}";
         OutlineDocumentReloadRequested?.Invoke();

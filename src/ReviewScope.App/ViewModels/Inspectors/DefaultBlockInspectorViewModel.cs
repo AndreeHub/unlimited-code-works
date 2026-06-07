@@ -51,16 +51,24 @@ public sealed partial class DefaultBlockInspectorViewModel : InspectorViewModelB
         var block = Parent.SelectedBlock;
         if (block is null) return;
 
-        var nextBlock = block with
+        // Lock fans out to the whole selection (a sensible bulk action); identity and geometry are
+        // per-item and stay on the primary selection.
+        Parent.UpdateSelectedBlocks((b, isPrimary) =>
         {
-            Title = Title,
-            X = X,
-            Y = Y,
-            Width = Width,
-            Height = Height,
-            IsLocked = IsLocked
-        };
-
-        Parent.UpdateSceneBlock(nextBlock, "Updated item properties");
+            var next = b with { IsLocked = IsLocked };
+            if (isPrimary)
+                next = next with
+                {
+                    Title = Title,
+                    // Shapes display their Body as the in-block label; keep it in sync so editing the
+                    // "Label Text" field is actually visible on the shape.
+                    Body = b.Kind == BlockKind.Shape ? Title : b.Body,
+                    X = X,
+                    Y = Y,
+                    Width = Width,
+                    Height = Height
+                };
+            return next;
+        }, "Updated item properties");
     }
 }

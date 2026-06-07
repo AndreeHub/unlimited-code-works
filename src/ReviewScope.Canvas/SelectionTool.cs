@@ -210,6 +210,14 @@ internal sealed class SelectionTool : CanvasToolBase
             return;
         }
 
+        // Hit a connector curve? Select it so edges are selectable with the normal pointer tool too.
+        // Shift/Ctrl+click adds the edge to a multi-selection (recolor / retype several at once).
+        if (Viewport.HitConnectionCurve(world, out _) is { } connectionHit)
+        {
+            Viewport.SelectConnection(connectionHit.Connection.Id, additive: isShift || isCtrl);
+            return;
+        }
+
         // Default: Marquee
         Viewport.ApplySceneChange(CanvasViewport.ClearSelection(Viewport.Scene));
         Viewport._marqueeStart = screen;

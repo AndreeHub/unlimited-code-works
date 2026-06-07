@@ -19,10 +19,17 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly SymbolScopeService _symbolScope;
     private readonly SessionRepository _sessions;
     private readonly TagIndexStore _tagIndex;
+    private readonly ReviewProgressStore _reviewProgress;
     private readonly ILogger<MainWindowViewModel> _logger;
 
     /// <summary>Exposed so the canvas autocomplete callback can read the latest tag/wiki-link vocabulary.</summary>
     internal TagIndexStore TagIndex => _tagIndex;
+
+    /// <summary>Reading-progress store backing the reviewed-line tracking feature.</summary>
+    internal ReviewProgressStore ReviewProgress => _reviewProgress;
+
+    /// <summary>WorkspaceKey of the currently loaded workspace (branch-encoded), or null if none is open.</summary>
+    internal string? CurrentWorkspaceKey => _currentSnapshot?.WorkspaceKey;
 
     private const double CodeLineHeight = 18.0;
     private const double CodeBlockVerticalChrome = 100.0;
@@ -31,8 +38,45 @@ public partial class MainWindowViewModel : ObservableObject
     private const double DefaultFileBlockWidth = 800.0;
     private const double MinScopedBlockHeight = 1200.0;
 
+    // ---- Active canvas document (per-board Scene + undo) ----
+    // The shell's Scene/_undoStack/_redoStack/_activeSession members below delegate to this instance,
+    // so existing code keeps operating on "the focused board" while a second pane can hold another.
+    private CanvasDocumentViewModel _activeCanvas = new(null);
+
+    /// <summary>Live canvas documents keyed by board id. Keeping a document around across tab switches
+    /// preserves its Scene + undo history (no reload), and lets a second pane render a different board.</summary>
+    private readonly Dictionary<Guid, CanvasDocumentViewModel> _canvasDocs = new();
+
+    /// <summary>The focused board's scene. Delegates to <see cref="_activeCanvas"/>; setting it routes
+    /// through the document VM, whose change notification re-raises this property and runs the
+    /// scene-changed side effects (selection refresh, board details).</summary>
+    public RenderScene Scene
+    {
+        get => _activeCanvas.Scene;
+        set => _activeCanvas.Scene = value;
+    }
+
+    private void HookActiveCanvas(CanvasDocumentViewModel doc)
+    {
+        if (ReferenceEquals(_activeCanvas, doc)) return;
+        _activeCanvas.PropertyChanged -= OnActiveCanvasPropertyChanged;
+        _activeCanvas = doc;
+        _activeCanvas.PropertyChanged += OnActiveCanvasPropertyChanged;
+        OnPropertyChanged(nameof(Scene));
+        HandleSceneChanged(_activeCanvas.Scene);
+        UpdateUndoRedoState();
+    }
+
+    private void OnActiveCanvasPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(CanvasDocumentViewModel.Scene))
+        {
+            OnPropertyChanged(nameof(Scene));
+            HandleSceneChanged(_activeCanvas.Scene);
+        }
+    }
+
     // ---- Observable state ----
-    [ObservableProperty] private RenderScene _scene = RenderScene.Empty;
     [ObservableProperty] private string _statusMessage = "Open a folder, .sln, or .csproj to start.";
     [ObservableProperty] private string _workspacePath = string.Empty;
     [ObservableProperty] private string _workspaceBranchName = string.Empty;
@@ -49,6 +93,7 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _selectedAnnotationContent = string.Empty;
     [ObservableProperty] private Guid? _editingAnnotationId;
     [ObservableProperty] private CanvasBackgroundMode _backgroundMode = CanvasBackgroundMode.Dots;
+    [ObservableProperty] private ShapeRenderStyle _globalShapeStyle = ShapeRenderStyle.Sketch;
     [ObservableProperty] private bool _snapToGrid = true;
     [ObservableProperty] private bool _connectorsEnabled = true;
     [ObservableProperty] private RenderBlock? _selectedBlock;
@@ -65,7 +110,12 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string? _activeCanvasShapeTool;
     [ObservableProperty] private string? _pendingCanvasItemPlacement;
     [ObservableProperty] private bool _isTransclusionPickerOpen;
-    [ObservableProperty] private string _transclusionPickerFilter = string.Empty;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasPaletteQuery))]
+    [NotifyPropertyChangedFor(nameof(PaletteNewBlockLabel))]
+    [NotifyPropertyChangedFor(nameof(PaletteNewPageLabel))]
+    [NotifyPropertyChangedFor(nameof(PaletteNewWhiteboardLabel))]
+    private string _transclusionPickerFilter = string.Empty;
 
     /// <summary>
     /// Raised after a new Text/Note block is added programmatically (toolbox button path).
@@ -123,18 +173,30 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _canRedo;
     [ObservableProperty] private string _selectedBranch = string.Empty;
     [ObservableProperty] private string _fileExplorerRootPath = string.Empty;
+    [ObservableProperty] private string _ubwProjectName = "Untitled Boards";
 
     // Fields used by partial classes
     private string? _lastWorkspaceLoadPath;
     private string? _lastBoardFilePath;
     private WorkspaceSnapshot? _currentSnapshot;
-    private ReviewSession? _activeSession;
+
+    /// <summary>The active <b>canvas</b> board document (the one whose Scene is shown). Delegates to the
+    /// active canvas document VM so the board pointer and its Scene/undo always move together. Distinct
+    /// from <see cref="_activeOutlineSession"/> so a board and a page can be live at once in split view.</summary>
+    private ReviewSession? _activeSession
+    {
+        get => _activeCanvas.Session;
+        set => _activeCanvas.Session = value;
+    }
+
+    /// <summary>The active <b>outline</b> document (Page/Journal) whose body is shown. Independent of the
+    /// active canvas board so both can be open at once when <see cref="IsSplitViewActive"/> is true.</summary>
+    private ReviewSession? _activeOutlineSession;
     private CancellationTokenSource? _saveCts;
     private CancellationTokenSource? _loadCts;
     private int _loadVersion;
     private bool _syncingStyleTarget;
     private bool _isUpdatingSelection;
-    private string? _lastSelectionKey;
 
     [RelayCommand]
     public void ToggleBackground()
@@ -145,17 +207,30 @@ public partial class MainWindowViewModel : ObservableObject
         StatusMessage = $"Background: {BackgroundMode}";
     }
 
+    /// <summary>Flips the canvas-wide shape look between the hand-drawn ("Drawn") and crisp ("Sleek")
+    /// styles. Every shape set to "Auto" follows this; shapes with an explicit per-shape style keep it.</summary>
+    [RelayCommand]
+    public void ToggleGlobalShapeStyle()
+    {
+        GlobalShapeStyle = GlobalShapeStyle == ShapeRenderStyle.Sketch
+            ? ShapeRenderStyle.Vector
+            : ShapeRenderStyle.Sketch;
+        StatusMessage = GlobalShapeStyle == ShapeRenderStyle.Vector ? "Shapes: Sleek" : "Shapes: Drawn";
+    }
+
     public ObservableCollection<string> AvailableBranches { get; } = new();
     public ObservableCollection<FileExplorerItemViewModel> ExplorerRoots { get; } = new();
     public ObservableCollection<FileExplorerItemViewModel> FileExplorerRoots { get; } = new();
     public ObservableCollection<ReviewSession> Sessions { get; } = new();
+    public ObservableCollection<ProjectBrowserItemViewModel> ProjectBrowserRoots { get; } = new();
     public ObservableCollection<SymbolExplorerItemViewModel> SymbolRoots { get; } = new();
     public ObservableCollection<BoardSearchResultViewModel> BoardSearchResults { get; } = new();
     public ObservableCollection<BoardFileUsageViewModel> BoardFileUsages { get; } = new();
     public ObservableCollection<TransclusionCandidateViewModel> TransclusionCandidates { get; } = new();
 
-    private readonly Stack<RenderScene> _undoStack = new();
-    private readonly Stack<RenderScene> _redoStack = new();
+    // Undo/redo live on the active canvas document so each board keeps its own history.
+    private Stack<RenderScene> _undoStack => _activeCanvas.UndoStack;
+    private Stack<RenderScene> _redoStack => _activeCanvas.RedoStack;
 
     // ---- Swim-lane colors ----
     private static readonly string[] LaneColors = { "#4A90D9", "#63D2A5", "#D49A4A", "#C07AB8", "#E05252", "#7CB8E0" };
@@ -168,6 +243,7 @@ public partial class MainWindowViewModel : ObservableObject
         SymbolScopeService symbolScope,
         SessionRepository sessions,
         TagIndexStore tagIndex,
+        ReviewProgressStore reviewProgress,
         ILogger<MainWindowViewModel> logger)
     {
         _workspace = workspace;
@@ -176,8 +252,14 @@ public partial class MainWindowViewModel : ObservableObject
         _symbolScope = symbolScope;
         _sessions = sessions;
         _tagIndex = tagIndex;
+        _reviewProgress = reviewProgress;
         _logger = logger;
+        _activeCanvas.PropertyChanged += OnActiveCanvasPropertyChanged;
+        Sessions.CollectionChanged += (_, _) => RefreshProjectBrowser();
+        RefreshProjectBrowser();
     }
+
+    partial void OnUbwProjectNameChanged(string value) => RefreshProjectBrowser();
 
     /// <summary>
     /// Returns the cached autocomplete vocabulary for the current workspace. Falls
@@ -261,6 +343,50 @@ public partial class MainWindowViewModel : ObservableObject
         _ = PersistSessionAsync();
     }
 
+    /// <summary>
+    /// Applies <paramref name="transform"/> to every selected block in one undo step (multi-edit).
+    /// The transform receives each selected block plus an <c>isPrimary</c> flag that is true only for
+    /// the block the inspector currently reflects (<see cref="SelectedBlock"/>). Style changes should
+    /// be applied to all selected blocks; per-item edits (geometry, title, body) should be gated on
+    /// <c>isPrimary</c> so they don't smear across the whole selection. When a single block is
+    /// selected this collapses to the previous single-item behavior.
+    /// </summary>
+    internal void UpdateSelectedBlocks(Func<RenderBlock, bool, RenderBlock> transform, string description)
+    {
+        if (_isUpdatingSelection) return;
+        string? primaryKey = SelectedBlock?.Key;
+        var selectedKeys = Scene.Blocks.Where(b => b.IsSelected).Select(b => b.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (selectedKeys.Count == 0) return;
+        var blocks = Scene.Blocks.Select(b =>
+            selectedKeys.Contains(b.Key)
+                ? transform(b, primaryKey is not null && b.Key.Equals(primaryKey, StringComparison.OrdinalIgnoreCase))
+                : b).ToList();
+        SetSceneFromUserAction(Scene with { Blocks = blocks }, description);
+        _ = PersistSessionAsync();
+    }
+
+    /// <summary>
+    /// Applies <paramref name="transform"/> to every selected connection in one undo step (multi-edit).
+    /// The transform receives each selected connection plus an <c>isPrimary</c> flag that is true only
+    /// for the connector the inspector reflects (<see cref="SelectedConnection"/>). Style/type changes
+    /// fan out to all; the label should be gated on <c>isPrimary</c>. Collapses to single-item behavior
+    /// when only one connection is selected.
+    /// </summary>
+    internal void UpdateSelectedConnections(Func<RenderConnection, bool, RenderConnection> transform, string description)
+    {
+        if (_isUpdatingSelection) return;
+        Guid? primaryId = SelectedConnection?.Id;
+        var selectedIds = Scene.Connections.Where(c => c.IsSelected).Select(c => c.Id).ToHashSet();
+        if (selectedIds.Count == 0) return;
+        var connections = Scene.Connections.Select(c =>
+            selectedIds.Contains(c.Id)
+                ? transform(c, primaryId.HasValue && c.Id == primaryId.Value)
+                : c).ToList();
+        SetSceneFromUserAction(Scene with { Connections = connections }, description);
+        _ = PersistSessionAsync();
+    }
+
     private void UpdateSelectedObject(RenderScene? scene = null)
     {
         _isUpdatingSelection = true;
@@ -274,12 +400,6 @@ public partial class MainWindowViewModel : ObservableObject
             SelectionIsConnection = SelectedConnection is not null;
             SelectionSupportsStyle = SelectionIsBlock || SelectionIsConnection;
             HasBoardSelection = SelectionIsBlock || SelectionIsConnection || SelectedSwimLane is not null;
-            string? currentSelectionKey = SelectedBlock?.Key
-                ?? SelectedConnection?.Id.ToString()
-                ?? SelectedSwimLane?.Key;
-            if (HasBoardSelection && !string.Equals(_lastSelectionKey, currentSelectionKey, StringComparison.Ordinal))
-                SelectedRightTabIndex = 0;
-            _lastSelectionKey = currentSelectionKey;
 
             Type? targetInspectorType = null;
             if (SelectedBlock is not null)
@@ -490,7 +610,7 @@ public partial class MainWindowViewModel : ObservableObject
         SelectedObjectHeight = "--";
     }
 
-    partial void OnSceneChanged(RenderScene value)
+    private void HandleSceneChanged(RenderScene value)
     {
         UpdateSelectedObject(value);
         RefreshBoardDetails();

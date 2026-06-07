@@ -85,6 +85,44 @@ public sealed partial class MainWindowViewModel
     }
 
     [RelayCommand]
+    public async Task AddOutlineCardAsync()
+    {
+        await AddOutlineCardAtAsync(null, null);
+    }
+
+    /// <summary>
+    /// Drops a fresh, editable bulleted/outline block on the canvas (the Logseq-style bullet
+    /// list). It is a Text block with <see cref="BoardItemStyle.OutlineEnabled"/> set, so the
+    /// in-canvas editor drives it through the same <c>OutlineEditController</c> as a Page —
+    /// Tab/Shift+Tab indent, Enter continues the bullet, etc. Seeding the body with "- " shows a
+    /// bullet immediately and parks the caret right after the prefix on edit.
+    /// </summary>
+    public async Task AddOutlineCardAtAsync(double? worldX, double? worldY, string? seedText = null)
+    {
+        var id = Guid.NewGuid();
+        double defaultX = 180 + Scene.Blocks.Count * 22;
+        double defaultY = 120 + Scene.Blocks.Count * 18;
+        double x = worldX ?? defaultX;
+        double y = worldY ?? defaultY;
+        if (worldX.HasValue) x -= 140; // center on click
+        if (worldY.HasValue) y -= 65;
+        string body = "- " + (seedText ?? string.Empty).Trim();
+        var outline = new RenderBlock(
+            id, $"outline::{id:N}", BlockKind.Text,
+            "Outline", string.Empty,
+            x, y, 280, 130,
+            Body: body,
+            IsSelected: true,
+            ZIndex: NextBlockZIndex(),
+            LayerKey: "layer::architecture",
+            Style: new BoardItemStyle(Fill: "#FFFFFF", Stroke: "#CBD5E1", Text: "#111827", TextAlign: "Left", VerticalAlign: "Top", FontSize: 14, OutlineEnabled: true));
+        var outlineBlocks = Scene.Blocks.Select(b => b with { IsSelected = false }).Append(outline).ToList();
+        SetSceneFromUserAction(Scene with { Blocks = outlineBlocks }, "Added outline");
+        RequestPostCreateEdit(BlockKind.Text);
+        await PersistSessionAsync();
+    }
+
+    [RelayCommand]
     public async Task PlaceCanvasItemAsync(ItemPlacementArgs? args)
     {
         if (args is null) return;
@@ -96,16 +134,31 @@ public sealed partial class MainWindowViewModel
             case "note":
                 await AddNoteCardAtAsync(args.WorldX, args.WorldY);
                 break;
+            case "outline":
+                await AddOutlineCardAtAsync(args.WorldX, args.WorldY);
+                break;
         }
     }
 
     // -----------------------------------------------------------------------
-    // Transclusion (block reference) — mirror an outline bullet onto the canvas
+    // Insert palette ("Search blocks") — Logseq whiteboard-style unified create/insert.
+    // One search box that offers: create a New block / New page / New whiteboard from the typed
+    // text, OR drop an existing bullet from any page/journal onto the canvas (transclusion).
     // -----------------------------------------------------------------------
 
-    /// <summary>Opens the block-reference picker, (re)populating it with every bullet across all
-    /// outline documents. The user picks one; <see cref="AddTransclusionAsync"/> creates a live,
-    /// read-only mirror of it on the canvas.</summary>
+    /// <summary>The trimmed query typed into the palette search box.</summary>
+    public string PaletteQuery => (TransclusionPickerFilter ?? string.Empty).Trim();
+
+    /// <summary>True once something is typed, so the "New …" action rows become available.</summary>
+    public bool HasPaletteQuery => PaletteQuery.Length > 0;
+
+    public string PaletteNewBlockLabel => $"New block:  {PaletteQuery}";
+    public string PaletteNewPageLabel => $"New page:  {PaletteQuery}";
+    public string PaletteNewWhiteboardLabel => $"New whiteboard:  {PaletteQuery}";
+
+    /// <summary>Opens the insert palette, (re)populating it with every bullet across all
+    /// outline documents. The user can create a new block/page/board from the query, or pick an
+    /// existing bullet which <see cref="AddTransclusionAsync"/> mirrors live onto the canvas.</summary>
     [RelayCommand]
     public void OpenTransclusionPicker()
     {
@@ -113,6 +166,66 @@ public sealed partial class MainWindowViewModel
         TransclusionPickerFilter = string.Empty;
         RebuildTransclusionCandidates();
         IsTransclusionPickerOpen = true;
+    }
+
+    /// <summary>"New block: {query}" — drop a fresh, editable bullet block holding the typed text
+    /// on the canvas, then close the palette and drop into editing.</summary>
+    [RelayCommand]
+    public async Task PaletteNewBlockAsync()
+    {
+        if (!IsCanvasDocumentActive) return;
+        string text = PaletteQuery;
+        CloseTransclusionPicker();
+        await AddOutlineCardAtAsync(null, null, text);
+    }
+
+    /// <summary>"New page: {query}" — create a Page with that name in the project (no navigation;
+    /// you stay on the canvas). No-op on a duplicate name.</summary>
+    [RelayCommand]
+    public async Task PaletteNewPageAsync()
+    {
+        string name = PaletteQuery;
+        if (name.Length == 0) return;
+        CloseTransclusionPicker();
+        await CreateDocumentInBackgroundAsync(name, DocumentKind.Page);
+    }
+
+    /// <summary>"New whiteboard: {query}" — create a Canvas/board with that name in the project
+    /// (no navigation; you stay on the current canvas). No-op on a duplicate name.</summary>
+    [RelayCommand]
+    public async Task PaletteNewWhiteboardAsync()
+    {
+        string name = PaletteQuery;
+        if (name.Length == 0) return;
+        CloseTransclusionPicker();
+        await CreateDocumentInBackgroundAsync(name, DocumentKind.Canvas);
+    }
+
+    /// <summary>Create a Page/Journal/Canvas with the given name and persist it, WITHOUT activating
+    /// it — used by the palette's "create only, stay on canvas" actions. Skips creation when a
+    /// document of the same kind+name already exists.</summary>
+    private async Task CreateDocumentInBackgroundAsync(string name, DocumentKind kind)
+    {
+        var workspace = EnsureBoardWorkspace();
+        if (Sessions.Any(s => s.Kind == kind && string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            StatusMessage = $"{kind} already exists: {name}";
+            return;
+        }
+
+        ReviewSession doc = kind == DocumentKind.Canvas
+            ? new ReviewSession(
+                Guid.NewGuid(), name, workspace.WorkspaceKey,
+                Array.Empty<BlockPlacement>(), Array.Empty<ConnectionSnapshot>(),
+                Array.Empty<AnnotationSnapshot>(), Array.Empty<SwimLaneSnapshot>(),
+                DateTimeOffset.UtcNow, DefaultBoardLayers())
+            : NewOutlineSession(name, workspace.WorkspaceKey, kind);
+
+        SessionSpawnAnimationId = doc.Id;
+        Sessions.Add(doc);
+        await _sessions.SaveSessionAsync(doc, CancellationToken.None);
+        await _sessions.SaveSessionOrderAsync(workspace.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), CancellationToken.None);
+        StatusMessage = $"Created {kind}: {name}";
     }
 
     [RelayCommand]
@@ -132,6 +245,16 @@ public sealed partial class MainWindowViewModel
     {
         TransclusionCandidates.Clear();
         string filter = TransclusionPickerFilter?.Trim() ?? string.Empty;
+
+        // Whole-page portals first: each page/journal as a draggable entry (Logseq drag-a-page).
+        foreach (var doc in Sessions.Where(s => s.Kind != DocumentKind.Canvas))
+        {
+            if (filter.Length > 0 && !doc.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                continue;
+            TransclusionCandidates.Add(new TransclusionCandidateViewModel(
+                doc.Id, $"Embed whole {doc.Kind.ToString().ToLowerInvariant()}", -1, null, doc.Name, 0,
+                isPage: true, pageName: doc.Name));
+        }
 
         foreach (var doc in Sessions.Where(s => s.Kind != DocumentKind.Canvas))
         {
@@ -213,6 +336,14 @@ public sealed partial class MainWindowViewModel
     public async Task AddTransclusionAtAsync(TransclusionCandidateViewModel? candidate, double? worldX, double? worldY)
     {
         if (candidate is null) return;
+
+        // Whole-page portal: embed the entire page outline as a live read-only card.
+        if (candidate.IsPage && candidate.PageName is { Length: > 0 } pageName)
+        {
+            await AddPagePortalAtAsync(pageName, worldX, worldY);
+            return;
+        }
+
         var doc = Sessions.FirstOrDefault(s => s.Id == candidate.DocumentId);
         if (doc is null) return;
 
@@ -251,6 +382,63 @@ public sealed partial class MainWindowViewModel
         });
         SetSceneFromUserAction(resolved, "Added block reference");
         await PersistSessionAsync();
+    }
+
+    /// <summary>Drops a page-portal Transclusion on the canvas: a live, read-only card embedding the
+    /// named page's entire outline. The body is re-resolved on activation so it stays current.</summary>
+    public async Task AddPagePortalAtAsync(string pageName, double? worldX, double? worldY)
+    {
+        if (string.IsNullOrWhiteSpace(pageName)) return;
+
+        IsTransclusionPickerOpen = false;
+        TransclusionCandidates.Clear();
+
+        const double width = 380, height = 320;
+        double x = worldX.HasValue ? worldX.Value - width / 2 : 180 + Scene.Blocks.Count * 22;
+        double y = worldY.HasValue ? worldY.Value - height / 2 : 140 + Scene.Blocks.Count * 18;
+
+        var id = Guid.NewGuid();
+        var block = new RenderBlock(
+            id, $"transclusion::{id:N}", BlockKind.Transclusion,
+            "Page reference", pageName,
+            x, y, width, height,
+            IsSelected: true,
+            LayerKey: "layer::notes",
+            ShapeType: "transclusion",
+            Style: new BoardItemStyle(Fill: "#F8FAFC", Stroke: "#10B981", Text: "#111827", TextAlign: "Left", VerticalAlign: "Top", FontSize: 14, OutlineEnabled: true),
+            RefPageName: pageName);
+
+        var resolved = ResolveTransclusions(Scene with
+        {
+            Blocks = Scene.Blocks.Select(b => b with { IsSelected = false }).Append(block).ToList()
+        });
+        SetSceneFromUserAction(resolved, "Added page portal");
+        await PersistSessionAsync();
+    }
+
+    /// <summary>
+    /// Write-back from an in-place page-portal edit: update the SOURCE page's outline, persist it,
+    /// and re-resolve the canvas so every portal of that page reflects the change. The portal
+    /// block's own body is never persisted (it's always re-resolved), so the page is the single
+    /// source of truth — edit it through a portal or on its page, both stay in sync.
+    /// </summary>
+    public async Task OnPagePortalEditedAsync(string pageName, string body)
+    {
+        if (string.IsNullOrWhiteSpace(pageName)) return;
+        var page = Sessions.FirstOrDefault(s =>
+            s.Kind != DocumentKind.Canvas && string.Equals(s.Name, pageName, StringComparison.OrdinalIgnoreCase));
+        if (page is null) return;
+
+        string normalized = (body ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
+        if (string.Equals(page.OutlineBody ?? string.Empty, normalized, StringComparison.Ordinal))
+            return; // nothing changed
+
+        var updated = page with { OutlineBody = normalized, UpdatedAt = DateTimeOffset.UtcNow };
+        ReplaceSession(page, updated);
+        await _sessions.SaveSessionAsync(updated, CancellationToken.None);
+
+        // Refresh every portal of this page currently on the canvas.
+        Scene = ResolveTransclusions(Scene);
     }
 
     [RelayCommand]
@@ -625,9 +813,18 @@ public sealed partial class MainWindowViewModel
             return;
 
         if (!Clipboard.ContainsText()) return;
+        string clipboardText = Clipboard.GetText();
+
+        // A pasted Mermaid flowchart is recreated as native blocks + connectors at the cursor.
+        if (Domain.Mermaid.MermaidFlowchartParser.TryParse(clipboardText, out _))
+        {
+            await ImportMermaidTextAsync(clipboardText, x, y);
+            return;
+        }
+
         try
         {
-            var payload = ReadBoardClipboardPayload(Clipboard.GetText());
+            var payload = ReadBoardClipboardPayload(clipboardText);
             if (payload.Blocks.Count == 0) return;
             var pasted = DuplicateClipboardPayload(payload, x, y);
             SetSceneFromUserAction(

@@ -12,6 +12,10 @@ public enum ConnectionEndpointKind { None, Source, Target }
 public enum NoteResizeCorner { None, TopLeft, TopRight, BottomLeft, BottomRight }
 public enum CanvasBackgroundMode { Dots, Grid }
 
+/// <summary>How shape outlines/fills are rendered. <see cref="Sketch"/> is the hand-drawn,
+/// perturbed "whiteboard" look; <see cref="Vector"/> is a crisp, precise look.</summary>
+public enum ShapeRenderStyle { Sketch, Vector }
+
 /// <summary>
 /// What kind of document a <see cref="ReviewSession"/> represents in the project registry.
 /// Canvas = the freeform board (blocks/connections); Page = a named Logseq-style outline;
@@ -40,6 +44,34 @@ public sealed record SemanticTokenSpan(int Line, int Column, int Length, Semanti
 public sealed record MethodStructureInfo(string Name, string Kind, string Signature, int StartLine, int StartColumn, int EndLine, int EndColumn);
 public sealed record TypeStructureInfo(string Name, string Kind, int StartLine, int StartColumn, int EndLine, int EndColumn, IReadOnlyList<MethodStructureInfo> Methods);
 public sealed record FileStructureInfo(string FilePath, IReadOnlyList<TypeStructureInfo> Types);
+
+// --- Reading-progress tracking ---
+
+/// <summary>
+/// A contiguous, 1-based <b>inclusive</b> span of source lines the user has marked as read.
+/// This is the canonical unit of reading progress; symbol- and file-level marking, the green
+/// line tint, and any future coverage metric are all projections of a set of these.
+/// </summary>
+public sealed record ReviewedRange(int StartLine, int EndLine);
+
+/// <summary>
+/// Reviewed state for a single file, scoped to a workspace+branch (the branch is already encoded
+/// in the owning <see cref="WorkspaceSnapshot.WorkspaceKey"/>). <see cref="ContentHash"/> is the
+/// hash of the file text at the moment ranges were last recorded; a mismatch when the file is next
+/// read means the file changed underneath us and the ranges should be treated as <i>stale</i>
+/// (rendered differently) rather than silently trusted.
+/// </summary>
+public sealed record FileReviewProgress(
+    string RelativePath,
+    string ContentHash,
+    IReadOnlyList<ReviewedRange> Ranges,
+    DateTimeOffset UpdatedAt);
+
+/// <summary>Immutable view of every reviewed file in a workspace, keyed by normalized relative path.</summary>
+public sealed record ReviewProgressSnapshot(IReadOnlyDictionary<string, FileReviewProgress> Files)
+{
+    public static ReviewProgressSnapshot Empty { get; } = new(new Dictionary<string, FileReviewProgress>(StringComparer.OrdinalIgnoreCase));
+}
 
 // --- Session data (persisted) ---
 
@@ -71,7 +103,10 @@ public sealed record BlockPlacement(
     // For BlockKind.Transclusion: the persistent ^anchor id of the source bullet this block
     // mirrors. The mirrored text itself is NOT persisted (it's re-resolved on load); only this
     // pointer is, so the transclusion stays live when the source bullet changes.
-    string? RefAnchorId = null);
+    string? RefAnchorId = null,
+    // For a Transclusion that embeds a WHOLE page (Logseq "page portal"): the referenced page's
+    // name. When set, the block mirrors that page's entire outline (re-resolved on load = live).
+    string? RefPageName = null);
 
 public sealed record FocusedRange(
     int StartLine,
@@ -114,7 +149,10 @@ public sealed record BoardItemStyle(
     double SpacingRight = 4,
     double SpacingBottom = 4,
     double SpacingLeft = 4,
-    double HatchOpacity = 0.6);
+    double HatchOpacity = 0.6,
+    // Per-shape render style override. null = inherit the canvas-wide default; "sketch" / "vector"
+    // force that look for this shape regardless of the global setting.
+    string? RenderStyle = null);
 
 public sealed record BoardSourceBinding(
     string? AssetPath = null,
@@ -227,7 +265,19 @@ public sealed record RenderBlock(
     IReadOnlyList<string>? WikiLinks = null,
     // For BlockKind.Transclusion: the source bullet's persistent ^anchor id. Body carries the
     // resolved (mirrored) markdown for rendering; this pointer is what gets persisted.
-    string? RefAnchorId = null);
+    string? RefAnchorId = null,
+    // For a page-portal Transclusion: the embedded page's name. Body carries the resolved page
+    // outline for rendering; this pointer is what gets persisted.
+    string? RefPageName = null);
+
+/// <summary>
+/// Reading-progress overlay for a single file, resolved live at render time (not persisted in the
+/// scene): the reviewed source-line spans plus whether the file changed since they were recorded.
+/// </summary>
+public sealed record ReviewedFileState(IReadOnlyList<ReviewedRange> Ranges, bool IsStale)
+{
+    public static ReviewedFileState None { get; } = new(Array.Empty<ReviewedRange>(), false);
+}
 
 public sealed record RenderConnection(
     Guid Id,

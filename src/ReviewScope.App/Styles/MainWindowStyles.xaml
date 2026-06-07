@@ -20,6 +20,18 @@
                     <Setter Property="Stroke" Value="{StaticResource AccentBrush}"/>
                     <Setter Property="Data" Value="M2.5,4.5 H6 L7.4,6 H13.5 V12.5 H2.5 Z M4.5,2.5 H9.5 V4.5 H4.5 Z"/>
                 </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="board">
+                    <Setter Property="Stroke" Value="{StaticResource AccentBrush}"/>
+                    <Setter Property="Data" Value="M2.5,3.5 H13.5 V12.5 H2.5 Z M2.5,6.5 H13.5 M6.5,6.5 V12.5"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="page">
+                    <Setter Property="Stroke" Value="#0F766E"/>
+                    <Setter Property="Data" Value="M4,2.5 H9.5 L12.5,5.5 V13.5 H4 Z M9.5,2.5 V5.5 H12.5 M6,8 H10.5 M6,10.5 H9.5"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IconKind}" Value="journal">
+                    <Setter Property="Stroke" Value="#B7791F"/>
+                    <Setter Property="Data" Value="M3.5,4 H12.5 V13 H3.5 Z M3.5,6.5 H12.5 M6,2.8 V4.8 M10,2.8 V4.8 M6,9 H10"/>
+                </DataTrigger>
                 <DataTrigger Binding="{Binding IconKind}" Value="folder">
                     <Setter Property="Stroke" Value="{StaticResource SubtleForeground}"/>
                     <Setter Property="Data" Value="M2.5,5 H6 L7.4,6.5 H13.5 V12.5 H2.5 Z"/>
@@ -173,16 +185,17 @@
                                     CornerRadius="4"
                                     Padding="{TemplateBinding Padding}"
                                     MinHeight="{TemplateBinding MinHeight}">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="14"/>
+                                        </Grid.ColumnDefinitions>
                                     <ContentPresenter ContentSource="Header"
                                                       RecognizesAccessKey="True"
                                                       TextElement.Foreground="{TemplateBinding Foreground}"
-                                                      VerticalAlignment="Center"/>
+                                                      VerticalAlignment="Center"
+                                                      HorizontalAlignment="Stretch"/>
                                     <TextBlock Grid.Column="1"
                                                Text="{TemplateBinding InputGestureText}"
                                                Foreground="{StaticResource MutedForeground}"
@@ -202,21 +215,23 @@
                                           Margin="6,0,0,0"
                                           Stretch="Uniform"
                                           Visibility="Collapsed"
-                                          VerticalAlignment="Center"/>
+                                          VerticalAlignment="Center"
+                                          HorizontalAlignment="Right"/>
                                 </Grid>
                             </Border>
                             <Popup x:Name="PART_Popup"
                                    IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
                                    PlacementTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}"
                                    AllowsTransparency="True"
-                                   Focusable="False"
+                                   Focusable="True"
                                    PopupAnimation="Fade"
+                                   StaysOpen="True"
                                    Placement="Bottom">
                                 <Border Background="{StaticResource PanelBg}"
                                         BorderBrush="{StaticResource PanelBorder}"
                                         BorderThickness="1"
                                         CornerRadius="5"
-                                        MinWidth="180"
+                                        MinWidth="220"
                                         Padding="5"
                                         SnapsToDevicePixels="True">
                                     <Border.Effect>
@@ -245,6 +260,10 @@
                             <Trigger Property="Role" Value="SubmenuHeader">
                                 <Setter TargetName="PART_Popup" Property="Placement" Value="Right"/>
                                 <Setter TargetName="SubmenuArrow" Property="Visibility" Value="Visible"/>
+                                <Setter Property="MinWidth" Value="204"/>
+                            </Trigger>
+                            <Trigger Property="Role" Value="SubmenuItem">
+                                <Setter Property="MinWidth" Value="204"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.45"/>

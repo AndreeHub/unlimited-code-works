@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using ReviewScope.Domain;
 using System.Collections.ObjectModel;
 using System.IO;
 
@@ -80,6 +81,43 @@ public sealed partial class FileExplorerItemViewModel : ObservableObject
     }
 }
 
+public sealed partial class ProjectBrowserItemViewModel : ObservableObject
+{
+    [ObservableProperty] private bool _isExpanded = true;
+
+    private ProjectBrowserItemViewModel(string name, string iconKind, string kindLabel, ReviewSession? session = null)
+    {
+        Name = name;
+        IconKind = iconKind;
+        KindLabel = kindLabel;
+        Session = session;
+    }
+
+    public string Name { get; }
+    public string IconKind { get; }
+    public string KindLabel { get; }
+    public ReviewSession? Session { get; }
+    public bool IsDocument => Session is not null;
+
+    public ObservableCollection<ProjectBrowserItemViewModel> Children { get; } = new();
+
+    public static ProjectBrowserItemViewModel Project(string name) => new(name, "project", "UBW Project");
+
+    public static ProjectBrowserItemViewModel Group(string name, string iconKind) => new(name, iconKind, name);
+
+    public static ProjectBrowserItemViewModel Document(ReviewSession session)
+    {
+        string iconKind = session.Kind switch
+        {
+            DocumentKind.Canvas => "board",
+            DocumentKind.Journal => "journal",
+            _ => "page"
+        };
+
+        return new ProjectBrowserItemViewModel(session.Name, iconKind, session.Kind.ToString(), session);
+    }
+}
+
 public sealed partial class SymbolExplorerItemViewModel : ObservableObject
 {
     [ObservableProperty] private bool _isExpanded;
@@ -152,7 +190,8 @@ public sealed class BoardFileUsageViewModel
 /// demand if the bullet doesn't have one yet.</summary>
 public sealed class TransclusionCandidateViewModel
 {
-    public TransclusionCandidateViewModel(Guid documentId, string documentName, int lineIndex, string? anchorId, string preview, int depth)
+    public TransclusionCandidateViewModel(Guid documentId, string documentName, int lineIndex, string? anchorId, string preview, int depth,
+        bool isPage = false, string? pageName = null)
     {
         DocumentId = documentId;
         DocumentName = documentName;
@@ -160,6 +199,8 @@ public sealed class TransclusionCandidateViewModel
         AnchorId = anchorId;
         Preview = preview;
         Depth = depth;
+        IsPage = isPage;
+        PageName = pageName;
     }
 
     public Guid DocumentId { get; }
@@ -168,6 +209,12 @@ public sealed class TransclusionCandidateViewModel
     public string? AnchorId { get; }
     public string Preview { get; }
     public int Depth { get; }
+
+    /// <summary>True when this entry is a whole PAGE (drops a page portal), not a single bullet.</summary>
+    public bool IsPage { get; }
+
+    /// <summary>The referenced page's name when <see cref="IsPage"/> is true.</summary>
+    public string? PageName { get; }
 
     /// <summary>Visual indent applied in the picker so the bullet hierarchy reads at a glance.</summary>
     public System.Windows.Thickness Indent => new(Depth * 14.0, 0, 0, 0);

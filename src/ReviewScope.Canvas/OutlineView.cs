@@ -39,7 +39,14 @@ public sealed partial class OutlineView : HwndHost
     // Logseq-style centered writing column: cap the text width and center it in the window
     // rather than letting lines run the full width.
     private const float MaxContentWidth = 720f;
-    private const float FontSize = 15.5f;
+    // Body size at 1.0 zoom. The effective size scales with a user-controlled zoom factor; every
+    // layout/hit-test/scroll path reads the FontSize property, so they all track zoom in lockstep.
+    private const float BaseFontSize = 15.5f;
+    private const float MinZoom = 0.6f;
+    private const float MaxZoom = 3.0f;
+    private const float ZoomStep = 0.1f;
+    private float _zoom = 1f;
+    private float FontSize => BaseFontSize * _zoom;
     private const string FontFamily = "Segoe UI";
     // Body text + page background are theme-driven (see CanvasTheme) so the outliner
     // tracks the rest of the chrome between light and dark.
@@ -182,7 +189,10 @@ public sealed partial class OutlineView : HwndHost
             // single, unambiguous execution, exactly like the Tab path above.
             bool ctrl = modifiers.HasFlag(System.Windows.Input.ModifierKeys.Control);
             bool alt = modifiers.HasFlag(System.Windows.Input.ModifierKeys.Alt);
-            if (ctrl && !alt && vk is 0x43 or 0x58 or 0x56 or 0x41 or 0x42 or 0x49 or 0x45) // C X V A B I E
+            // C X V A B I E (clipboard/format/select) + zoom keys (= - 0, NumPad +/-/0). Claim them
+            // here so the host window's accelerators don't swallow them before our WndProc runs.
+            if (ctrl && !alt && vk is 0x43 or 0x58 or 0x56 or 0x41 or 0x42 or 0x49 or 0x45
+                                    or 0xBB or 0xBD or 0x30 or 0x6B or 0x6D or 0x60)
             {
                 OnKeyDown(vk);
                 return true;
@@ -455,8 +465,34 @@ public sealed partial class OutlineView : HwndHost
 
     private void OnWheel(int delta)
     {
+        // Ctrl+wheel magnifies the writing column (Logseq/browser-style zoom); plain wheel scrolls.
+        bool ctrl = (NativeMethods.GetKeyState(0x11) & 0x8000) != 0;
+        if (ctrl) { AdjustZoom(delta > 0 ? ZoomStep : -ZoomStep); return; }
+
         _scrollY -= delta / 120f * 3f * FontSize;
         if (_scrollY < 0) _scrollY = 0;
+        RenderNative();
+    }
+
+    /// <summary>Current zoom factor (1.0 = 100%). Clamped to [MinZoom, MaxZoom].</summary>
+    public float Zoom => _zoom;
+
+    /// <summary>Nudge the zoom factor by <paramref name="delta"/>, clamped; repaints if it changed.</summary>
+    public void AdjustZoom(float delta)
+    {
+        float next = Math.Clamp(_zoom + delta, MinZoom, MaxZoom);
+        if (Math.Abs(next - _zoom) < 0.0001f) return;
+        _zoom = next;
+        EnsureCaretVisible();
+        RenderNative();
+    }
+
+    /// <summary>Reset zoom to 100%.</summary>
+    public void ResetZoom()
+    {
+        if (Math.Abs(_zoom - 1f) < 0.0001f) return;
+        _zoom = 1f;
+        EnsureCaretVisible();
         RenderNative();
     }
 
@@ -507,7 +543,9 @@ public sealed partial class OutlineView : HwndHost
     {
         ClientSize(out int viewW, out _);
         float usable = Math.Max(8f, viewW - ScrollbarW - PadLeft * 2);
-        contentW = Math.Min(MaxContentWidth, usable);
+        // Scale the writing column with zoom so characters-per-line stays roughly constant as the
+        // text magnifies (browser-zoom feel), capped by the available width.
+        contentW = Math.Min(MaxContentWidth * _zoom, usable);
         contentX = Math.Max(PadLeft, (viewW - ScrollbarW - contentW) / 2f);
     }
 
@@ -529,6 +567,12 @@ public sealed partial class OutlineView : HwndHost
         {
             switch (vk)
             {
+                // Zoom: Ctrl + '='/NumPad+ in, Ctrl + '-'/NumPad- out, Ctrl + 0/NumPad0 reset.
+                // These don't edit the document, so they return without AfterEdit.
+                case 0xBB or 0x6B: AdjustZoom(+ZoomStep); return;
+                case 0xBD or 0x6D: AdjustZoom(-ZoomStep); return;
+                case 0x30 or 0x60: ResetZoom(); return;
+
                 case 0x41: _edit.SelectAll(); break;                    // A
                 case 0x42: _edit.WrapSelection("**", "**"); break;      // B
                 case 0x49: _edit.WrapSelection("*", "*"); break;        // I

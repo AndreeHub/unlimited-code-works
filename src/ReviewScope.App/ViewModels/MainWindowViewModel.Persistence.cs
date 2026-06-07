@@ -15,6 +15,9 @@ public sealed partial class MainWindowViewModel
     };
 
     [RelayCommand]
+    public async Task OpenProjectAsync() => await LoadWorkAsync();
+
+    [RelayCommand]
     public async Task SaveWorkAsync()
     {
         await EnsureActiveBoardAsync();
@@ -36,11 +39,13 @@ public sealed partial class MainWindowViewModel
 
         await SaveActiveSessionNowAsync(showStatus: false);
 
-        string workspaceName = _currentSnapshot?.DisplayName ?? "Untitled Boards";
+        string workspaceName = string.IsNullOrWhiteSpace(UbwProjectName)
+            ? _currentSnapshot?.DisplayName ?? "Untitled Boards"
+            : UbwProjectName;
         var dlg = new SaveFileDialog
         {
-            Title = "Save ReviewScope Boards",
-            Filter = "ReviewScope Boards|*.reviewscope.json|JSON|*.json",
+            Title = "Save UBW Project",
+            Filter = "UBW Projects|*.reviewscope.json|JSON|*.json",
             DefaultExt = ".reviewscope.json",
             AddExtension = true,
             FileName = SanitizeFileName($"{workspaceName}-boards")
@@ -49,6 +54,7 @@ public sealed partial class MainWindowViewModel
         if (dlg.ShowDialog() != true) return;
 
         _lastBoardFilePath = dlg.FileName;
+        UbwProjectName = ProjectNameFromFile(_lastBoardFilePath);
         await WriteBoardsFileAsync(_lastBoardFilePath);
         StatusMessage = $"Saved {Sessions.Count} board(s): {Path.GetFileName(dlg.FileName)}";
     }
@@ -56,34 +62,14 @@ public sealed partial class MainWindowViewModel
     [RelayCommand]
     public async Task LoadWorkAsync()
     {
-        var dlg = new OpenFileDialog
-        {
-            Title = "Load ReviewScope Boards",
-            Filter = "ReviewScope Boards|*.reviewscope.json;*.json|JSON|*.json|All Files|*.*",
-            CheckFileExists = true
-        };
+        var picked = await PickBoardsFileAsync("Open UBW Project");
+        if (picked is null) return;
 
-        if (dlg.ShowDialog() != true) return;
-
-        ReviewScopeBoardsFile loadedFile;
-        try
-        {
-            loadedFile = await ReadBoardsFileAsync(dlg.FileName);
-        }
-        catch (JsonException ex)
-        {
-            StatusMessage = $"Could not load JSON: {ex.Message}";
-            return;
-        }
-        catch (IOException ex)
-        {
-            StatusMessage = $"Could not read file: {ex.Message}";
-            return;
-        }
+        var (fileName, loadedFile) = picked.Value;
 
         if (loadedFile.Boards.Count == 0)
         {
-            StatusMessage = "Could not load boards.";
+            StatusMessage = "Could not open UBW project.";
             return;
         }
 
@@ -116,10 +102,48 @@ public sealed partial class MainWindowViewModel
         await _sessions.SaveSessionOrderAsync(workspace.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), CancellationToken.None);
         var firstBoard = boards[0];
         SessionSpawnAnimationId = firstBoard.Id;
-        _lastBoardFilePath = dlg.FileName;
+        _lastBoardFilePath = fileName;
+        UbwProjectName = ProjectNameFromFile(fileName);
         await ActivateSessionAsync(firstBoard);
 
-        StatusMessage = $"Loaded {boards.Count} board(s): {Path.GetFileName(dlg.FileName)}";
+        StatusMessage = $"Opened UBW project: {Path.GetFileName(fileName)}";
+    }
+
+    [RelayCommand]
+    public async Task ImportProjectAsync()
+    {
+        var picked = await PickBoardsFileAsync("Import From UBW Project");
+        if (picked is null) return;
+
+        var (fileName, loadedFile) = picked.Value;
+        if (loadedFile.Boards.Count == 0)
+        {
+            StatusMessage = "Could not import UBW project.";
+            return;
+        }
+
+        var workspace = EnsureBoardWorkspace();
+        var imported = new List<ReviewSession>();
+        foreach (var loaded in loadedFile.Boards)
+        {
+            var copy = loaded with
+            {
+                Id = Guid.NewGuid(),
+                Name = UniqueImportedBoardName(loaded.Name, imported),
+                WorkspaceKey = workspace.WorkspaceKey,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+
+            imported.Add(copy);
+            Sessions.Add(copy);
+            await _sessions.SaveSessionAsync(copy, CancellationToken.None);
+        }
+
+        await _sessions.SaveSessionOrderAsync(workspace.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), CancellationToken.None);
+        if (imported.Count > 0)
+            await ActivateSessionAsync(imported[0], hydrateCode: false);
+
+        StatusMessage = $"Imported {imported.Count} document(s) from {Path.GetFileName(fileName)}";
     }
 
     [RelayCommand]
@@ -147,7 +171,9 @@ public sealed partial class MainWindowViewModel
 
     private async Task WriteBoardsFileAsync(string path)
     {
-        string workspaceName = _currentSnapshot?.DisplayName ?? "Untitled Boards";
+        string workspaceName = string.IsNullOrWhiteSpace(UbwProjectName)
+            ? _currentSnapshot?.DisplayName ?? "Untitled Boards"
+            : UbwProjectName;
         var boardFile = new ReviewScopeBoardsFile
         {
             SchemaVersion = 1,
@@ -162,6 +188,33 @@ public sealed partial class MainWindowViewModel
 
         await using var stream = File.Create(path);
         await JsonSerializer.SerializeAsync(stream, boardFile, BoardFileJsonOptions);
+    }
+
+    private async Task<(string FileName, ReviewScopeBoardsFile Boards)?> PickBoardsFileAsync(string title)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Title = title,
+            Filter = "UBW Projects|*.reviewscope.json;*.json|JSON|*.json|All Files|*.*",
+            CheckFileExists = true
+        };
+
+        if (dlg.ShowDialog() != true) return null;
+
+        try
+        {
+            return (dlg.FileName, await ReadBoardsFileAsync(dlg.FileName));
+        }
+        catch (JsonException ex)
+        {
+            StatusMessage = $"Could not load JSON: {ex.Message}";
+            return null;
+        }
+        catch (IOException ex)
+        {
+            StatusMessage = $"Could not read file: {ex.Message}";
+            return null;
+        }
     }
 
     private static async Task<ReviewScopeBoardsFile> ReadBoardsFileAsync(string path)
@@ -233,6 +286,15 @@ public sealed partial class MainWindowViewModel
         foreach (char c in Path.GetInvalidFileNameChars())
             safe = safe.Replace(c, '-');
         return safe;
+    }
+
+    private static string ProjectNameFromFile(string path)
+    {
+        string name = Path.GetFileNameWithoutExtension(path);
+        const string suffix = ".reviewscope";
+        if (name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            name = name[..^suffix.Length];
+        return string.IsNullOrWhiteSpace(name) ? "Untitled Boards" : name;
     }
 
     private sealed class ReviewScopeBoardsFile

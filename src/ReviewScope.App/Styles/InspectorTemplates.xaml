@@ -934,6 +934,15 @@
         <StackPanel Margin="0,0,0,12">
             <Expander Header="Style" IsExpanded="True" Margin="0,0,0,8">
                 <StackPanel Margin="0,8,0,0">
+                    <!-- Render look: Auto follows the canvas-wide default; Drawn / Sleek override per shape -->
+                    <TextBlock Text="Shape Style" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <ListBox SelectedValue="{Binding RenderStyle, Mode=TwoWay}" Style="{StaticResource SegmentedListBoxStyle3}" SelectedValuePath="Tag" Margin="0,0,0,8"
+                             ToolTip="Auto follows the canvas-wide setting (View settings ▸ Sleek shapes). Drawn = hand-drawn, Sleek = crisp vector.">
+                        <ListBoxItem Content="Auto" Tag="auto"/>
+                        <ListBoxItem Content="Drawn" Tag="sketch"/>
+                        <ListBoxItem Content="Sleek" Tag="vector"/>
+                    </ListBox>
+
                     <!-- Stroke Color -->
                     <TextBlock Text="Line / Border Color" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <ListBox SelectedValue="{Binding Stroke, Mode=TwoWay}" Style="{StaticResource SwatchListBoxStyle}" SelectedValuePath="Tag" Margin="0,0,0,6">
@@ -1087,8 +1096,48 @@
                                FontSize="10.5" Foreground="{StaticResource MutedForeground}" TextWrapping="Wrap" Margin="0,4,0,0"/>
                 </StackPanel>
             </Expander>
-            <TextBlock Text="Detailed typography options will appear here for shapes that support rich labels."
-                       FontSize="10.5" Foreground="{StaticResource MutedForeground}" TextWrapping="Wrap" Margin="2,8,0,0"/>
+
+            <Expander Header="Typography" IsExpanded="True" Margin="0,0,0,8">
+                <StackPanel Margin="0,8,0,0">
+                    <!-- Font size -->
+                    <TextBlock Text="Font Size" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBox Text="{Binding FontSize, UpdateSourceTrigger=PropertyChanged, StringFormat={}{0:0}}" Width="48" Height="26" Padding="6,2" FontSize="11" TextAlignment="Right" VerticalContentAlignment="Center"/>
+                        <TextBlock Text="px" VerticalAlignment="Center" Margin="4,0,0,0" FontSize="11" Foreground="{StaticResource SubtleForeground}"/>
+                    </StackPanel>
+
+                    <!-- Horizontal alignment -->
+                    <TextBlock Text="Horizontal Alignment" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,2,0,4"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <RadioButton Style="{StaticResource AlignRadioStyle}" GroupName="ShapeHAlign" Content="L" ToolTip="Align left" IsChecked="{Binding TextAlignment, Converter={StaticResource StringEqConverter}, ConverterParameter=Left}"/>
+                        <RadioButton Style="{StaticResource AlignRadioStyle}" GroupName="ShapeHAlign" Content="C" ToolTip="Align center" IsChecked="{Binding TextAlignment, Converter={StaticResource StringEqConverter}, ConverterParameter=Center}"/>
+                        <RadioButton Style="{StaticResource AlignRadioStyle}" GroupName="ShapeHAlign" Content="R" ToolTip="Align right" IsChecked="{Binding TextAlignment, Converter={StaticResource StringEqConverter}, ConverterParameter=Right}"/>
+                    </StackPanel>
+
+                    <!-- Vertical alignment -->
+                    <TextBlock Text="Vertical Alignment" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <RadioButton Style="{StaticResource AlignRadioStyle}" GroupName="ShapeVAlign" Content="T" ToolTip="Align top" IsChecked="{Binding VerticalAlignment, Converter={StaticResource StringEqConverter}, ConverterParameter=Top}"/>
+                        <RadioButton Style="{StaticResource AlignRadioStyle}" GroupName="ShapeVAlign" Content="M" ToolTip="Align middle" IsChecked="{Binding VerticalAlignment, Converter={StaticResource StringEqConverter}, ConverterParameter=Middle}"/>
+                        <RadioButton Style="{StaticResource AlignRadioStyle}" GroupName="ShapeVAlign" Content="B" ToolTip="Align bottom" IsChecked="{Binding VerticalAlignment, Converter={StaticResource StringEqConverter}, ConverterParameter=Bottom}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Expander>
+
+            <Expander Header="Text Color" IsExpanded="True" Margin="0,0,0,8">
+                <StackPanel Margin="0,8,0,0">
+                    <ListBox SelectedValue="{Binding TextColor, Mode=TwoWay}" Style="{StaticResource SwatchListBoxStyle}" SelectedValuePath="Tag" Margin="0,0,0,6">
+                        <ListBoxItem Tag="#111827" Background="#111827" ToolTip="Ink"/>
+                        <ListBoxItem Tag="#1E293B" Background="#1E293B" ToolTip="Slate"/>
+                        <ListBoxItem Tag="#475569" Background="#475569" ToolTip="Gray"/>
+                        <ListBoxItem Tag="#FFFFFF" Background="#FFFFFF" ToolTip="White"/>
+                        <ListBoxItem Tag="#0F766E" Background="#0F766E" ToolTip="Deep teal"/>
+                        <ListBoxItem Tag="#2E7DD7" Background="#2E7DD7" ToolTip="Accent"/>
+                        <ListBoxItem Tag="#C2410C" Background="#C2410C" ToolTip="Rust"/>
+                    </ListBox>
+                    <Button Style="{StaticResource ToolButton}" Content="Custom..." Tag="TextColor" Click="OnPickColorForActiveInspector" Height="28" Padding="8,2" HorizontalAlignment="Left"/>
+                </StackPanel>
+            </Expander>
         </StackPanel>
     </DataTemplate>
 

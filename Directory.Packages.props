@@ -12,6 +12,7 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="9.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Msagl" Version="1.1.6" />
     <PackageVersion Include="System.Text.Json" Version="9.0.0" />
     <PackageVersion Include="Vortice.Direct2D1" Version="3.6.2" />
     <PackageVersion Include="Vortice.DXGI" Version="3.6.2" />

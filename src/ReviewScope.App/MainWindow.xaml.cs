@@ -15,7 +15,6 @@ public partial class MainWindow : Window
     private readonly MainWindowViewModel _vm;
     private TextBox? _activeSessionNameEditor;
     private bool _isCompletingSessionRename;
-    private System.Windows.Data.CollectionViewSource? _projectView;
 
     // Code panel dock state (phase: dockable/floating code tools).
     private enum CodeDock { Closed, Right, Left, Floating }
@@ -43,6 +42,9 @@ public partial class MainWindow : Window
         // When scene is mutated inside the canvas (drag, delete, resize), sync back
         CanvasViewport.BlockMovedCommand = new RelayCommand<CanvasSceneChangedArgs>(OnSceneChangedByCanvas);
 
+        // Reading-progress: a gutter drag in a code block toggles reviewed lines.
+        CanvasViewport.ReviewLinesToggledCommand = new RelayCommand<ReviewLinesToggledArgs>(OnReviewLinesToggled);
+
         // After a Text/Note is added (toolbox button, canvas placement, etc), drop
         // straight into in-canvas edit so the user can type immediately.
         vm.PostCreateEditRequested += OnPostCreateEditRequested;
@@ -51,17 +53,21 @@ public partial class MainWindow : Window
         // cards (typography/spacing/alignment), Inspector-tab for notes (their body
         // + sticky color live there).
         CanvasViewport.EditStarted += OnCanvasEditStarted;
+        CanvasViewport.PagePortalEdited += (pageName, body) => _ = _vm.OnPagePortalEditedAsync(pageName, body);
 
         // Feed inline autocomplete (#tag, [[wiki link]]) from the per-workspace
         // TagIndex held by the view-model.
         CanvasViewport.AutocompleteSuggestionsProvider = vm.GetAutocompleteSuggestions;
 
-        // Project browser: an independent grouped view (by document Kind) over the same
-        // Sessions collection, so it doesn't disturb the header strip's default view /
-        // drag-reorder logic.
-        _projectView = new System.Windows.Data.CollectionViewSource { Source = vm.Sessions };
-        _projectView.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription(nameof(ReviewSession.Kind)));
-        ProjectDocList.ItemsSource = _projectView.View;
+        // Reading-progress overlay: resolve a code block's reviewed line spans live from the
+        // workspace-scoped store. Returns None when no workspace is open or the file is untracked.
+        CanvasViewport.ReviewedRangeResolver = filePath =>
+        {
+            string? key = vm.CurrentWorkspaceKey;
+            if (key is null || string.IsNullOrEmpty(filePath)) return ReviewedFileState.None;
+            // GetFileState also flags staleness (file changed since lines were marked) → amber overlay.
+            return vm.ReviewProgress.GetFileState(key, filePath);
+        };
 
         // The code search/extraction tools live in a re-parentable panel (docked right/left or
         // floating). Created once; DataContext pinned to the VM so bindings survive re-parenting.
@@ -88,7 +94,8 @@ public partial class MainWindow : Window
     private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainWindowViewModel.IsCanvasDocumentActive)
-            || e.PropertyName == nameof(MainWindowViewModel.IsOutlineDocumentActive))
+            || e.PropertyName == nameof(MainWindowViewModel.IsOutlineDocumentActive)
+            || e.PropertyName == nameof(MainWindowViewModel.IsSplitViewActive))
             UpdateModeChrome();
     }
 
@@ -126,6 +133,25 @@ public partial class MainWindow : Window
         CodePanelToggle.Background = _codeDock == CodeDock.Closed
             ? System.Windows.Media.Brushes.Transparent
             : (System.Windows.Media.Brush)FindResource("AccentSoft");
+
+        // Center area: canvas | splitter | writing. In split view both panes share the width with a
+        // draggable splitter; otherwise the active mode's pane takes the whole cell.
+        bool split = _vm.IsSplitViewActive;
+        if (split)
+        {
+            SplitCanvasCol.Width = new GridLength(1, GridUnitType.Star);
+            SplitSplitterCol.Width = new GridLength(5);
+            SplitOutlineCol.Width = new GridLength(1, GridUnitType.Star);
+            SplitSplitter.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            bool outline = _vm.IsOutlineDocumentActive;
+            SplitCanvasCol.Width = outline ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+            SplitOutlineCol.Width = outline ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            SplitSplitterCol.Width = new GridLength(0);
+            SplitSplitter.Visibility = Visibility.Collapsed;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -220,11 +246,8 @@ public partial class MainWindow : Window
 
     private void OnNavFilterChanged(object sender, TextChangedEventArgs e)
     {
-        if (_projectView?.View is null) return;
         string q = ProjectNavFilter.Text?.Trim() ?? string.Empty;
-        _projectView.View.Filter = string.IsNullOrEmpty(q)
-            ? null
-            : o => o is ReviewSession s && s.Name.Contains(q, StringComparison.OrdinalIgnoreCase);
+        _vm.RefreshProjectBrowser(q);
     }
 
     // -----------------------------------------------------------------------
@@ -288,10 +311,78 @@ public partial class MainWindow : Window
             ? Array.Empty<string>()
             : s.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-    private async void OnProjectDocSelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void OnProjectDocSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        if (IsLoaded && e.AddedItems.Count > 0)
+        // While the pointer is pressed on an item we defer "open" to the mouse-up handler, so a
+        // press that turns into a drag-to-canvas never opens the page. Keyboard / programmatic
+        // selection changes (no pointer down) still open immediately.
+        if (_docPointerDown) return;
+        if (IsLoaded && e.NewValue is ProjectBrowserItemViewModel { Session: not null } item)
+        {
+            _vm.SelectedSession = item.Session;
             await _vm.ActivateSelectedSessionAsync();
+        }
+    }
+
+    // -------- Project browser: drag a page onto the canvas as a page portal --------
+    // Private in-process clipboard format carrying the dragged page's name.
+    private const string PageDragFormat = "ReviewScope.PageName";
+    private Point _docDragStart;
+    private ReviewSession? _docDragSession;
+    private bool _docPointerDown;
+    private bool _docDragging;
+
+    private void OnDocItemMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        // Let double-click (rename) flow through untouched.
+        if (e.ClickCount >= 2) { _docPointerDown = false; return; }
+        _docDragStart = e.GetPosition(this);
+        _docDragSession = GetSessionFromDataContext((sender as FrameworkElement)?.DataContext);
+        _docPointerDown = _docDragSession is not null;
+        _docDragging = false;
+    }
+
+    private void OnDocItemMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_docPointerDown || _docDragging || e.LeftButton != MouseButtonState.Pressed || _docDragSession is null)
+            return;
+
+        Point pos = e.GetPosition(this);
+        if (Math.Abs(pos.X - _docDragStart.X) < SystemParameters.MinimumHorizontalDragDistance
+            && Math.Abs(pos.Y - _docDragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
+            return;
+
+        // Canvases can't be embedded as a page portal — only Pages / Journals.
+        if (_docDragSession.Kind == DocumentKind.Canvas) { _docPointerDown = false; return; }
+
+        _docDragging = true;
+        var session = _docDragSession;
+        try
+        {
+            var data = new DataObject(PageDragFormat, session.Name);
+            DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy);
+        }
+        finally
+        {
+            _docPointerDown = false;
+            _docDragging = false;
+            _docDragSession = null;
+        }
+    }
+
+    private async void OnDocItemMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        // A plain click (no drag) opens the page — the open we deferred from SelectionChanged.
+        bool wasClick = _docPointerDown && !_docDragging && _docDragSession is not null;
+        var session = _docDragSession;
+        _docPointerDown = false;
+        _docDragging = false;
+        _docDragSession = null;
+        if (wasClick && IsLoaded)
+        {
+            _vm.SelectedSession = session;
+            await _vm.ActivateSelectedSessionAsync();
+        }
     }
 
     private void OnCanvasEditStarted(Domain.BlockKind kind)
@@ -399,10 +490,11 @@ public partial class MainWindow : Window
 
     private void OnSessionDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (GetSessionFromSource(e.OriginalSource as DependencyObject) is not ReviewSession session)
+        var source = e.OriginalSource as DependencyObject;
+        if (GetSessionFromSource(source) is not ReviewSession session)
             return;
 
-        BeginSessionRename(session);
+        BeginSessionRename(session, source);
         e.Handled = true;
     }
 
@@ -431,14 +523,14 @@ public partial class MainWindow : Window
             CompleteSessionRenameAsync(editor, commit: true);
     }
 
-    private void BeginSessionRename(ReviewSession session)
+    private void BeginSessionRename(ReviewSession session, DependencyObject? source)
     {
         if (_activeSessionNameEditor is not null)
             CompleteSessionRenameAsync(_activeSessionNameEditor, commit: true);
 
         _vm.SelectedSession = session;
-        var editor = FindSessionTemplateChild<TextBox>(session, "SessionNameEditor");
-        var label = FindSessionTemplateChild<TextBlock>(session, "SessionNameText");
+        var editor = FindSessionTemplateChild<TextBox>(source, "SessionNameEditor");
+        var label = FindSessionTemplateChild<TextBlock>(source, "SessionNameText");
         if (editor is null || label is null)
             return;
 
@@ -461,10 +553,10 @@ public partial class MainWindow : Window
         _isCompletingSessionRename = true;
         try
         {
-            if (editor.DataContext is not ReviewSession session)
+            if (GetSessionFromDataContext(editor.DataContext) is not ReviewSession session)
                 return;
 
-            var label = FindSessionTemplateChild<TextBlock>(session, "SessionNameText");
+            var label = FindSessionTemplateChild<TextBlock>(editor, "SessionNameText");
             editor.Visibility = Visibility.Collapsed;
             if (label is not null)
                 label.Visibility = Visibility.Visible;
@@ -483,10 +575,11 @@ public partial class MainWindow : Window
         }
     }
 
-    // Rename now happens in the Project Navigation list.
-    private T? FindSessionTemplateChild<T>(ReviewSession session, string name) where T : FrameworkElement
+    // Rename now happens in the Project Navigation tree.
+    private static T? FindSessionTemplateChild<T>(DependencyObject? source, string name) where T : FrameworkElement
     {
-        if (ProjectDocList.ItemContainerGenerator.ContainerFromItem(session) is not ListBoxItem item)
+        var item = FindVisualAncestor<TreeViewItem>(source);
+        if (item is null)
             return null;
 
         item.ApplyTemplate();
@@ -499,8 +592,28 @@ public partial class MainWindow : Window
     {
         while (source is not null)
         {
-            if (source is FrameworkElement { DataContext: ReviewSession session })
+            if (source is FrameworkElement element && GetSessionFromDataContext(element.DataContext) is { } session)
                 return session;
+
+            source = VisualTreeHelper.GetParent(source);
+        }
+
+        return null;
+    }
+
+    private static ReviewSession? GetSessionFromDataContext(object? dataContext) => dataContext switch
+    {
+        ReviewSession session => session,
+        ProjectBrowserItemViewModel { Session: not null } item => item.Session,
+        _ => null
+    };
+
+    private static T? FindVisualAncestor<T>(DependencyObject? source) where T : DependencyObject
+    {
+        while (source is not null)
+        {
+            if (source is T typed)
+                return typed;
 
             source = VisualTreeHelper.GetParent(source);
         }
@@ -600,6 +713,7 @@ public partial class MainWindow : Window
         _syncingViewSettings = true;
         DarkModeSwitch.IsChecked = Theming.ThemeManager.IsDark;
         LineGridSwitch.IsChecked = _vm.BackgroundMode == CanvasBackgroundMode.Grid;
+        SleekShapesSwitch.IsChecked = _vm.GlobalShapeStyle == ShapeRenderStyle.Vector;
         _syncingViewSettings = false;
     }
 
@@ -615,6 +729,14 @@ public partial class MainWindow : Window
         _vm.BackgroundMode = LineGridSwitch.IsChecked == true
             ? CanvasBackgroundMode.Grid
             : CanvasBackgroundMode.Dots;
+    }
+
+    private void OnSleekShapesToggled(object sender, RoutedEventArgs e)
+    {
+        if (_syncingViewSettings) return;
+        _vm.GlobalShapeStyle = SleekShapesSwitch.IsChecked == true
+            ? ShapeRenderStyle.Vector
+            : ShapeRenderStyle.Sketch;
     }
 
     // The header mode toggle derives from the active document and, when clicked, switches to
@@ -701,9 +823,11 @@ public partial class MainWindow : Window
 
         _allPaletteItems.Add(new PaletteItem { Title = "Switch to Canvas", Group = "Commands", Run = () => OnSelectCanvasMode(this, new RoutedEventArgs()) });
         _allPaletteItems.Add(new PaletteItem { Title = "Switch to Outline", Group = "Commands", Run = () => OnSelectOutlineMode(this, new RoutedEventArgs()) });
+        _allPaletteItems.Add(new PaletteItem { Title = "Toggle split view (canvas + writing)", Group = "Commands", Run = () => Exec(_vm.ToggleSplitViewCommand) });
         _allPaletteItems.Add(new PaletteItem { Title = "Toggle dark mode", Group = "Commands", Run = () => Theming.ThemeManager.Toggle() });
         _allPaletteItems.Add(new PaletteItem { Title = "Toggle grid (dots / lines)", Group = "Commands", Run = () => Exec(_vm.ToggleBackgroundCommand) });
         _allPaletteItems.Add(new PaletteItem { Title = "Frame all", Group = "Commands", Run = () => CanvasViewport.FrameAll() });
+        _allPaletteItems.Add(new PaletteItem { Title = "Paste Mermaid diagram", Group = "Commands", Shortcut = "Ctrl+V", Run = () => Exec(_vm.PasteMermaidDiagramCommand) });
 
         _allPaletteItems.Add(new PaletteItem { Title = "New page", Group = "Create", Run = () => Exec(_vm.CreateNewPageCommand) });
         _allPaletteItems.Add(new PaletteItem { Title = "New board", Group = "Create", Run = () => Exec(_vm.CreateNewSessionCommand) });
@@ -760,6 +884,13 @@ public partial class MainWindow : Window
         if (ReferenceEquals(e.OriginalSource, CommandPaletteOverlay)) CloseCommandPalette();
     }
 
+    private void OnTransclusionScrimMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        // Click outside the palette card (on the dim scrim) closes it.
+        if (DataContext is ViewModels.MainWindowViewModel vm && ReferenceEquals(e.OriginalSource, TransclusionScrim))
+            vm.CloseTransclusionPickerCommand.Execute(null);
+    }
+
     private void ExecuteSelectedPaletteItem()
     {
         if (PaletteList.SelectedItem is not PaletteItem item) return;
@@ -771,7 +902,8 @@ public partial class MainWindow : Window
     private void OnCanvasDragOver(object sender, DragEventArgs e)
     {
         bool accepts = e.Data.GetDataPresent(DataFormats.FileDrop)
-            || e.Data.GetDataPresent(TransclusionDragFormat);
+            || e.Data.GetDataPresent(TransclusionDragFormat)
+            || e.Data.GetDataPresent(PageDragFormat);
         e.Effects = accepts ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
@@ -839,6 +971,24 @@ public partial class MainWindow : Window
         vm.PendingCanvasItemPlacement = string.Equals(vm.PendingCanvasItemPlacement, "note", System.StringComparison.OrdinalIgnoreCase) ? null : "note";
     }
 
+    private void OnShapeToolbarAddOutline(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not ViewModels.MainWindowViewModel vm) return;
+        // Toggle pending placement: click once → next canvas click drops an editable bullet block.
+        vm.ActiveCanvasShapeTool = null;
+        vm.PendingCanvasItemPlacement = string.Equals(vm.PendingCanvasItemPlacement, "outline", System.StringComparison.OrdinalIgnoreCase) ? null : "outline";
+    }
+
+    private void OnShapeToolbarSearchBlocks(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not ViewModels.MainWindowViewModel vm) return;
+        // Opens the "Search blocks" palette: create a new block/page/board, or drop an existing block.
+        vm.ActiveCanvasShapeTool = null;
+        vm.PendingCanvasItemPlacement = null;
+        if (vm.OpenTransclusionPickerCommand.CanExecute(null))
+            vm.OpenTransclusionPickerCommand.Execute(null);
+    }
+
     private async void OnCanvasDrop(object sender, DragEventArgs e)
     {
         Point screen = e.GetPosition(CanvasViewport);
@@ -849,6 +999,14 @@ public partial class MainWindow : Window
         {
             if (e.Data.GetData(TransclusionDragFormat) is TransclusionCandidateViewModel candidate)
                 await _vm.AddTransclusionAtAsync(candidate, world.X, world.Y);
+            return;
+        }
+
+        // Page dragged out of the project browser — drop a live page portal at the drop point.
+        if (e.Data.GetDataPresent(PageDragFormat))
+        {
+            if (e.Data.GetData(PageDragFormat) is string pageName && !string.IsNullOrWhiteSpace(pageName))
+                await _vm.AddPagePortalAtAsync(pageName, world.X, world.Y);
             return;
         }
 
@@ -952,6 +1110,28 @@ public partial class MainWindow : Window
     private async void OnFocusRequested(FocusRequestedArgs? args)
     {
         if (args is not null) await _vm.HandleFocusRequestAsync(args);
+    }
+
+    private void OnReviewLinesToggled(ReviewLinesToggledArgs? args)
+    {
+        if (args is null) return;
+        string? key = _vm.CurrentWorkspaceKey;
+        if (key is null) return;
+
+        // Hash the current file text so we can later detect drift (Phase 4 staleness). Best-effort:
+        // an unreadable file still records the toggle, just with an empty hash.
+        string hash = string.Empty;
+        try
+        {
+            if (System.IO.File.Exists(args.FilePath))
+                hash = ReviewScope.App.Persistence.ReviewProgressStore.ComputeContentHash(
+                    System.IO.File.ReadAllText(args.FilePath));
+        }
+        catch (System.IO.IOException) { }
+        catch (UnauthorizedAccessException) { }
+
+        _vm.ReviewProgress.ToggleRange(key, args.FilePath, args.StartLine, args.EndLine, hash);
+        CanvasViewport.Refresh();
     }
 
     private async void OnRestoreRequested(RestoreRequestedArgs? args)

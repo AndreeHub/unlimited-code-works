@@ -410,6 +410,41 @@ public sealed partial class CanvasViewport
         return true;
     }
 
+    /// <summary>True when <paramref name="world"/> is inside the line-number gutter of a code block
+    /// (the strip left of the code text) — the hit zone that starts a reading-progress selection.</summary>
+    internal bool IsInCodeGutter(SceneBlockVisual block, WpfPoint world)
+    {
+        if (block.Block.Kind is not (BlockKind.File or BlockKind.Extract)) return false;
+        if (block.Block.FilePath is null) return false;
+        Rect bodyRect = CanvasDrawingUtils.GetBodyRect(block.Bounds);
+        if (!bodyRect.Contains(world)) return false;
+        return world.X >= bodyRect.X && world.X <= bodyRect.X + CodeGutterW;
+    }
+
+    /// <summary>Maps a world point to the absolute (1-based) source line under it in a code block,
+    /// using the same line layout as <c>DrawCodeBody</c> (focus padding + scroll offset). When
+    /// <paramref name="clamp"/> is true the Y is clamped into the visible range (for drag tracking).</summary>
+    internal bool TryResolveCodeLine(SceneBlockVisual block, WpfPoint world, bool clamp, out int srcLine)
+    {
+        srcLine = 0;
+        if (block.Block.Kind is not (BlockKind.File or BlockKind.Extract)) return false;
+        Rect bodyRect = CanvasDrawingUtils.GetBodyRect(block.Bounds);
+        int topPaddingLines = block.Block.Focused is not null ? FocusedCodeTopPaddingLines : 0;
+        double topPadding = topPaddingLines * CodeLineH;
+        int visibleLines = (int)Math.Floor(bodyRect.Height / CodeLineH) - topPaddingLines;
+        if (visibleLines <= 0) return false;
+
+        double relY = world.Y - bodyRect.Y - topPadding;
+        int lineIndex = (int)Math.Floor(relY / CodeLineH);
+        if (clamp) lineIndex = Math.Clamp(lineIndex, 0, visibleLines - 1);
+        else if (lineIndex < 0 || lineIndex >= visibleLines) return false;
+
+        int startLine = block.Block.Focused?.StartLine ?? block.Block.StartLine ?? 1;
+        _codeScrollLines.TryGetValue(block.Block.Key, out int scrollLines);
+        srcLine = startLine + scrollLines + lineIndex;
+        return true;
+    }
+
     internal void UpdateHoverCursor(WpfPoint screen)
     {
         if (_isMinimapDrag) { Cursor = Cursors.SizeAll; return; }
@@ -465,7 +500,10 @@ public sealed partial class CanvasViewport
 
     internal static bool IsTextEditableBlock(RenderBlock block) =>
         block.Kind is BlockKind.Note or BlockKind.Text
-        || (block.Kind == BlockKind.Shape && !IsLinearShapeTool(block.ShapeType));
+        || (block.Kind == BlockKind.Shape && !IsLinearShapeTool(block.ShapeType))
+        // Whole-page portals are editable in place — their outline body writes back to the
+        // source page (see BeginNoteEdit / CommitNoteEdit → PagePortalEdited).
+        || (block.Kind == BlockKind.Transclusion && !string.IsNullOrEmpty(block.RefPageName));
 
     internal static bool IsColorGroup(RenderBlock block) =>
         block.Kind == BlockKind.Container && string.Equals(block.ShapeType, "color-group", StringComparison.OrdinalIgnoreCase);

@@ -100,6 +100,9 @@ public sealed class SessionRepository : ISessionRepository
         return Path.Combine(root, ".reviewscope");
     }
 
+    /// <summary>Absolute root directory of the workspace the given key refers to (branch suffix stripped).</summary>
+    public string GetWorkspaceRoot(string workspaceKey) => ResolveWorkspaceRoot(workspaceKey);
+
     public string GetAssetDir(string workspaceKey, string kind)
     {
         string safeKind = string.IsNullOrWhiteSpace(kind) ? "assets" : kind;

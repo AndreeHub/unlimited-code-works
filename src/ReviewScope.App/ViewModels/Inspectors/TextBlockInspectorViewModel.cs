@@ -164,42 +164,6 @@ public partial class TextBlockInspectorViewModel : InspectorViewModelBase
         double nextWidth = CoerceDimension(Width, minWidth, block.Width);
         double nextHeight = CoerceDimension(Height, minHeight, block.Height);
 
-        var style = block.Style ?? new BoardItemStyle();
-        var nextStyle = style with
-        {
-            FontFamily = FontFamily,
-            FontSize = FontSize,
-            Bold = Bold,
-            Italic = Italic,
-            Underline = Underline,
-            Strikethrough = Strikethrough,
-            TextAlign = TextAlignment,
-            VerticalAlign = VerticalAlignment,
-            Position = Position,
-            WritingDirection = WritingDirection,
-            Text = TextColor,
-            FontColorEnabled = FontColorEnabled,
-            Fill = Fill,
-            BackgroundColorEnabled = BackgroundColorEnabled,
-            Stroke = Stroke,
-            BorderColorEnabled = BorderColorEnabled,
-            ShadowEnabled = ShadowEnabled,
-            WordWrap = WordWrap,
-            FormattedText = FormattedText,
-            OutlineEnabled = OutlineEnabled,
-            ConvertLabelsToSvg = ConvertLabelsToSvg,
-            AutoFontSize = AutomaticFontSize,
-            FillStyle = FillStyle,
-            StrokeWidth = StrokeWidth,
-            Dashed = Dashed,
-            CornerRadius = CornerRadius,
-            Opacity = Opacity,
-            SpacingTop = SpacingTop,
-            SpacingRight = SpacingRight,
-            SpacingBottom = SpacingBottom,
-            SpacingLeft = SpacingLeft
-        };
-
         if (DeriveTitleFromBody)
         {
             string nextTitle = Body;
@@ -218,20 +182,61 @@ public partial class TextBlockInspectorViewModel : InspectorViewModelBase
 
         var parsedTags = ParseTagList(TagsText);
 
-        var nextBlock = block with
+        // Formatting (font, colors, alignment, spacing, effects) fans out to every selected block so a
+        // multi-selection can be restyled in one step. Content and per-item fields (title, body, tags,
+        // geometry, lock) stay on the primary selection — those are inherently single-item.
+        Parent.UpdateSelectedBlocks((b, isPrimary) =>
         {
-            Title = Title,
-            Body = Body,
-            X = X,
-            Y = Y,
-            Width = nextWidth,
-            Height = nextHeight,
-            IsLocked = IsLocked,
-            Style = nextStyle,
-            Tags = parsedTags.Count == 0 ? null : parsedTags
-        };
+            var bStyle = (b.Style ?? new BoardItemStyle()) with
+            {
+                FontFamily = FontFamily,
+                FontSize = FontSize,
+                Bold = Bold,
+                Italic = Italic,
+                Underline = Underline,
+                Strikethrough = Strikethrough,
+                TextAlign = TextAlignment,
+                VerticalAlign = VerticalAlignment,
+                Position = Position,
+                WritingDirection = WritingDirection,
+                Text = TextColor,
+                FontColorEnabled = FontColorEnabled,
+                Fill = Fill,
+                BackgroundColorEnabled = BackgroundColorEnabled,
+                Stroke = Stroke,
+                BorderColorEnabled = BorderColorEnabled,
+                ShadowEnabled = ShadowEnabled,
+                WordWrap = WordWrap,
+                FormattedText = FormattedText,
+                OutlineEnabled = OutlineEnabled,
+                ConvertLabelsToSvg = ConvertLabelsToSvg,
+                AutoFontSize = AutomaticFontSize,
+                FillStyle = FillStyle,
+                StrokeWidth = StrokeWidth,
+                Dashed = Dashed,
+                CornerRadius = CornerRadius,
+                Opacity = Opacity,
+                SpacingTop = SpacingTop,
+                SpacingRight = SpacingRight,
+                SpacingBottom = SpacingBottom,
+                SpacingLeft = SpacingLeft
+            };
 
-        Parent.UpdateSceneBlock(nextBlock, ApplyChangesActionDescription);
+            var next = b with { Style = bStyle };
+            if (isPrimary)
+                next = next with
+                {
+                    Title = Title,
+                    Body = Body,
+                    X = X,
+                    Y = Y,
+                    Width = nextWidth,
+                    Height = nextHeight,
+                    IsLocked = IsLocked,
+                    Tags = parsedTags.Count == 0 ? null : parsedTags
+                };
+            return next;
+        }, ApplyChangesActionDescription);
         Parent.RecordTagsFromInspector(parsedTags);
     }
 

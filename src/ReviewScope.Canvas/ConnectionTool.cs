@@ -83,7 +83,8 @@ internal sealed class ConnectionTool : CanvasToolBase
 
         if (Viewport.HitConnectionCurve(world, out _) is { } curveHit)
         {
-            Viewport.SelectConnection(curveHit.Connection.Id);
+            bool additive = modifiers.HasFlag(ModifierKeys.Shift) || modifiers.HasFlag(ModifierKeys.Control);
+            Viewport.SelectConnection(curveHit.Connection.Id, additive: additive);
             return;
         }
     }

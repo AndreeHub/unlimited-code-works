@@ -19,6 +19,7 @@ public sealed partial class MainWindowViewModel
     // -----------------------------------------------------------------------
     private async Task LoadSessionsAsync(string workspaceKey, CancellationToken ct)
     {
+        UbwProjectName = _currentSnapshot?.DisplayName ?? "Untitled Boards";
         Sessions.Clear();
         var loaded = await _sessions.GetSessionsAsync(workspaceKey, ct);
         foreach (var s in loaded) Sessions.Add(s);
@@ -55,7 +56,8 @@ public sealed partial class MainWindowViewModel
         // Both the header strip and the Project browser bind SelectedSession; selecting in one
         // syncs the other, which re-fires SelectionChanged. Skip when the selection is already
         // the active document so we don't reactivate (and reset the outline caret/scroll) twice.
-        if (_activeSession is not null && _activeSession.Id == SelectedSession.Id) return;
+        var active = SelectedSession.Kind == DocumentKind.Canvas ? _activeSession : _activeOutlineSession;
+        if (active is not null && active.Id == SelectedSession.Id) return;
         await ActivateSessionAsync(SelectedSession);
     }
 
@@ -78,6 +80,8 @@ public sealed partial class MainWindowViewModel
         int index = Sessions.IndexOf(current);
         if (index >= 0) Sessions[index] = renamed;
         if (_activeSession?.Id == renamed.Id) _activeSession = renamed;
+        if (_activeOutlineSession?.Id == renamed.Id) _activeOutlineSession = renamed;
+        RenameTab(renamed.Id, renamed.Name);
         SelectedSession = renamed;
         SessionNameDraft = renamed.Name;
         StatusMessage = $"Renamed board: {name}";
@@ -91,6 +95,10 @@ public sealed partial class MainWindowViewModel
         var deleting = SelectedSession;
         await _sessions.DeleteSessionAsync(deleting.Id, workspace.WorkspaceKey, CancellationToken.None);
         Sessions.Remove(deleting);
+        RemoveTabForDocument(deleting.Id);
+        _canvasDocs.Remove(deleting.Id);
+        if (_activeSession?.Id == deleting.Id) _activeSession = null;
+        if (_activeOutlineSession?.Id == deleting.Id) _activeOutlineSession = null;
         await _sessions.SaveSessionOrderAsync(workspace.WorkspaceKey, Sessions.Select(s => s.Id).ToArray(), CancellationToken.None);
         StatusMessage = $"Deleted board: {deleting.Name}";
 
@@ -105,26 +113,30 @@ public sealed partial class MainWindowViewModel
 
     private async Task ActivateSessionAsync(ReviewSession session, bool hydrateCode = true)
     {
-        // Switching away from an outline doc: flush its pending debounced save first so a fast
-        // doc-switch can't drop the last keystrokes.
+        // Switching documents: flush the outgoing board's and page's pending debounced saves first so a
+        // fast switch can't drop the last edits (the active pointers still reference the outgoing docs here).
         await FlushPendingOutlineSaveAsync();
+        await FlushPendingSaveAsync();
 
-        _activeSession = session;
         SelectedSession = session;
         SessionNameDraft = session.Name;
 
         if (session.Kind != DocumentKind.Canvas)
         {
+            // Outline docs activate into the independent outline pointer (see ActivateOutlineDocument),
+            // leaving the active canvas board untouched so both can coexist in split view.
             ActivateOutlineDocument(session);
             return;
         }
 
-        IsOutlineDocumentActive = false;
+        // Make this board's document the focused one. HookActiveCanvas re-points Scene/undo at it
+        // and runs the scene-changed side effects, so we don't rebuild the scene or reset history here.
+        var doc = GetOrCreateCanvasDoc(session);
+        HookActiveCanvas(doc);
+        OnDocumentActivated(session);
         IsCanvasDocumentActive = true;
-        Scene = ResolveTransclusions(BuildSceneFromSession(session));
-        UpdateSelectedObject(Scene);
-        RefreshBoardDetails();
-        ResetHistory();
+        if (!IsSplitViewActive)
+            IsOutlineDocumentActive = false;
         StatusMessage = $"Board: {session.Name}";
         if (hydrateCode)
             await HydrateCodeBlocksAsync();
@@ -179,6 +191,7 @@ public sealed partial class MainWindowViewModel
         if (index >= 0) Sessions[index] = updated;
         if (SelectedSession?.Id == updated.Id) SelectedSession = updated;
         if (_activeSession?.Id == updated.Id) _activeSession = updated;
+        if (_activeOutlineSession?.Id == updated.Id) _activeOutlineSession = updated;
     }
 
     private string NextSessionName()
@@ -193,6 +206,25 @@ public sealed partial class MainWindowViewModel
             if (!Sessions.Any(s => string.Equals(s.Name, candidate, StringComparison.OrdinalIgnoreCase)))
                 return candidate;
         }
+    }
+
+    /// <summary>Fetch the live canvas document for a board, building it (and resolving transclusions)
+    /// on first open. On revisit the existing instance — with its in-memory Scene and undo history —
+    /// is reused, so switching canvas tabs no longer reloads from disk or drops undo.</summary>
+    private CanvasDocumentViewModel GetOrCreateCanvasDoc(ReviewSession session)
+    {
+        if (_canvasDocs.TryGetValue(session.Id, out var existing))
+        {
+            existing.Session = session;
+            return existing;
+        }
+
+        var doc = new CanvasDocumentViewModel(session)
+        {
+            Scene = ResolveTransclusions(BuildSceneFromSession(session))
+        };
+        _canvasDocs[session.Id] = doc;
+        return doc;
     }
 
     private static RenderScene BuildSceneFromSession(ReviewSession session)
@@ -219,7 +251,8 @@ public sealed partial class MainWindowViewModel
             GroupState: b.GroupState,
             Tags: b.Tags,
             WikiLinks: b.WikiLinks,
-            RefAnchorId: b.RefAnchorId);
+            RefAnchorId: b.RefAnchorId,
+            RefPageName: b.RefPageName);
         }).ToList();
 
         var connections = session.Connections
@@ -277,6 +310,37 @@ public sealed partial class MainWindowViewModel
                 return b;
 
             var style = (b.Style ?? new BoardItemStyle()) with { OutlineEnabled = true };
+
+            // Page portal: embed an entire page's outline (Logseq-style page reference dragged
+            // onto a whiteboard). The page name becomes a top heading; its bullets nest beneath.
+            if (b.RefPageName is { Length: > 0 } pageName)
+            {
+                var page = Sessions.FirstOrDefault(s =>
+                    s.Kind != DocumentKind.Canvas && string.Equals(s.Name, pageName, StringComparison.OrdinalIgnoreCase));
+                if (page is not null)
+                {
+                    // Reserve the card's header/footer via style spacing so the SAME content rect is
+                    // used for rendering and caret hit-testing (GetContentRect honors this spacing),
+                    // which lets the existing canvas outline editor edit the portal in place.
+                    var portalStyle = style with
+                    {
+                        SpacingLeft = 14, SpacingTop = 64, SpacingRight = 14, SpacingBottom = 40,
+                    };
+                    return b with
+                    {
+                        Body = BuildPagePortalBody(page.OutlineBody),
+                        Subtitle = page.Name,
+                        Style = portalStyle,
+                    };
+                }
+                return b with
+                {
+                    Body = $"- ⚠ Unresolved page: {pageName}",
+                    Subtitle = pageName,
+                    Style = style,
+                };
+            }
+
             if (b.RefAnchorId is { Length: > 0 } anchor && index.TryResolveBlock(anchor, out var loc))
             {
                 return b with
@@ -296,6 +360,14 @@ public sealed partial class MainWindowViewModel
         }).ToList();
 
         return scene with { Blocks = blocks };
+    }
+
+    /// <summary>The page-portal body is just the page's outline as-is; the page name is rendered
+    /// in the portal card's header bar (see BlockRenderer), Logseq-style.</summary>
+    private static string BuildPagePortalBody(string? pageBody)
+    {
+        string body = (pageBody ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
+        return string.IsNullOrWhiteSpace(body) ? "- " : body;
     }
 
     /// <summary>Builds a reference index over all outline documents (pages + journals) in the
@@ -444,6 +516,7 @@ public sealed partial class MainWindowViewModel
             "Untitled Boards",
             Array.Empty<WorkspaceFileSummary>());
         WorkspacePath = _currentSnapshot.DisplayName;
+        UbwProjectName = _currentSnapshot.DisplayName;
         StatusMessage = "Untitled board workspace ready.";
         return _currentSnapshot;
     }
@@ -454,7 +527,7 @@ public sealed partial class MainWindowViewModel
             b.Id, b.Kind, b.Key, b.Title, b.Subtitle,
             b.FilePath, b.StartLine, b.EndLine,
             b.X, b.Y, b.Width, b.Height, b.IsCollapsed, b.Focused,
-            b.ZIndex, b.LayerKey, b.IsLocked, b.ShapeType, b.Style, b.Source, b.GroupState, PersistedBodyFor(b), b.Tags, b.WikiLinks, b.RefAnchorId)).ToList();
+            b.ZIndex, b.LayerKey, b.IsLocked, b.ShapeType, b.Style, b.Source, b.GroupState, PersistedBodyFor(b), b.Tags, b.WikiLinks, b.RefAnchorId, b.RefPageName)).ToList();
 
         var connections = scene.Connections
             .Select(c => new ConnectionSnapshot(c.Id, c.SourceKey, c.TargetKey, c.Label,

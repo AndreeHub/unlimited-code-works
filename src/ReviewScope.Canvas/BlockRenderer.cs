@@ -29,6 +29,19 @@ internal sealed class BlockRenderer
     /// <summary>Snapshot of blocks for resolving linear shape attachments. Set by viewport per frame.</summary>
     public IReadOnlyDictionary<string, SceneBlockVisual>? BlockLookup { get; set; }
 
+    /// <summary>Canvas-wide default shape look. A shape whose <see cref="BoardItemStyle.RenderStyle"/>
+    /// is null inherits this; an explicit per-shape value overrides it. Set by the viewport per frame.</summary>
+    public ShapeRenderStyle GlobalShapeStyle { get; set; } = ShapeRenderStyle.Sketch;
+
+    /// <summary>Resolves reading-progress for a file path (the green "read" overlay in code blocks).
+    /// Supplied by the host so the Canvas stays decoupled from the App's progress store; null = no overlay.
+    /// Set by the viewport per frame.</summary>
+    public Func<string?, ReviewedFileState>? ReviewedRangeResolver { get; set; }
+
+    /// <summary>In-progress gutter selection (file path + inclusive 1-based source-line span) drawn as a
+    /// live preview while the user drags. Set by the viewport per frame; null when not dragging.</summary>
+    public (string FilePath, int Start, int End)? PendingReviewSelection { get; set; }
+
     // Viewport-specific constants (should match CanvasViewport)
     private const double HeaderH = 56;
     private const double FooterH = 28;
@@ -93,6 +106,11 @@ internal sealed class BlockRenderer
                 break;
             case BlockKind.Shape:
                 DrawShapeBlock(blockVis, editingNoteKey, editTitle, editBody, editCursorVisible, editCursorPos, editSelectionAnchor, hoverAnchorBlockKey, hoverAnchorIndex, isDrawingConnection, connectionSourceKey, connectionSourceAnchorIndex, connectionHoverTargetKey, connectionHoverTargetAnchorIndex, connectorsEnabled, imageLoader);
+                break;
+            case BlockKind.Transclusion when !string.IsNullOrEmpty(blockVis.Block.RefPageName):
+                // Whole-page portal: render with the File/Markdown card chrome (header + framed
+                // body + footer), with the Logseq outline inside — editable in place.
+                DrawPagePortalBlock(blockVis, editingNoteKey, editBody, editCursorVisible, editCursorPos, editSelectionAnchor);
                 break;
             case BlockKind.Text:
             case BlockKind.Transclusion:
@@ -411,6 +429,94 @@ internal sealed class BlockRenderer
         _ctx.RenderTarget.DrawRectangle(rect, _ctx.GetBrush(WpfColor.FromArgb(220, 46, 125, 215)), _ctx.InvStroke(1.0f));
     }
 
+    /// <summary>
+    /// Draws a whole-page portal (a Transclusion with <c>RefPageName</c>) using the same card
+    /// chrome as the code/markdown blocks — drop shadow, white fill, header bar with icon + page
+    /// name, separator, framed body, footer — and renders the embedded page's Logseq outline in
+    /// the body region. The outline is editable in place: when this block is being edited the
+    /// caret/selection are drawn and <paramref name="editBody"/> is shown. The body rect comes
+    /// from <see cref="OutlineDocument.GetContentRect"/> so render and caret hit-test stay aligned.
+    /// </summary>
+    private void DrawPagePortalBlock(SceneBlockVisual blockVis,
+        string? editingNoteKey = null, string editBody = "", bool editCursorVisible = false,
+        int editCursorPos = -1, int editSelectionAnchor = -1)
+    {
+        var block = blockVis.Block;
+        var style = block.Style ?? new BoardItemStyle();
+        bool isEditing = editingNoteKey == block.Key;
+        // Logseq-style neutral chrome: white page, soft gray header + borders, no color hue.
+        // Only honor a custom Stroke if the user explicitly set one; otherwise stay neutral.
+        bool hasCustomStroke = !string.IsNullOrWhiteSpace(style.Stroke);
+        WpfColor accent = hasCustomStroke ? CanvasDrawingUtils.ParseColor(style.Stroke) : WpfColor.FromRgb(209, 213, 219);
+        WpfColor headerBg = hasCustomStroke
+            ? WpfColor.FromArgb(22, accent.R, accent.G, accent.B)
+            : WpfColor.FromRgb(247, 247, 248);
+        WpfColor separator = hasCustomStroke
+            ? WpfColor.FromArgb(150, accent.R, accent.G, accent.B)
+            : WpfColor.FromRgb(236, 236, 238);
+        var selAcc = CanvasTheme.Accent;
+        WpfColor border = block.IsSelected
+            ? WpfColor.FromArgb(235, selAcc.R, selAcc.G, selAcc.B)
+            : (hasCustomStroke ? WpfColor.FromArgb(190, accent.R, accent.G, accent.B) : WpfColor.FromRgb(227, 227, 230));
+
+        Rect outer = blockVis.Bounds;
+        Rect header = new(outer.X, outer.Y, outer.Width, HeaderH);
+        Rect footer = new(outer.X, outer.Bottom - FooterH, outer.Width, FooterH);
+        Rect body = new(outer.X + 1, header.Bottom, outer.Width - 2, outer.Height - HeaderH - FooterH - 1);
+
+        // Drop shadow
+        var shadow = new RoundedRectangle(new RectangleF((float)outer.X + 2, (float)outer.Y + 5, (float)outer.Width, (float)outer.Height), 8, 8);
+        _ctx.RenderTarget.FillRoundedRectangle(shadow, _ctx.GetBrush(WpfColor.FromArgb(18, 35, 49, 66)));
+
+        // Card fill
+        var rr = new RoundedRectangle(CanvasDrawingUtils.ToRF(outer), 8, 8);
+        _ctx.RenderTarget.FillRoundedRectangle(rr, _ctx.GetBrush(WpfColor.FromRgb(255, 255, 255)));
+
+        // Selection glow
+        if (block.IsSelected)
+        {
+            var glow = new RoundedRectangle(new RectangleF((float)outer.X - 2.5f, (float)outer.Y - 2.5f, (float)outer.Width + 5f, (float)outer.Height + 5f), 10, 10);
+            _ctx.RenderTarget.DrawRoundedRectangle(glow, _ctx.GetBrush(WpfColor.FromArgb(45, selAcc.R, selAcc.G, selAcc.B)), _ctx.InvStroke(4.0f));
+        }
+        _ctx.RenderTarget.DrawRoundedRectangle(rr, _ctx.GetBrush(border), _ctx.InvStroke(block.IsSelected ? 2.0f : 1.15f));
+
+        // Header background + separator
+        _ctx.RenderTarget.FillRectangle(new RectangleF((float)header.X + 1, (float)header.Y + 1, (float)header.Width - 2, (float)header.Height - 1),
+            _ctx.GetBrush(headerBg));
+        _ctx.RenderTarget.DrawLine(new Vector2((float)header.Left, (float)header.Bottom), new Vector2((float)header.Right, (float)header.Bottom),
+            _ctx.GetBrush(separator), _ctx.InvStroke(1.0f));
+
+        // Title (page name) — bold dark, Logseq page-title style — + subtitle label.
+        _ctx.DrawRichText(block.Subtitle, (float)outer.X + 14, (float)outer.Y + 10, (float)outer.Width - 40, 22,
+            "Segoe UI", 16f, bold: true, italic: false, underline: false, strikethrough: false,
+            WpfColor.FromRgb(31, 35, 40),
+            Vortice.DirectWrite.TextAlignment.Leading, Vortice.DirectWrite.ParagraphAlignment.Near, wrap: false, shadow: false);
+        _ctx.DrawText(isEditing ? "page — editing" : "page", (float)outer.X + 14, (float)outer.Y + 36, (float)outer.Width - 40, 10, WpfColor.FromRgb(150, 155, 163));
+
+        // Body: render the embedded page's outline. While editing, show editBody + caret.
+        string outlineText = isEditing ? editBody : (block.Body ?? string.Empty);
+        if (!string.IsNullOrEmpty(outlineText))
+        {
+            float fontSize = (float)Math.Clamp(style.FontSize <= 0 ? 14 : style.FontSize, 8, 96);
+            string fontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? "Segoe UI" : style.FontFamily;
+            // GetContentRect honors the portal's style spacing — the SAME rect the canvas caret
+            // hit-test uses — so clicks land exactly where text is drawn.
+            var contentRect = OutlineDocument.GetContentRect(block, outer);
+            OutlineDocument.Draw(
+                _ctx, block, contentRect,
+                outlineText, WpfColor.FromRgb(31, 41, 51), fontSize, fontFamily, false, false,
+                editCursorPos: isEditing ? editCursorPos : -1,
+                editSelectionAnchor: isEditing ? editSelectionAnchor : -1,
+                editCursorVisible: isEditing && editCursorVisible);
+        }
+
+        // Footer (page name again, like the code card's file footer)
+        _ctx.DrawText(block.Subtitle, (float)outer.X + 14, (float)footer.Y + 8, (float)outer.Width - 40, 9.5f, WpfColor.FromRgb(117, 128, 143));
+
+        if (block.IsSelected)
+            DrawGenericResizeHandle(outer, accent, block.IsLocked);
+    }
+
     private void DrawMarkdownDocBlock(SceneBlockVisual blockVis)
     {
         var block = blockVis.Block;
@@ -507,6 +613,16 @@ internal sealed class BlockRenderer
         string fillStyle = style.FillStyle ?? "hatch";
         float hatchOp = (float)style.HatchOpacity;
 
+        // Resolve the effective look: an explicit per-shape RenderStyle wins, otherwise inherit the
+        // canvas-wide default. "sketch" = hand-drawn, "vector" = crisp.
+        ShapeRenderStyle effectiveStyle = style.RenderStyle?.Trim().ToLowerInvariant() switch
+        {
+            "vector" => ShapeRenderStyle.Vector,
+            "sketch" => ShapeRenderStyle.Sketch,
+            _ => GlobalShapeStyle
+        };
+        IShapeDrawer drawer = ShapeDrawers.For(effectiveStyle);
+
         if (IsLinearShapeTool(shape))
         {
             DrawLinearShape(block, outer, stroke, strokeWidth, dashed);
@@ -514,64 +630,69 @@ internal sealed class BlockRenderer
         }
         else if (shape is "database" or "cache" or "queue")
         {
-            SketchyDrawer.DrawEllipse(_ctx.RenderTarget, new RectangleF(x, y, w, Math.Min(h, 24f)), fillBrush, strokeBrush, strokeWidth, block.Key.ToString() + "_db_top", strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
-            SketchyDrawer.DrawRectangle(_ctx.RenderTarget, new RectangleF(x, y + 12f, w, h - 12f), fillBrush, strokeBrush, strokeWidth, block.Key.ToString() + "_db_body", strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
+            drawer.DrawEllipse(_ctx.RenderTarget, new RectangleF(x, y, w, Math.Min(h, 24f)), fillBrush, strokeBrush, strokeWidth, block.Key.ToString() + "_db_top", strokeStyle, fillStyle, hatchOp);
+            drawer.DrawRectangle(_ctx.RenderTarget, new RectangleF(x, y + 12f, w, h - 12f), fillBrush, strokeBrush, strokeWidth, block.Key.ToString() + "_db_body", strokeStyle, fillStyle, hatchOp);
         }
         else if (shape is "circle" or "oval")
         {
             Rect ellipseBounds = shape == "circle" ? CanvasDrawingUtils.CenteredSquare(outer) : outer;
-            SketchyDrawer.DrawEllipse(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(ellipseBounds), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
+            drawer.DrawEllipse(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(ellipseBounds), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle, fillStyle, hatchOp);
         }
         else if (shape is "triangle")
         {
-            SketchyDrawer.DrawPolygon(_ctx.RenderTarget, new[]
+            drawer.DrawPolygon(_ctx.RenderTarget, new[]
             {
                 new Vector2(x + w / 2f, y),
                 new Vector2(x + w, y + h),
                 new Vector2(x, y + h)
-            }, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), close: true, strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
+            }, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), true, strokeStyle, fillStyle, hatchOp);
         }
         else if (shape is "risk" or "decision" or "diamond")
         {
-            SketchyDrawer.DrawPolygon(_ctx.RenderTarget, new[]
+            drawer.DrawPolygon(_ctx.RenderTarget, new[]
             {
                 new Vector2(x + w / 2f, y),
                 new Vector2(x + w, y + h / 2f),
                 new Vector2(x + w / 2f, y + h),
                 new Vector2(x, y + h / 2f)
-            }, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), close: true, strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
+            }, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), true, strokeStyle, fillStyle, hatchOp);
         }
         else if (shape is "star")
         {
-            SketchyDrawer.DrawPolygon(_ctx.RenderTarget, BuildStarPoints(outer).ToArray(), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), close: true, strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
+            drawer.DrawPolygon(_ctx.RenderTarget, BuildStarPoints(outer).ToArray(), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), true, strokeStyle, fillStyle, hatchOp);
         }
         else if (shape is "hexagon")
         {
-            SketchyDrawer.DrawPolygon(_ctx.RenderTarget, BuildRegularPolygonPoints(outer, 6, -MathF.PI / 6).ToArray(), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), close: true, strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
+            drawer.DrawPolygon(_ctx.RenderTarget, BuildRegularPolygonPoints(outer, 6, -MathF.PI / 6).ToArray(), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), true, strokeStyle, fillStyle, hatchOp);
         }
         else if (shape is "square")
         {
             Rect square = CanvasDrawingUtils.CenteredSquare(outer);
             float radius = (float)style.CornerRadius;
             if (radius > 0)
-                SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(square), radius, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
+                drawer.DrawRoundedRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(square), radius, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle, fillStyle, hatchOp);
             else
-                SketchyDrawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(square), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
+                drawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(square), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle, fillStyle, hatchOp);
         }
         else if (shape is "rectangle")
         {
             float radius = (float)style.CornerRadius;
             if (radius > 0)
-                SketchyDrawer.DrawRoundedRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), radius, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
+                drawer.DrawRoundedRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), radius, fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle, fillStyle, hatchOp);
             else
-                SketchyDrawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
+                drawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle, fillStyle, hatchOp);
         }
         else
         {
-            SketchyDrawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle: strokeStyle, fillStyle: fillStyle, hatchOpacity: hatchOp);
+            drawer.DrawRectangle(_ctx.RenderTarget, CanvasDrawingUtils.ToRF(outer), fillBrush, strokeBrush, strokeWidth, block.Key.ToString(), strokeStyle, fillStyle, hatchOp);
         }
 
         bool isEditing = editingNoteKey == block.Key;
+        // Crisp (vector) shapes always get crisp text. For the hand-drawn look, solid-fill shapes
+        // (e.g. imported Mermaid nodes) get crisp text while hatch/hand-drawn shapes keep the
+        // sketchy text so the diagram aesthetic is preserved.
+        bool sketchyText = effectiveStyle == ShapeRenderStyle.Sketch
+            && !string.Equals(fillStyle, "solid", StringComparison.OrdinalIgnoreCase);
         if (!IsLinearShapeTool(shape))
         {
             string label = isEditing
@@ -582,14 +703,14 @@ internal sealed class BlockRenderer
                 float textX = x + 14;
                 float textY = y + h / 2 - 8;
                 float textW = w - 28;
-                DrawEditSelection(label, 13f, textX, textY, textW, wrap: false, sketchy: true, editCursorPos, editSelectionAnchor);
-                _ctx.DrawText(label, textX, textY, textW, 13, CanvasDrawingUtils.ParseColor(block.Style?.Text ?? "#111827"), sketchy: true);
+                DrawEditSelection(label, 13f, textX, textY, textW, wrap: false, sketchy: sketchyText, editCursorPos, editSelectionAnchor);
+                _ctx.DrawText(label, textX, textY, textW, 13, CanvasDrawingUtils.ParseColor(block.Style?.Text ?? "#111827"), sketchy: sketchyText);
                 if (editCursorVisible)
-                    DrawNoteCursor(label, 13f, textX, textY, textW, editCursorPos, wrap: false, sketchy: true);
+                    DrawNoteCursor(label, 13f, textX, textY, textW, editCursorPos, wrap: false, sketchy: sketchyText);
             }
             else
             {
-                DrawShapeText(label, outer, CanvasDrawingUtils.ParseColor(block.Style?.Text ?? "#111827"), block.Style?.TextAlign);
+                DrawShapeText(label, outer, CanvasDrawingUtils.ParseColor(block.Style?.Text ?? "#111827"), block.Style?.TextAlign, sketchyText, block.Style);
             }
         }
         if (ShouldDrawConnectionAnchors(block, connectorsEnabled))
@@ -729,7 +850,7 @@ internal sealed class BlockRenderer
         _ctx.RenderTarget.FillGeometry(path, brush);
     }
 
-    private void DrawShapeText(string text, Rect outer, WpfColor color, string? alignment)
+    private void DrawShapeText(string text, Rect outer, WpfColor color, string? alignment, bool sketchy = true, BoardItemStyle? style = null)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
 
@@ -738,11 +859,14 @@ internal sealed class BlockRenderer
         float y = (float)outer.Y + pad;
         float w = Math.Max(4, (float)outer.Width - pad * 2);
         float h = Math.Max(4, (float)outer.Height - pad * 2);
-        IDWriteTextFormat fmt = _ctx.GetTextFormat(13f, sketchy: true);
+        // Honor the inspector's label font size + vertical alignment; fall back to the legacy 13px /
+        // centered defaults when no style is supplied.
+        float fontSize = style is null ? 13f : (float)Math.Clamp(style.FontSize <= 0 ? 13 : style.FontSize, 8, 48);
+        IDWriteTextFormat fmt = _ctx.GetTextFormat(fontSize, sketchy: sketchy);
         var oldTextAlign = fmt.TextAlignment;
         var oldParagraphAlign = fmt.ParagraphAlignment;
         fmt.TextAlignment = ToDWriteTextAlignment(alignment);
-        fmt.ParagraphAlignment = DWriteParagraphAlignment.Center;
+        fmt.ParagraphAlignment = ToDWriteParagraphAlignment(style?.VerticalAlign);
         using var layout = _ctx.DWriteFactory.CreateTextLayout(text, fmt, w, h);
         layout.WordWrapping = WordWrapping.Wrap;
         _ctx.RenderTarget.DrawTextLayout(new Vector2(x, y), layout, _ctx.GetBrush(color), DrawTextOptions.Clip);
@@ -756,6 +880,14 @@ internal sealed class BlockRenderer
             "left" => DWriteTextAlignment.Leading,
             "right" => DWriteTextAlignment.Trailing,
             _ => DWriteTextAlignment.Center
+        };
+
+    private static DWriteParagraphAlignment ToDWriteParagraphAlignment(string? verticalAlignment) =>
+        verticalAlignment?.Trim().ToLowerInvariant() switch
+        {
+            "top" => DWriteParagraphAlignment.Near,
+            "bottom" => DWriteParagraphAlignment.Far,
+            _ => DWriteParagraphAlignment.Center
         };
 
     private void DrawTextBlock(
@@ -1220,6 +1352,16 @@ internal sealed class BlockRenderer
 
         int linesToShow = Math.Min(sliceCount - scrollLines, visibleLines);
 
+        // Resolve the reviewed-line overlay for this file once per draw. Reviewed spans use absolute
+        // (1-based) source line numbers, so the same state lights up whether the file is shown whole
+        // or as a sliced Extract block.
+        ReviewedFileState review = block.FilePath is not null && ReviewedRangeResolver is not null
+            ? ReviewedRangeResolver(block.FilePath)
+            : ReviewedFileState.None;
+        (int Start, int End)? pending = PendingReviewSelection is { } p && p.FilePath == block.FilePath
+            ? (p.Start, p.End)
+            : null;
+
         for (int i = 0; i < linesToShow; i++)
         {
             int srcIdx = sliceStartIdx + scrollLines + i;
@@ -1227,6 +1369,12 @@ internal sealed class BlockRenderer
             string lineText = NormalizeCodeLine(allLines[srcIdx]);
             float lineY = (float)bodyRect.Y + (i + topPaddingLines) * (float)CodeLineH;
             int srcLine = firstShownSrcLine + scrollLines + i;
+
+            bool inPending = pending is { } pr && srcLine >= pr.Start && srcLine <= pr.End;
+            if (inPending)
+                DrawReviewPendingTint(bodyRect, lineY);
+            else if (review.Ranges.Count > 0 && IsLineReviewed(review.Ranges, srcLine))
+                DrawReviewedLineTint(bodyRect, lineY, review.IsStale);
 
             _ctx.DrawText(srcLine.ToString(), (float)bodyRect.X, lineY, (float)CodeGutterW - 6, 11,
                 WpfColor.FromRgb(85, 98, 108));
@@ -1240,6 +1388,47 @@ internal sealed class BlockRenderer
             DrawCodeScrollbar(bodyRect, scrollLines, visibleLines, sliceCount);
 
         _ctx.RenderTarget.PopAxisAlignedClip();
+    }
+
+    private static bool IsLineReviewed(IReadOnlyList<ReviewedRange> ranges, int srcLine)
+    {
+        for (int i = 0; i < ranges.Count; i++)
+            if (srcLine >= ranges[i].StartLine && srcLine <= ranges[i].EndLine)
+                return true;
+        return false;
+    }
+
+    /// <summary>Fills the full-width band behind a reviewed line: soft green when current, amber when
+    /// the file changed since the line was marked (stale). Drawn before tokens so text stays readable.</summary>
+    private void DrawReviewedLineTint(Rect bodyRect, float lineY, bool stale)
+    {
+        WpfColor tint = stale
+            ? WpfColor.FromArgb(46, 217, 159, 41)   // amber: drifted line numbers, don't trust blindly
+            : WpfColor.FromArgb(42, 34, 167, 96);   // green: read
+        var band = new RectangleF(
+            (float)bodyRect.X,
+            lineY,
+            (float)bodyRect.Width,
+            (float)CodeLineH);
+        _ctx.RenderTarget.FillRectangle(band, _ctx.GetBrush(tint));
+
+        // A slightly stronger accent stripe in the gutter so the state reads even at low zoom.
+        WpfColor stripe = stale
+            ? WpfColor.FromArgb(170, 217, 159, 41)
+            : WpfColor.FromArgb(150, 34, 167, 96);
+        _ctx.RenderTarget.FillRectangle(
+            new RectangleF((float)bodyRect.X, lineY, 3f, (float)CodeLineH),
+            _ctx.GetBrush(stripe));
+    }
+
+    /// <summary>Blue selection band shown live while the user drags a gutter selection, before release.</summary>
+    private void DrawReviewPendingTint(Rect bodyRect, float lineY)
+    {
+        var band = new RectangleF((float)bodyRect.X, lineY, (float)bodyRect.Width, (float)CodeLineH);
+        _ctx.RenderTarget.FillRectangle(band, _ctx.GetBrush(WpfColor.FromArgb(56, 46, 125, 215)));
+        _ctx.RenderTarget.FillRectangle(
+            new RectangleF((float)bodyRect.X, lineY, 3f, (float)CodeLineH),
+            _ctx.GetBrush(WpfColor.FromArgb(190, 46, 125, 215)));
     }
 
     private void DrawEditorLine(RenderBlock block, int srcLine, string lineText, float startX, float lineY, Rect bodyRect, bool isExtractMode)

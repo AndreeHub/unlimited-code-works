@@ -384,15 +384,29 @@ public sealed partial class CanvasViewport
         _selectedConnectionControlKind = ConnectionControlNodeKind.None;
     }
 
-    internal void SelectConnection(Guid id, ConnectionControlNodeKind controlKind = ConnectionControlNodeKind.None)
+    internal void SelectConnection(Guid id, ConnectionControlNodeKind controlKind = ConnectionControlNodeKind.None, bool additive = false)
     {
-        _selectedConnectionId = id;
         _selectedConnectionControlKind = controlKind;
-        var connections = Scene.Connections.Select(c => c with { IsSelected = c.Id == id }).ToList();
+
+        // Additive (Ctrl/Shift+click) toggles this connector into/out of a multi-selection without
+        // disturbing the others — this is what lets you recolor or retype several edges at once. A
+        // plain click replaces the whole selection with just this connector.
+        var connections = Scene.Connections.Select(c =>
+            c.Id == id
+                ? c with { IsSelected = additive ? !c.IsSelected : true }
+                : (additive ? c : c with { IsSelected = false })).ToList();
+
+        // The "primary" connector drives control-node editing. Keep it on the clicked edge unless an
+        // additive toggle just deselected it, in which case fall back to any other selected edge.
+        bool clickedStillSelected = connections.First(c => c.Id == id).IsSelected;
+        _selectedConnectionId = clickedStillSelected ? id : connections.FirstOrDefault(c => c.IsSelected)?.Id;
+
         SetCurrentValue(SceneProperty, Scene with
         {
-            Blocks = Scene.Blocks.Select(b => b with { IsSelected = false }).ToList(),
-            SwimLanes = Scene.SwimLanes.Select(l => l with { IsSelected = false }).ToList(),
+            // A plain click also clears block/lane selection; an additive edge-click leaves any
+            // existing selection alone (the common case is an edge-only multi-select).
+            Blocks = additive ? Scene.Blocks : Scene.Blocks.Select(b => b with { IsSelected = false }).ToList(),
+            SwimLanes = additive ? Scene.SwimLanes : Scene.SwimLanes.Select(l => l with { IsSelected = false }).ToList(),
             Connections = connections
         });
         RebuildSnapshot();

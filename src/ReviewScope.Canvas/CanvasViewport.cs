@@ -34,6 +34,9 @@ public sealed record ConnectionDrawnArgs(string SourceKey, string TargetKey, int
 public sealed record AnnotationRequestedArgs(double WorldX, double WorldY, string? AttachedBlockKey = null);
 public sealed record ItemPlacementArgs(string Kind, double WorldX, double WorldY);
 public sealed record CanvasSceneChangedArgs(RenderScene Before, RenderScene After, bool IsContentChange);
+/// <summary>Raised when the user drags in a code block's line-number gutter to toggle reading progress
+/// for the inclusive source-line span <see cref="StartLine"/>..<see cref="EndLine"/> of <see cref="FilePath"/>.</summary>
+public sealed record ReviewLinesToggledArgs(string FilePath, int StartLine, int EndLine);
 
 public sealed partial class CanvasViewport : HwndHost
 {
@@ -87,6 +90,10 @@ public sealed partial class CanvasViewport : HwndHost
         DependencyProperty.Register(nameof(BackgroundMode), typeof(CanvasBackgroundMode), typeof(CanvasViewport),
             new FrameworkPropertyMetadata(CanvasBackgroundMode.Dots, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    public static readonly DependencyProperty GlobalShapeStyleProperty =
+        DependencyProperty.Register(nameof(GlobalShapeStyle), typeof(ShapeRenderStyle), typeof(CanvasViewport),
+            new FrameworkPropertyMetadata(ShapeRenderStyle.Sketch, FrameworkPropertyMetadataOptions.AffectsRender));
+
     public static readonly DependencyProperty SnapToGridProperty =
         DependencyProperty.Register(nameof(SnapToGrid), typeof(bool), typeof(CanvasViewport),
             new FrameworkPropertyMetadata(true));
@@ -115,6 +122,11 @@ public sealed partial class CanvasViewport : HwndHost
     public CameraState Camera { get => (CameraState)GetValue(CameraProperty); set => SetValue(CameraProperty, value); }
     public bool ConnectorsEnabled { get => (bool)GetValue(ConnectorsEnabledProperty); set => SetValue(ConnectorsEnabledProperty, value); }
     public CanvasBackgroundMode BackgroundMode { get => (CanvasBackgroundMode)GetValue(BackgroundModeProperty); set => SetValue(BackgroundModeProperty, value); }
+    public ShapeRenderStyle GlobalShapeStyle { get => (ShapeRenderStyle)GetValue(GlobalShapeStyleProperty); set => SetValue(GlobalShapeStyleProperty, value); }
+
+    /// <summary>Host-supplied resolver for the reviewed-line overlay (file path → reviewed spans + staleness).
+    /// Plain CLR property (not a DP): it's a delegate wired once from the shell. Re-render after changing it.</summary>
+    public Func<string?, ReviewedFileState>? ReviewedRangeResolver { get; set; }
     public bool SnapToGrid { get => (bool)GetValue(SnapToGridProperty); set => SetValue(SnapToGridProperty, value); }
     public double GridSize { get => (double)GetValue(GridSizeProperty); set => SetValue(GridSizeProperty, value); }
     public string? ActiveShapeTool { get => (string?)GetValue(ActiveShapeToolProperty); set => SetValue(ActiveShapeToolProperty, value); }
@@ -155,6 +167,10 @@ public sealed partial class CanvasViewport : HwndHost
 
     public bool IsReady { get; internal set; }
 
+    /// <summary>Force a repaint without mutating the scene — used when overlay state that lives outside
+    /// the scene changes (e.g. reading-progress was toggled and the green overlay must refresh).</summary>
+    public void Refresh() => RenderNative();
+
     public ICommand? RestoreRequestedCommand { get; set; }
     public ICommand? ExtractRequestedCommand { get; set; }
     public ICommand? FocusRequestedCommand { get; set; }
@@ -164,6 +180,8 @@ public sealed partial class CanvasViewport : HwndHost
     public ICommand? PasteRequestedCommand { get; set; }
     public ICommand? ConnectionDrawnCommand { get; set; }
     public ICommand? AnnotationRequestedCommand { get; set; }
+    /// <summary>Invoked on gutter drag-release to toggle reviewed state for the selected line span.</summary>
+    public ICommand? ReviewLinesToggledCommand { get; set; }
 
     internal static readonly string[] ShapeToolIds = { "rectangle", "square", "oval", "circle", "triangle", "diamond", "hexagon", "star", "line", "arrow", "polyline" };
     private static readonly string[] ShapeShortcutToolIds = { "rectangle", "square", "oval", "circle", "triangle", "diamond", "hexagon", "star", "polyline" };
@@ -259,6 +277,14 @@ public sealed partial class CanvasViewport : HwndHost
 
     // Modifier highlight state (Alt=extract function to new block)
     internal bool _isExtractMode;
+
+    // Reading-progress gutter drag: select a span of source lines in a code block's line-number
+    // gutter, then toggle them reviewed on release. Lines are absolute (1-based) source lines.
+    internal bool _isReviewLineDrag;
+    internal string? _reviewDragBlockKey;
+    internal string? _reviewDragFilePath;
+    internal int _reviewDragAnchorLine;
+    internal int _reviewDragCurrentLine;
 
     // Click tracking
     internal long _lastClickTick = -1;
@@ -627,7 +653,18 @@ public sealed partial class CanvasViewport : HwndHost
         Rect worldRect = new(topLeft, bottomRight);
         var hit = _snapshot.QueryBlocks(worldRect).Select(v => v.Block.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var blocks = Scene.Blocks.Select(b => b with { IsSelected = append ? b.IsSelected || hit.Contains(b.Key) : hit.Contains(b.Key) }).ToList();
-        ApplySceneChange(ClearConnectionSelection(Scene with { Blocks = blocks }));
+
+        // Connectors whose endpoints both land inside the marquee are pulled into the selection too
+        // (draw.io-style), so a box-select grabs a subgraph's edges along with its nodes.
+        var selectedBlockKeys = blocks.Where(b => b.IsSelected).Select(b => b.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var connections = Scene.Connections.Select(c => c with
+        {
+            IsSelected = (append && c.IsSelected)
+                || (selectedBlockKeys.Contains(c.SourceKey) && selectedBlockKeys.Contains(c.TargetKey))
+        }).ToList();
+        _selectedConnectionId = connections.FirstOrDefault(c => c.IsSelected)?.Id;
+        _selectedConnectionControlKind = ConnectionControlNodeKind.None;
+        ApplySceneChange(Scene with { Blocks = blocks, Connections = connections });
         RebuildSnapshot();
     }
 
@@ -652,6 +689,11 @@ public sealed partial class CanvasViewport : HwndHost
     /// block kind (Text → Text tab; Note → Inspector tab).
     /// </summary>
     public event Action<BlockKind>? EditStarted;
+
+    /// <summary>Raised when a page-portal block's embedded outline is edited in place. Carries the
+    /// source page name and the new outline body so the host can update that page (the portal's
+    /// own body is re-resolved, never persisted directly). Args: (pageName, newOutlineBody).</summary>
+    public event Action<string, string>? PagePortalEdited;
 
     public void BeginEditNewNote()
     {

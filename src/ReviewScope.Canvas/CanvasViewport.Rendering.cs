@@ -94,6 +94,11 @@ public sealed partial class CanvasViewport
             if (_blockRenderer is not null)
             {
                 _blockRenderer.BlockLookup = _snapshot.Blocks.ToDictionary(b => b.Block.Key, StringComparer.OrdinalIgnoreCase);
+                _blockRenderer.GlobalShapeStyle = GlobalShapeStyle;
+                _blockRenderer.ReviewedRangeResolver = ReviewedRangeResolver;
+                _blockRenderer.PendingReviewSelection = _isReviewLineDrag && _reviewDragFilePath is not null
+                    ? (_reviewDragFilePath, Math.Min(_reviewDragAnchorLine, _reviewDragCurrentLine), Math.Max(_reviewDragAnchorLine, _reviewDragCurrentLine))
+                    : null;
                 foreach (var block in _visibleBlocks)
                 {
                     _blockRenderer.DrawBlock(

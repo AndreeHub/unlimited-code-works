@@ -43,6 +43,8 @@ public partial class App : Application
                 services.AddSingleton<SessionRepository>();
                 services.AddSingleton<TagIndexStore>();
                 services.AddSingleton<ITagIndex>(sp => sp.GetRequiredService<TagIndexStore>());
+                services.AddSingleton<ReviewProgressStore>();
+                services.AddSingleton<IReviewProgressStore>(sp => sp.GetRequiredService<ReviewProgressStore>());
                 services.AddSingleton<MainWindowViewModel>();
                 services.AddSingleton<MainWindow>();
             })

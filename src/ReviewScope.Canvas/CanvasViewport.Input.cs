@@ -237,6 +237,28 @@ public sealed partial class CanvasViewport
             }
         }
 
+        // Reading-progress: a plain (no-modifier) press in a code block's line-number gutter starts a
+        // line-span selection. Toggled reviewed on release. Placed last so block/connection/outline
+        // interactions keep priority; the gutter sits inside the code body where none of those apply.
+        if (!modifiers.HasFlag(ModifierKeys.Control) && !modifiers.HasFlag(ModifierKeys.Alt)
+            && !modifiers.HasFlag(ModifierKeys.Shift))
+        {
+            var gutterHit = HitBlock(world);
+            if (gutterHit is not null && IsInCodeGutter(gutterHit, world)
+                && TryResolveCodeLine(gutterHit, world, clamp: false, out int gutterLine))
+            {
+                _isReviewLineDrag = true;
+                _reviewDragBlockKey = gutterHit.Block.Key;
+                _reviewDragFilePath = gutterHit.Block.FilePath;
+                _reviewDragAnchorLine = gutterLine;
+                _reviewDragCurrentLine = gutterLine;
+                SetCapture(_hwnd);
+                Cursor = Cursors.Arrow;
+                RenderNative();
+                return;
+            }
+        }
+
         SetTool("Selection");
         _currentTool?.HandleLDown(screen, world, modifiers);
     }
@@ -245,6 +267,25 @@ public sealed partial class CanvasViewport
     {
         WpfPoint world = ToWorld(screen);
         ModifierKeys modifiers = Keyboard.Modifiers;
+
+        if (_isReviewLineDrag)
+        {
+            _isReviewLineDrag = false;
+            ReleaseCapture();
+            if (_reviewDragFilePath is not null)
+            {
+                int start = Math.Min(_reviewDragAnchorLine, _reviewDragCurrentLine);
+                int end = Math.Max(_reviewDragAnchorLine, _reviewDragCurrentLine);
+                var args = new ReviewLinesToggledArgs(_reviewDragFilePath, start, end);
+                if (ReviewLinesToggledCommand?.CanExecute(args) == true)
+                    ReviewLinesToggledCommand.Execute(args);
+            }
+            _reviewDragBlockKey = null;
+            _reviewDragFilePath = null;
+            UpdateHoverCursor(screen);
+            RenderNative();
+            return;
+        }
 
         if (_editMouseSelecting)
         {
@@ -314,6 +355,18 @@ public sealed partial class CanvasViewport
 
         WpfPoint world = ToWorld(screen);
         ModifierKeys modifiers = Keyboard.Modifiers;
+
+        if (_isReviewLineDrag)
+        {
+            var vis = _snapshot.Blocks.FirstOrDefault(b => b.Block.Key == _reviewDragBlockKey);
+            if (vis is not null && TryResolveCodeLine(vis, world, clamp: true, out int line)
+                && line != _reviewDragCurrentLine)
+            {
+                _reviewDragCurrentLine = line;
+                RenderNative();
+            }
+            return;
+        }
 
         if (_editMouseSelecting && _editingNoteKey is not null)
         {
@@ -748,8 +801,10 @@ public sealed partial class CanvasViewport
     // -----------------------------------------------------------------------
     internal void BeginNoteEdit(RenderBlock block, WpfPoint? clickWorld = null)
     {
-        // Transclusions are read-only mirrors of a source bullet; edit the source, not the mirror.
-        if (block.Kind == BlockKind.Transclusion) return;
+        // Single-bullet block references are read-only mirrors — edit the source bullet, not the
+        // mirror. Whole-PAGE portals (RefPageName set) ARE editable in place; edits write back to
+        // the source page (see CommitNoteEdit → PagePortalEdited).
+        if (block.Kind == BlockKind.Transclusion && string.IsNullOrEmpty(block.RefPageName)) return;
 
         _editingNoteKey = block.Key; _editTitle = block.Title; _editBody = block.Body ?? string.Empty; _editSelectionAnchor = -1; _editMouseSelecting = false; _editingTitle = false;
 
@@ -846,6 +901,15 @@ public sealed partial class CanvasViewport
         if (save && key is not null)
         {
             var noteBlock = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+            if (noteBlock is not null && noteBlock.Kind == BlockKind.Transclusion && !string.IsNullOrEmpty(noteBlock.RefPageName))
+            {
+                // Page portal: don't write the (re-resolved) mirror body onto the canvas block.
+                // Hand the edited outline back to the host so it updates the SOURCE page and
+                // re-resolves every portal of that page.
+                PagePortalEdited?.Invoke(noteBlock.RefPageName!, _editBody ?? string.Empty);
+                RenderNative();
+                return;
+            }
             if (noteBlock is not null)
             {
                 string title = string.IsNullOrWhiteSpace(_editTitle) ? "Note" : _editTitle.Trim();

@@ -34,8 +34,8 @@ public sealed partial class MainWindowViewModel
     {
         var dlg = new OpenFileDialog
         {
-            Title = "Open Workspace",
-            Filter = "Solution / Project|*.sln;*.csproj;*.shproj|All Files|*.*",
+            Title = "Open Code Project (.sln / .csproj)",
+            Filter = "Code Projects|*.sln;*.csproj;*.shproj|Solution|*.sln|C# Project|*.csproj|Shared Project|*.shproj|All Files|*.*",
             CheckFileExists = true
         };
         if (dlg.ShowDialog() != true) return;
@@ -65,8 +65,8 @@ public sealed partial class MainWindowViewModel
         {
             var dlg = new OpenFileDialog
             {
-                Title = "Open Workspace From Branch",
-                Filter = "Solution / Project|*.sln;*.csproj;*.shproj|All Files|*.*",
+                Title = "Open Code Project From Branch (.sln / .csproj)",
+                Filter = "Code Projects|*.sln;*.csproj;*.shproj|Solution|*.sln|C# Project|*.csproj|Shared Project|*.shproj|All Files|*.*",
                 CheckFileExists = true
             };
             if (dlg.ShowDialog() != true) return;
@@ -106,6 +106,7 @@ public sealed partial class MainWindowViewModel
             BuildExplorer(_currentSnapshot);
             BuildFileExplorer(_currentSnapshot);
             await _tagIndex.LoadAsync(_currentSnapshot.WorkspaceKey, ct);
+            await _reviewProgress.LoadAsync(_currentSnapshot.WorkspaceKey, ct);
             await LoadSessionsAsync(_currentSnapshot.WorkspaceKey, ct);
         }
         catch (OperationCanceledException)
