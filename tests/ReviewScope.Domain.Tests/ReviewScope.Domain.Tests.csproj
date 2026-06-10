@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ReviewScope.Domain\ReviewScope.Domain.csproj" />
+    <ProjectReference Include="..\..\src\ReviewScope.App\ReviewScope.App.csproj" />
   </ItemGroup>
 
 </Project>

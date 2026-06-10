@@ -1,7 +1,9 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using ReviewScope.Canvas;
 using ReviewScope.Domain;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
 
@@ -87,12 +89,31 @@ public sealed partial class MainWindowViewModel
 
     /// <summary>The active Page/Journal title, shown as the centered heading above the outline.
     /// Two-way bound to the title box; committed (renames the document) on Enter/blur.</summary>
+    [NotifyPropertyChangedFor(nameof(OutlineDocumentDisplayTitle))]
     [ObservableProperty] private string _outlineDocumentTitle = string.Empty;
+
+    public string OutlineDocumentDisplayTitle
+    {
+        get => FormatOutlineTitle(OutlineDocumentTitle, _activeOutlineSession?.Kind);
+        set
+        {
+            string next = ParseOutlineTitle(value, _activeOutlineSession?.Kind);
+            if (string.Equals(next, OutlineDocumentTitle, StringComparison.Ordinal)) return;
+            OutlineDocumentTitle = next;
+            OnPropertyChanged();
+        }
+    }
+
+    [ObservableProperty] private string _outlineDocumentKindLabel = "page";
+    [ObservableProperty] private string _outlineDocumentUpdatedLabel = string.Empty;
+    [ObservableProperty] private string _outlineDocumentTagSummary = "no tags";
 
     private string _outlineDocumentCollapsed = string.Empty;
 
     /// <summary>Semicolon-separated collapsed-anchor set for the active outline document.</summary>
     public string OutlineDocumentCollapsed => _outlineDocumentCollapsed;
+
+    public ObservableCollection<OutlineLinkedReference> OutlineLinkedReferences { get; } = new();
 
     /// <summary>
     /// Raised when a Page/Journal becomes active so the host can (re)load OutlineView.Document and
@@ -100,6 +121,8 @@ public sealed partial class MainWindowViewModel
     /// otherwise suppress a plain property-change push).
     /// </summary>
     public event Action? OutlineDocumentReloadRequested;
+
+    public event Action? OutlineLinkedReferencesChanged;
 
     private CancellationTokenSource? _outlineSaveCts;
 
@@ -216,6 +239,7 @@ public sealed partial class MainWindowViewModel
     {
         if (_activeOutlineSession is null || _activeOutlineSession.Kind == DocumentKind.Canvas) return;
         OutlineDocumentBody = body;
+        RefreshOutlinePageChrome();
         _ = PersistOutlineAsync();
     }
 
@@ -317,18 +341,150 @@ public sealed partial class MainWindowViewModel
 
         if (!IsSplitViewActive)
         {
-            Scene = RenderScene.Empty;
-            UpdateSelectedObject(Scene);
+            UpdateSelectedObject(RenderScene.Empty);
             RefreshBoardDetails();
-            ResetHistory();
             IsCanvasDocumentActive = false;
         }
 
         OutlineDocumentBody = string.IsNullOrEmpty(session.OutlineBody) ? "- " : session.OutlineBody!;
         OutlineDocumentTitle = session.Name;
         _outlineDocumentCollapsed = session.OutlineCollapsed ?? string.Empty;
+        RefreshOutlinePageChrome();
         IsOutlineDocumentActive = true;
         StatusMessage = $"{session.Kind}: {session.Name}";
         OutlineDocumentReloadRequested?.Invoke();
+    }
+
+    partial void OnOutlineDocumentTitleChanged(string value) => RefreshOutlinePageChrome();
+
+    private void RefreshOutlinePageChrome()
+    {
+        if (_activeOutlineSession is null || _activeOutlineSession.Kind == DocumentKind.Canvas)
+        {
+            OutlineDocumentKindLabel = "page";
+            OutlineDocumentUpdatedLabel = string.Empty;
+            OutlineDocumentTagSummary = "no tags";
+            OutlineLinkedReferences.Clear();
+            OutlineLinkedReferencesChanged?.Invoke();
+            return;
+        }
+
+        OutlineDocumentKindLabel = _activeOutlineSession.Kind == DocumentKind.Journal ? "journal" : "page";
+        OutlineDocumentUpdatedLabel = _activeOutlineSession.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd");
+        OnPropertyChanged(nameof(OutlineDocumentDisplayTitle));
+
+        var (tags, _) = TagTokens.Extract(OutlineDocumentBody);
+        OutlineDocumentTagSummary = tags.Count == 0
+            ? "no tags"
+            : string.Join(" ", tags.Take(4).Select(tag => "#" + tag));
+
+        RebuildOutlineLinkedReferences();
+    }
+
+    private static string FormatOutlineTitle(string title, DocumentKind? kind)
+    {
+        if (kind == DocumentKind.Journal
+            && DateTime.TryParseExact(title, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        {
+            return $"{date:MMM} {Ordinal(date.Day)}, {date:yyyy}";
+        }
+
+        return title;
+    }
+
+    private static string ParseOutlineTitle(string title, DocumentKind? kind)
+    {
+        title = (title ?? string.Empty).Trim();
+        if (kind != DocumentKind.Journal) return title;
+        if (DateTime.TryParseExact(title, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var iso))
+            return iso.ToString("yyyy-MM-dd");
+
+        string normalized = title
+            .Replace("st,", ",", StringComparison.OrdinalIgnoreCase)
+            .Replace("nd,", ",", StringComparison.OrdinalIgnoreCase)
+            .Replace("rd,", ",", StringComparison.OrdinalIgnoreCase)
+            .Replace("th,", ",", StringComparison.OrdinalIgnoreCase);
+        return DateTime.TryParseExact(normalized, "MMM d, yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+            ? date.ToString("yyyy-MM-dd")
+            : title;
+    }
+
+    private static string Ordinal(int day)
+    {
+        if (day % 100 is 11 or 12 or 13) return day + "th";
+        return (day % 10) switch
+        {
+            1 => day + "st",
+            2 => day + "nd",
+            3 => day + "rd",
+            _ => day + "th"
+        };
+    }
+
+    private void RebuildOutlineLinkedReferences()
+    {
+        OutlineLinkedReferences.Clear();
+        if (_activeOutlineSession is null || _activeOutlineSession.Kind == DocumentKind.Canvas)
+        {
+            OutlineLinkedReferencesChanged?.Invoke();
+            return;
+        }
+
+        string pageName = (OutlineDocumentTitle ?? _activeOutlineSession.Name ?? string.Empty).Trim();
+        if (pageName.Length == 0)
+        {
+            OutlineLinkedReferencesChanged?.Invoke();
+            return;
+        }
+
+        string target = "[[" + pageName + "]]";
+        foreach (var session in Sessions.Where(s => s.Kind != DocumentKind.Canvas && s.Id != _activeOutlineSession.Id))
+        {
+            string body = session.OutlineBody ?? string.Empty;
+            foreach (string preview in MatchingReferencePreviews(body, target).Take(3))
+            {
+                string date = session.Kind == DocumentKind.Journal
+                    ? session.Name
+                    : session.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd");
+                OutlineLinkedReferences.Add(new OutlineLinkedReference(session.Name, date, preview));
+                if (OutlineLinkedReferences.Count >= 12)
+                {
+                    OutlineLinkedReferencesChanged?.Invoke();
+                    return;
+                }
+            }
+        }
+
+        OutlineLinkedReferencesChanged?.Invoke();
+    }
+
+    private static IEnumerable<string> MatchingReferencePreviews(string body, string target)
+    {
+        body = (body ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
+        foreach (string rawLine in body.Split('\n'))
+        {
+            if (rawLine.IndexOf(target, StringComparison.OrdinalIgnoreCase) < 0)
+                continue;
+
+            string line = rawLine.Trim();
+            int prefix = PrefixLengthForOutlineLine(line);
+            if (prefix > 0 && prefix <= line.Length)
+                line = line[prefix..].Trim();
+            if (line.Length > 92)
+                line = line[..89].TrimEnd() + "...";
+            if (line.Length > 0)
+                yield return line;
+        }
+    }
+
+    private static int PrefixLengthForOutlineLine(string line)
+    {
+        int indent = line.TakeWhile(c => c is ' ' or '\t').Count();
+        string rest = line[indent..];
+        if (rest.StartsWith("- ", StringComparison.Ordinal)
+            || rest.StartsWith("* ", StringComparison.Ordinal)
+            || rest.StartsWith("\u2022 ", StringComparison.Ordinal))
+            return indent + 2;
+        return indent;
     }
 }

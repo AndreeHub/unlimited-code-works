@@ -26,6 +26,8 @@ internal sealed class DrawingContext
     private readonly Func<WpfColor, ID2D1SolidColorBrush> _brushProvider;
     private readonly Func<float, bool, IDWriteTextFormat> _textFormatProvider;
     private readonly ID2D1StrokeStyle _dashedStroke;
+    private readonly ID2D1StrokeStyle? _roundStroke;
+    private readonly ID2D1StrokeStyle? _dottedStroke;
 
     public ID2D1RenderTarget RenderTarget => _rt;
     public ID2D1Factory Factory => _factory;
@@ -40,7 +42,9 @@ internal sealed class DrawingContext
         CameraState camera,
         Func<WpfColor, ID2D1SolidColorBrush> brushProvider,
         Func<float, bool, IDWriteTextFormat> textFormatProvider,
-        ID2D1StrokeStyle dashedStroke)
+        ID2D1StrokeStyle dashedStroke,
+        ID2D1StrokeStyle? roundStroke = null,
+        ID2D1StrokeStyle? dottedStroke = null)
     {
         _rt = rt;
         _factory = factory;
@@ -49,6 +53,8 @@ internal sealed class DrawingContext
         _brushProvider = brushProvider;
         _textFormatProvider = textFormatProvider;
         _dashedStroke = dashedStroke;
+        _roundStroke = roundStroke;
+        _dottedStroke = dottedStroke;
     }
 
     public ID2D1SolidColorBrush GetBrush(WpfColor color) => _brushProvider(color);
@@ -56,6 +62,18 @@ internal sealed class DrawingContext
     public IDWriteTextFormat GetTextFormat(float size, bool sketchy = false) => _textFormatProvider(size, sketchy);
 
     public ID2D1StrokeStyle DashedStroke => _dashedStroke;
+
+    /// <summary>Dotted stroke (Excalidraw's third line style). Falls back to dashed if unavailable.</summary>
+    public ID2D1StrokeStyle DottedStroke => _dottedStroke ?? _dashedStroke;
+
+    /// <summary>Resolves the outline stroke style for a shape style: dashed wins over dotted; null = solid.</summary>
+    public ID2D1StrokeStyle? StrokeStyleFor(ReviewScope.Domain.BoardItemStyle style) =>
+        style.Dashed ? DashedStroke : style.Dotted ? DottedStroke : null;
+
+    /// <summary>Solid stroke with round caps and joins — used for freehand (freedraw) strokes so
+    /// pen lines have smooth, rounded ends instead of flat cut-offs. Falls back to the dashed
+    /// style's geometry if no dedicated round style was provided.</summary>
+    public ID2D1StrokeStyle RoundStroke => _roundStroke ?? _dashedStroke;
 
     public float InvStroke(float strokeWidth) => (float)(strokeWidth / _camera.Zoom);
 

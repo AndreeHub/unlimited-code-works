@@ -83,7 +83,7 @@ public static class SketchyDrawer
         {
             rt.FillRectangle(rect, fillBrush);
             if (fillStyle != "solid")
-                DrawSketchyHatching(rt, rand, pts, strokeBrush, strokeWidth, hatchOpacity);
+                DrawSketchyHatching(rt, rand, pts, strokeBrush, strokeWidth, hatchOpacity, fillStyle);
         }
 
         // Draw boundaries
@@ -110,7 +110,7 @@ public static class SketchyDrawer
             rt.FillGeometry(path, fillBrush);
 
             if (fillStyle != "solid")
-                DrawSketchyHatching(rt, rand, pts, strokeBrush, strokeWidth, hatchOpacity);
+                DrawSketchyHatching(rt, rand, pts, strokeBrush, strokeWidth, hatchOpacity, fillStyle);
         }
 
         int count = close ? pts.Length : pts.Length - 1;
@@ -133,7 +133,7 @@ public static class SketchyDrawer
                 rect.Height / 2f);
             rt.FillEllipse(ellipse, fillBrush);
             if (fillStyle != "solid")
-                DrawSketchyHatching(rt, rand, pts, strokeBrush, strokeWidth, hatchOpacity);
+                DrawSketchyHatching(rt, rand, pts, strokeBrush, strokeWidth, hatchOpacity, fillStyle);
         }
 
         // Approximate ellipse drawing using two full sketchy overlapping loops
@@ -185,7 +185,10 @@ public static class SketchyDrawer
         return pts;
     }
 
-    private static void DrawSketchyHatching(ID2D1RenderTarget rt, Random rand, Vector2[] polygonPoints, ID2D1Brush brush, float strokeWidth, float hatchOpacity = 1f)
+    internal static bool IsCrossHatch(string fillStyle) =>
+        string.Equals(fillStyle, "cross-hatch", StringComparison.OrdinalIgnoreCase);
+
+    private static void DrawSketchyHatching(ID2D1RenderTarget rt, Random rand, Vector2[] polygonPoints, ID2D1Brush brush, float strokeWidth, float hatchOpacity = 1f, string fillStyle = "hatch")
     {
         if (polygonPoints.Length < 3) return;
         // Temporarily adjust brush opacity for hatching lines only (caller will see brush restored).
@@ -195,7 +198,22 @@ public static class SketchyDrawer
             brush.Opacity = effective;
         try
         {
-            DrawSketchyHatchingCore(rt, rand, polygonPoints, brush, strokeWidth);
+            switch (fillStyle.ToLowerInvariant())
+            {
+                case "cross-hatch":
+                    DrawSketchyHatchingCore(rt, rand, polygonPoints, brush, strokeWidth, antiDiagonal: false);
+                    DrawSketchyHatchingCore(rt, rand, polygonPoints, brush, strokeWidth, antiDiagonal: true);
+                    break;
+                case "zigzag":
+                    DrawSketchyZigzag(rt, rand, polygonPoints, brush, strokeWidth);
+                    break;
+                case "dots":
+                    DrawSketchyDots(rt, rand, polygonPoints, brush, strokeWidth);
+                    break;
+                default:
+                    DrawSketchyHatchingCore(rt, rand, polygonPoints, brush, strokeWidth, antiDiagonal: false);
+                    break;
+            }
         }
         finally
         {
@@ -204,7 +222,89 @@ public static class SketchyDrawer
         }
     }
 
-    private static void DrawSketchyHatchingCore(ID2D1RenderTarget rt, Random rand, Vector2[] polygonPoints, ID2D1Brush brush, float strokeWidth)
+    /// <summary>Collects the first clipped hatch segment per diagonal scanline — shared by the
+    /// zigzag fill, which connects consecutive segments into one continuous folded stroke.</summary>
+    private static List<(Vector2 A, Vector2 B)> CollectHatchSegments(Vector2[] polygonPoints, Random rand)
+    {
+        var segments = new List<(Vector2, Vector2)>();
+        float minX = polygonPoints.Min(p => p.X), maxX = polygonPoints.Max(p => p.X);
+        float minY = polygonPoints.Min(p => p.Y), maxY = polygonPoints.Max(p => p.Y);
+        if (maxX - minX < 6f || maxY - minY < 6f) return segments;
+
+        const float spacing = 13f;
+        for (float c = minX + minY + spacing; c < maxX + maxY; c += spacing + (float)(rand.NextDouble() * 3.0 - 1.5))
+        {
+            var hits = new List<Vector2>();
+            for (int i = 0; i < polygonPoints.Length; i++)
+            {
+                var p1 = polygonPoints[i];
+                var p2 = polygonPoints[(i + 1) % polygonPoints.Length];
+                float denom = (p2.X - p1.X) + (p2.Y - p1.Y);
+                if (MathF.Abs(denom) <= 1e-4f) continue;
+                float t = (c - (p1.X + p1.Y)) / denom;
+                if (t >= 0f && t <= 1f) hits.Add(p1 + t * (p2 - p1));
+            }
+            if (hits.Count < 2) continue;
+            hits.Sort((a, b) => a.X.CompareTo(b.X));
+            segments.Add((hits[0], hits[1]));
+        }
+        return segments;
+    }
+
+    /// <summary>Zigzag fill (rough.js style): hachure segments joined end-to-start so the ink
+    /// folds back and forth across the shape in one continuous hand-drawn stroke.</summary>
+    private static void DrawSketchyZigzag(ID2D1RenderTarget rt, Random rand, Vector2[] polygonPoints, ID2D1Brush brush, float strokeWidth)
+    {
+        var segments = CollectHatchSegments(polygonPoints, rand);
+        Vector2? previousEnd = null;
+        bool flip = false;
+        foreach (var (a, b) in segments)
+        {
+            Vector2 start = flip ? b : a;
+            Vector2 end = flip ? a : b;
+            if (previousEnd is Vector2 prev)
+                DrawSketchyLineSingle(rt, rand, prev, start, brush, strokeWidth * 0.75f);
+            DrawSketchyLineSingle(rt, rand, start, end, brush, strokeWidth * 0.75f);
+            previousEnd = end;
+            flip = !flip;
+        }
+    }
+
+    /// <summary>Dots fill: a jittered grid of small ink dots clipped to the polygon.</summary>
+    private static void DrawSketchyDots(ID2D1RenderTarget rt, Random rand, Vector2[] polygonPoints, ID2D1Brush brush, float strokeWidth)
+    {
+        float minX = polygonPoints.Min(p => p.X), maxX = polygonPoints.Max(p => p.X);
+        float minY = polygonPoints.Min(p => p.Y), maxY = polygonPoints.Max(p => p.Y);
+        if (maxX - minX < 6f || maxY - minY < 6f) return;
+
+        const float spacing = 12f;
+        float radius = Math.Max(0.8f, strokeWidth * 0.55f);
+        for (float y = minY + spacing / 2; y < maxY; y += spacing)
+        {
+            for (float x = minX + spacing / 2; x < maxX; x += spacing)
+            {
+                var p = new Vector2(
+                    x + (float)((rand.NextDouble() - 0.5) * spacing * 0.5),
+                    y + (float)((rand.NextDouble() - 0.5) * spacing * 0.5));
+                if (PointInPolygon(p, polygonPoints))
+                    rt.FillEllipse(new Ellipse(p, radius, radius), brush);
+            }
+        }
+    }
+
+    internal static bool PointInPolygon(Vector2 p, Vector2[] polygon)
+    {
+        bool inside = false;
+        for (int i = 0, j = polygon.Length - 1; i < polygon.Length; j = i++)
+        {
+            if (polygon[i].Y > p.Y != polygon[j].Y > p.Y
+                && p.X < (polygon[j].X - polygon[i].X) * (p.Y - polygon[i].Y) / (polygon[j].Y - polygon[i].Y) + polygon[i].X)
+                inside = !inside;
+        }
+        return inside;
+    }
+
+    private static void DrawSketchyHatchingCore(ID2D1RenderTarget rt, Random rand, Vector2[] polygonPoints, ID2D1Brush brush, float strokeWidth, bool antiDiagonal)
     {
         if (polygonPoints.Length < 3) return;
 
@@ -225,9 +325,9 @@ public static class SketchyDrawer
         // Space out hatching lines (typically 12px, slightly randomized)
         float spacing = 12f;
 
-        // Diagonal lines: x + y = c
-        float startC = minX + minY;
-        float endC = maxX + maxY;
+        // One diagonal family per pass: x + y = c, or x - y = c for the cross-hatch second pass.
+        float startC = antiDiagonal ? minX - maxY : minX + minY;
+        float endC = antiDiagonal ? maxX - minY : maxX + maxY;
 
         for (float c = startC + spacing; c < endC; c += spacing + (float)(rand.NextDouble() * 3.0 - 1.5))
         {
@@ -237,10 +337,13 @@ public static class SketchyDrawer
                 var p1 = polygonPoints[i];
                 var p2 = polygonPoints[(i + 1) % polygonPoints.Length];
 
-                float denom = (p2.X - p1.X) + (p2.Y - p1.Y);
+                float denom = antiDiagonal
+                    ? (p2.X - p1.X) - (p2.Y - p1.Y)
+                    : (p2.X - p1.X) + (p2.Y - p1.Y);
                 if (MathF.Abs(denom) > 1e-4f)
                 {
-                    float t = (c - (p1.X + p1.Y)) / denom;
+                    float value = antiDiagonal ? p1.X - p1.Y : p1.X + p1.Y;
+                    float t = (c - value) / denom;
                     if (t >= 0f && t <= 1f)
                     {
                         intersections.Add(p1 + t * (p2 - p1));

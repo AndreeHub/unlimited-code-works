@@ -37,7 +37,6 @@ internal sealed class OutlineDocument
     private const float IndentWidth = 18f;
     public const float IndentWidthPublic = IndentWidth;
     private const float BulletRadius = 2.4f;
-    private const float ToggleSize = 9f;
     private const float CheckboxSize = 11f;
     private const float MaxTextLayoutHeight = 4096f;
 
@@ -178,7 +177,7 @@ internal sealed class OutlineDocument
         var doc = Parse(block.Body ?? string.Empty, style);
         var content = GetContentRect(block, bounds);
         float fontSize = block.Kind == BlockKind.Note ? Math.Clamp((float)style.FontSize, 8f, 48f) : Math.Clamp((float)style.FontSize, 8f, 96f);
-        float rowH = Math.Max(16f, fontSize * 1.45f);
+        float rowH = Math.Max(18f, fontSize * 1.5f);
         float maxW = (float)content.Width;
 
         Vortice.DirectWrite.IDWriteTextFormat? fmt = null;
@@ -198,8 +197,8 @@ internal sealed class OutlineDocument
             foreach (var line in doc.VisibleLines)
             {
                 if (y > content.Bottom) break;
-                float toggleX = (float)content.X + line.Level * IndentWidth + 1f;
-                var hit = new Rect(toggleX - 3, y + (rowH - ToggleSize) * 0.5f - 3, ToggleSize + 6, ToggleSize + 6);
+                float bulletX = (float)content.X + line.Level * IndentWidth + 12f;
+                var hit = new Rect(bulletX - 18, y, 28, rowH);
                 if (line.HasChildren && hit.Contains(world))
                 {
                     lineIndex = line.Index;
@@ -209,8 +208,10 @@ internal sealed class OutlineDocument
                 if (fmt is not null)
                 {
                     float available = Math.Max(8f, maxW - line.Level * IndentWidth - 22f);
-                    using var layout = dwrite!.CreateTextLayout(
-                        string.IsNullOrWhiteSpace(line.Text) ? " " : line.Text, fmt, available, MaxTextLayoutHeight);
+                    var (displayText, displaySpans, _, _) = PrepareDisplayLine(line.Text, hideMarkers: true);
+                    string visibleText = string.IsNullOrWhiteSpace(displayText) ? " " : displayText;
+                    using var layout = dwrite!.CreateTextLayout(visibleText, fmt, available, MaxTextLayoutHeight);
+                    ApplyInlineMarkdownSpans(null, layout, displaySpans);
                     drawn = MeasureRowHeight(layout, rowH);
                 }
                 y += drawn;
@@ -244,12 +245,16 @@ internal sealed class OutlineDocument
         float x = (float)content.X;
         float y = (float)content.Y;
         float maxW = (float)content.Width;
-        float rowH = Math.Max(16f, fontSize * 1.45f);
-        var guideBrush = ctx.GetBrush(WpfColor.FromArgb(70, color.R, color.G, color.B));
-        var bulletBrush = ctx.GetBrush(WpfColor.FromArgb(150, color.R, color.G, color.B));
+        float rowH = Math.Max(18f, fontSize * 1.5f);
+        var guideBrush = ctx.GetBrush(CanvasTheme.IsDark
+            ? WpfColor.FromArgb(78, 72, 80, 94)
+            : WpfColor.FromArgb(150, 225, 225, 225));
+        var bulletBrush = ctx.GetBrush(CanvasTheme.IsDark
+            ? WpfColor.FromArgb(170, 111, 121, 138)
+            : WpfColor.FromRgb(0xD2, 0xD2, 0xD2));
         var textBrush = ctx.GetBrush(color);
         var caretBrush = ctx.GetBrush(color);
-        var selBrush = ctx.GetBrush(WpfColor.FromArgb(80, 46, 125, 215));
+        var selBrush = ctx.GetBrush(WpfColor.FromArgb(70, 66, 153, 225));
         using var fmt = ctx.DWriteFactory.CreateTextFormat(string.IsNullOrWhiteSpace(fontFamily) ? "Segoe UI" : fontFamily,
             bold ? Vortice.DirectWrite.FontWeight.Bold : Vortice.DirectWrite.FontWeight.Normal,
             italic ? Vortice.DirectWrite.FontStyle.Italic : Vortice.DirectWrite.FontStyle.Normal,
@@ -264,15 +269,35 @@ internal sealed class OutlineDocument
             selStart = Math.Min(editCursorPos, editSelectionAnchor);
             selEnd = Math.Max(editCursorPos, editSelectionAnchor);
         }
+        var activeBranch = hasCursor
+            ? BuildActiveBranchIndexSet(doc, LineIndexAt(text, editCursorPos))
+            : new HashSet<int>();
+        var activeBranchRows = activeBranch.Count == 0
+            ? Array.Empty<ActiveBranchRow>()
+            : LayoutActiveBranchRows(ctx, doc, content, maxW, rowH, fmt, activeBranch, editCursorPos, hasCursor);
 
-        foreach (var line in doc.VisibleLines)
+        var visibleLines = doc.VisibleLines.ToList();
+        for (int visibleIndex = 0; visibleIndex < visibleLines.Count; visibleIndex++)
         {
+            var line = visibleLines[visibleIndex];
             if (y > content.Bottom - 2) break;
             float indent = line.Level * IndentWidth;
-            float toggleX = x + indent + 1f;
             float bulletX = x + indent + 12f;
             float textX = x + indent + 22f;
             float available = Math.Max(8f, maxW - indent - 22f);
+            int lineRawEnd = line.Start + line.Length - line.AnchorLength;
+            bool caretOnLine = hasCursor && editCursorPos >= line.Start && editCursorPos <= lineRawEnd;
+
+            if (IsTipBegin(line.Text) && !caretOnLine)
+            {
+                int endIndex = FindTipEnd(visibleLines, visibleIndex);
+                if (!IsCaretInLineRange(visibleLines, visibleIndex, endIndex, editCursorPos))
+                {
+                    y += DrawTipBlock(ctx, visibleLines, visibleIndex, endIndex, x, y, maxW, rowH, fontSize, fontFamily, color);
+                    visibleIndex = endIndex;
+                    continue;
+                }
+            }
 
             for (int level = 1; level <= line.Level; level++)
             {
@@ -281,15 +306,12 @@ internal sealed class OutlineDocument
             }
 
             var todo = ClassifyTodo(line.Text);
-            bool hasToggle = line.HasChildren;
             bool hasCheckbox = todo != TodoState.None;
 
             // Logseq-style horizontal divider: a bullet whose content is exactly "---" renders
             // as a full-width page rule with NO bullet glyph — it visually splits the page rather
             // than reading as a list item. The caret line still shows the raw "---" so it stays
             // editable (type a 4th char or backspace to dissolve the divider).
-            int divRawEnd = line.Start + line.Length - line.AnchorLength;
-            bool caretOnLine = hasCursor && editCursorPos >= line.Start && editCursorPos <= divRawEnd;
             if (IsDividerText(line.Text) && !caretOnLine)
             {
                 float ruleY = y + rowH * 0.5f;
@@ -299,39 +321,31 @@ internal sealed class OutlineDocument
                 continue;
             }
 
-            // When a row needs BOTH the collapse toggle and a TODO/DONE checkbox, the
-            // checkbox slides right of the toggle and the text shifts to match so the
-            // two glyphs don't stack on top of each other.
             float checkboxX = bulletX - CheckboxSize * 0.5f + 1;
-            if (hasToggle && hasCheckbox)
-            {
-                checkboxX = toggleX + ToggleSize + 2;
-                float overflow = (checkboxX + CheckboxSize + 3) - textX;
-                if (overflow > 0)
-                {
-                    textX += overflow;
-                    available = Math.Max(8f, available - overflow);
-                }
-            }
 
-            if (hasToggle)
-                // Collapsed parents get an accent-tinted chevron so hidden children are obvious.
-                DrawToggle(ctx, toggleX, y + (rowH - ToggleSize) * 0.5f, line.IsCollapsed,
-                           line.IsCollapsed ? WpfColor.FromRgb(46, 125, 215) : color);
             if (hasCheckbox)
                 DrawTodoCheckbox(ctx, checkboxX, y + (rowH - CheckboxSize) * 0.5f, todo == TodoState.Done, color);
-            else if (!hasToggle)
-                ctx.RenderTarget.FillEllipse(new Ellipse(new Vector2(bulletX, y + rowH * 0.5f), BulletRadius, BulletRadius), bulletBrush);
+            else
+            {
+                var brush = line.HasChildren && line.IsCollapsed
+                    ? ctx.GetBrush(WpfColor.FromArgb(210, 94, 158, 211))
+                    : bulletBrush;
+                float radius = line.HasChildren && line.IsCollapsed ? BulletRadius + 0.7f : BulletRadius;
+                if (line.HasChildren)
+                    DrawCollapseChevron(ctx, bulletX - 13f, y + rowH * 0.5f, line.IsCollapsed, CanvasTheme.IsDark
+                        ? WpfColor.FromArgb(150, 125, 135, 150)
+                        : WpfColor.FromArgb(155, 115, 122, 132));
+                ctx.RenderTarget.FillEllipse(new Ellipse(new Vector2(bulletX, y + rowH * 0.5f), radius, radius), brush);
+            }
 
-            // When the cursor is in this block, render raw text so cursor positions
-            // and the markers themselves stay visible for editing. Otherwise strip
-            // the markdown markers so the user sees clean formatted text.
-            bool hideMarkers = !hasCursor;
-            var (displayText, displaySpans) = BuildDisplay(line.Text, hideMarkers);
+            // Render raw markdown only on the active row so the rest of the page reads cleanly.
+            bool hideMarkers = !caretOnLine;
+            var (displayText, displaySpans, headingLevel, _) = PrepareDisplayLine(line.Text, hideMarkers);
 
             string visibleText = string.IsNullOrWhiteSpace(displayText) ? " " : displayText;
-            using var layout = ctx.DWriteFactory.CreateTextLayout(visibleText, fmt, available, MaxTextLayoutHeight);
-            ApplyInlineMarkdownSpans(layout, displaySpans);
+            using var lineFmt = CreateLineTextFormat(ctx, fontFamily, fontSize, bold, italic, headingLevel);
+            using var layout = ctx.DWriteFactory.CreateTextLayout(visibleText, lineFmt, available, MaxTextLayoutHeight);
+            ApplyInlineMarkdownSpans(ctx, layout, displaySpans);
             DrawInlineDecorationsSpans(ctx, layout, displaySpans, textX, y, rowH);
             if (todo == TodoState.Done)
             {
@@ -345,9 +359,9 @@ internal sealed class OutlineDocument
             if (selStart >= 0)
             {
                 int lineRawStart = line.Start + line.PrefixLength;
-                int lineRawEnd = line.Start + line.Length - line.AnchorLength;
+                int selectionLineRawEnd = line.Start + line.Length - line.AnchorLength;
                 int lineSelStart = Math.Max(selStart, lineRawStart);
-                int lineSelEnd = Math.Min(selEnd, lineRawEnd);
+                int lineSelEnd = Math.Min(selEnd, selectionLineRawEnd);
                 if (lineSelStart < lineSelEnd)
                 {
                     int visStart = Math.Max(0, lineSelStart - lineRawStart);
@@ -370,8 +384,8 @@ internal sealed class OutlineDocument
             if (hasCursor && editCursorVisible)
             {
                 int lineRawStart = line.Start + line.PrefixLength;
-                int lineRawEnd = line.Start + line.Length - line.AnchorLength;
-                if (editCursorPos >= line.Start && editCursorPos <= lineRawEnd)
+                int caretLineRawEnd = line.Start + line.Length - line.AnchorLength;
+                if (editCursorPos >= line.Start && editCursorPos <= caretLineRawEnd)
                 {
                     int visCol = Math.Max(0, Math.Min(line.Text.Length, editCursorPos - lineRawStart));
                     layout.HitTestTextPosition((uint)visCol, false, out float cxx, out float cyy, out _);
@@ -384,6 +398,238 @@ internal sealed class OutlineDocument
 
             y += MeasureRowHeight(layout, rowH);
         }
+
+        DrawActiveBranchRail(ctx, activeBranchRows);
+    }
+
+    private static HashSet<int> BuildActiveBranchIndexSet(OutlineDocument doc, int currentLineIndex)
+    {
+        var active = new HashSet<int>();
+        if (currentLineIndex < 0 || currentLineIndex >= doc.Lines.Count)
+            return active;
+
+        int index = currentLineIndex;
+        while (index >= 0 && index < doc.Lines.Count)
+        {
+            var line = doc.Lines[index];
+            if (line.IsHidden) break;
+            active.Add(line.Index);
+            index = line.ParentIndex;
+        }
+        return active;
+    }
+
+    private static IReadOnlyList<ActiveBranchRow> LayoutActiveBranchRows(
+        DrawingContext ctx,
+        OutlineDocument doc,
+        Rect content,
+        float maxW,
+        float rowH,
+        Vortice.DirectWrite.IDWriteTextFormat fmt,
+        HashSet<int> activeBranch,
+        int editCursorPos,
+        bool hasCursor)
+    {
+        var rows = new List<ActiveBranchRow>();
+        float x = (float)content.X;
+        float y = (float)content.Y;
+
+        foreach (var line in doc.VisibleLines)
+        {
+            if (y > content.Bottom - 2) break;
+
+            float indent = line.Level * IndentWidth;
+            float bulletX = x + indent + 12f;
+            float textX = x + indent + 22f;
+            float available = Math.Max(8f, maxW - indent - 22f);
+            bool isCurrent = editCursorPos >= line.Start && editCursorPos <= line.Start + line.Length - line.AnchorLength;
+
+            if (activeBranch.Contains(line.Index))
+                rows.Add(new ActiveBranchRow(bulletX, y + rowH * 0.5f, isCurrent));
+
+            int lineRawEnd = line.Start + line.Length - line.AnchorLength;
+            bool caretOnLine = hasCursor && editCursorPos >= line.Start && editCursorPos <= lineRawEnd;
+            if (IsDividerText(line.Text) && !caretOnLine)
+            {
+                y += rowH;
+                continue;
+            }
+
+            bool hideMarkers = !caretOnLine;
+            var (displayText, displaySpans, _, _) = PrepareDisplayLine(line.Text, hideMarkers);
+            string visibleText = string.IsNullOrWhiteSpace(displayText) ? " " : displayText;
+            using var layout = ctx.DWriteFactory.CreateTextLayout(visibleText, fmt, available, MaxTextLayoutHeight);
+            ApplyInlineMarkdownSpans(ctx, layout, displaySpans);
+            y += MeasureRowHeight(layout, rowH);
+        }
+
+        return rows;
+    }
+
+    private static void DrawActiveBranchRail(DrawingContext ctx, IReadOnlyList<ActiveBranchRow> rows)
+    {
+        if (rows.Count == 0) return;
+
+        var accent = CanvasTheme.Accent;
+        var stroke = ctx.GetBrush(WpfColor.FromArgb(220, accent.R, accent.G, accent.B));
+        var nodeFill = ctx.GetBrush(CanvasTheme.OutlineBg);
+        var currentFill = ctx.GetBrush(WpfColor.FromArgb(48, accent.R, accent.G, accent.B));
+        float strokeW = ctx.InvStroke(1.35f);
+
+        for (int i = 0; i < rows.Count - 1; i++)
+        {
+            var from = rows[i];
+            var to = rows[i + 1];
+            ctx.RenderTarget.DrawLine(new Vector2(from.BulletX, from.BulletY), new Vector2(from.BulletX, to.BulletY), stroke, strokeW);
+            if (Math.Abs(to.BulletX - from.BulletX) > 0.1f)
+                ctx.RenderTarget.DrawLine(new Vector2(from.BulletX, to.BulletY), new Vector2(to.BulletX, to.BulletY), stroke, strokeW);
+        }
+
+        foreach (var row in rows)
+        {
+            float r = row.IsCurrent ? 3.25f : 2.9f;
+            var ellipse = new Ellipse(new Vector2(row.BulletX, row.BulletY), r, r);
+            ctx.RenderTarget.FillEllipse(ellipse, row.IsCurrent ? currentFill : nodeFill);
+            ctx.RenderTarget.DrawEllipse(ellipse, stroke, ctx.InvStroke(1.15f));
+        }
+    }
+
+    private static Vortice.DirectWrite.IDWriteTextFormat CreateLineTextFormat(
+        DrawingContext ctx,
+        string fontFamily,
+        float baseFontSize,
+        bool bold,
+        bool italic,
+        int headingLevel)
+    {
+        float size = headingLevel switch
+        {
+            1 => baseFontSize * 1.42f,
+            2 => baseFontSize * 1.25f,
+            3 => baseFontSize * 1.12f,
+            4 => baseFontSize * 1.04f,
+            _ => baseFontSize
+        };
+
+        var weight = headingLevel > 0 || bold
+            ? Vortice.DirectWrite.FontWeight.Bold
+            : Vortice.DirectWrite.FontWeight.Normal;
+        var style = italic ? Vortice.DirectWrite.FontStyle.Italic : Vortice.DirectWrite.FontStyle.Normal;
+        var fmt = ctx.DWriteFactory.CreateTextFormat(
+            string.IsNullOrWhiteSpace(fontFamily) ? "Segoe UI" : fontFamily,
+            weight,
+            style,
+            Vortice.DirectWrite.FontStretch.Normal,
+            size);
+        fmt.WordWrapping = Vortice.DirectWrite.WordWrapping.Wrap;
+        return fmt;
+    }
+
+    private static float DrawTipBlock(
+        DrawingContext ctx,
+        IReadOnlyList<OutlineLine> lines,
+        int beginIndex,
+        int endIndex,
+        float x,
+        float y,
+        float maxW,
+        float rowH,
+        float fontSize,
+        string fontFamily,
+        WpfColor color)
+    {
+        var begin = lines[beginIndex];
+        float indent = begin.Level * IndentWidth;
+        float iconX = x + indent + 28f;
+        float dividerX = x + indent + 68f;
+        float textX = x + indent + 84f;
+        float available = Math.Max(32f, maxW - indent - 92f);
+        float top = y + 7f;
+        float textY = y + 6f;
+        var muted = CanvasTheme.IsDark
+            ? WpfColor.FromRgb(0x86, 0xB5, 0xDD)
+            : WpfColor.FromRgb(0x7A, 0xB0, 0xDB);
+        var divider = CanvasTheme.IsDark
+            ? WpfColor.FromArgb(120, 74, 83, 96)
+            : WpfColor.FromArgb(160, 224, 224, 224);
+
+        using var fmt = CreateLineTextFormat(ctx, fontFamily, fontSize, bold: false, italic: false, headingLevel: 0);
+        int firstContent = Math.Min(beginIndex + 1, lines.Count);
+        int lastContentExclusive = Math.Clamp(endIndex, firstContent, lines.Count);
+        if (firstContent == lastContentExclusive)
+            lastContentExclusive = Math.Min(beginIndex + 1, lines.Count);
+
+        for (int i = firstContent; i < lastContentExclusive; i++)
+        {
+            if (IsTipEnd(lines[i].Text)) break;
+            var (displayText, spans, _, _) = PrepareDisplayLine(lines[i].Text, hideMarkers: true);
+            string visibleText = string.IsNullOrWhiteSpace(displayText) ? " " : displayText;
+            using var layout = ctx.DWriteFactory.CreateTextLayout(visibleText, fmt, available, MaxTextLayoutHeight);
+            ApplyInlineMarkdownSpans(ctx, layout, spans);
+            float lineH = MeasureRowHeight(layout, rowH);
+            DrawInlineDecorationsSpans(ctx, layout, spans, textX, textY, rowH);
+            ctx.RenderTarget.DrawTextLayout(new Vector2(textX, textY), layout, ctx.GetBrush(color), DrawTextOptions.Clip);
+            textY += lineH;
+        }
+
+        float bottom = Math.Max(textY + 3f, y + rowH * 2f);
+        ctx.RenderTarget.DrawLine(new Vector2(dividerX, top), new Vector2(dividerX, bottom - 7f),
+            ctx.GetBrush(divider), ctx.InvStroke(1f));
+        DrawTipIcon(ctx, iconX, y + 18f, muted);
+        return bottom - y + 4f;
+    }
+
+    private static void DrawTipIcon(DrawingContext ctx, float x, float y, WpfColor color)
+    {
+        var brush = ctx.GetBrush(color);
+        ctx.RenderTarget.FillEllipse(new Ellipse(new Vector2(x, y), 9f, 9f), brush);
+        ctx.RenderTarget.FillRoundedRectangle(new RoundedRectangle(new RectangleF(x - 4f, y + 7f, 8f, 6f), 2f, 2f), brush);
+        var bg = ctx.GetBrush(CanvasTheme.OutlineBg);
+        ctx.RenderTarget.DrawLine(new Vector2(x - 3f, y + 13f), new Vector2(x + 3f, y + 13f), bg, ctx.InvStroke(1f));
+        ctx.RenderTarget.DrawLine(new Vector2(x - 2f, y - 1f), new Vector2(x - 4.5f, y + 2.5f), bg, ctx.InvStroke(1.5f));
+        ctx.RenderTarget.DrawLine(new Vector2(x - 4.5f, y + 2.5f), new Vector2(x - 2f, y + 4.8f), bg, ctx.InvStroke(1.5f));
+    }
+
+    private static void DrawCollapseChevron(DrawingContext ctx, float x, float y, bool collapsed, WpfColor color)
+    {
+        var brush = ctx.GetBrush(color);
+        if (collapsed)
+        {
+            ctx.RenderTarget.DrawLine(new Vector2(x - 2.2f, y - 4f), new Vector2(x + 2.2f, y), brush, ctx.InvStroke(1.25f));
+            ctx.RenderTarget.DrawLine(new Vector2(x + 2.2f, y), new Vector2(x - 2.2f, y + 4f), brush, ctx.InvStroke(1.25f));
+        }
+        else
+        {
+            ctx.RenderTarget.DrawLine(new Vector2(x - 4f, y - 2.2f), new Vector2(x, y + 2.2f), brush, ctx.InvStroke(1.25f));
+            ctx.RenderTarget.DrawLine(new Vector2(x, y + 2.2f), new Vector2(x + 4f, y - 2.2f), brush, ctx.InvStroke(1.25f));
+        }
+    }
+
+    private static bool IsTipBegin(string text) =>
+        string.Equals(text.Trim(), "#+BEGIN_TIP", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsTipEnd(string text) =>
+        string.Equals(text.Trim(), "#+END_TIP", StringComparison.OrdinalIgnoreCase);
+
+    private static int FindTipEnd(IReadOnlyList<OutlineLine> lines, int beginIndex)
+    {
+        for (int i = beginIndex + 1; i < lines.Count; i++)
+            if (IsTipEnd(lines[i].Text))
+                return i;
+        return beginIndex;
+    }
+
+    private static bool IsCaretInLineRange(IReadOnlyList<OutlineLine> lines, int beginIndex, int endIndex, int caret)
+    {
+        if (caret < 0) return false;
+        int last = Math.Clamp(endIndex, beginIndex, lines.Count - 1);
+        for (int i = beginIndex; i <= last; i++)
+        {
+            int end = lines[i].Start + lines[i].Length - lines[i].AnchorLength;
+            if (caret >= lines[i].Start && caret <= end)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -405,7 +651,7 @@ internal sealed class OutlineDocument
         float x = (float)content.X;
         float y = (float)content.Y;
         float maxW = (float)content.Width;
-        float rowH = Math.Max(16f, fontSize * 1.45f);
+        float rowH = Math.Max(18f, fontSize * 1.5f);
         using var fmt = dwrite.CreateTextFormat(string.IsNullOrWhiteSpace(fontFamily) ? "Segoe UI" : fontFamily,
             bold ? Vortice.DirectWrite.FontWeight.Bold : Vortice.DirectWrite.FontWeight.Normal,
             italic ? Vortice.DirectWrite.FontStyle.Italic : Vortice.DirectWrite.FontStyle.Normal,
@@ -421,30 +667,19 @@ internal sealed class OutlineDocument
             float textX = x + indent + 22f;
             float available = Math.Max(8f, maxW - indent - 22f);
 
-            // Mirror Draw's textX shift when both collapse toggle and TODO checkbox are present.
-            if (line.HasChildren && ClassifyTodo(line.Text) != TodoState.None)
-            {
-                float toggleX = x + indent + 1f;
-                float overflow = (toggleX + ToggleSize + 2 + CheckboxSize + 3) - textX;
-                if (overflow > 0)
-                {
-                    textX += overflow;
-                    available = Math.Max(8f, available - overflow);
-                }
-            }
-
-            string visibleText = string.IsNullOrWhiteSpace(line.Text) ? " " : line.Text;
+            var (displayText, displaySpans, _, rawDisplayStart) = PrepareDisplayLine(line.Text, hideMarkers: true);
+            string visibleText = string.IsNullOrWhiteSpace(displayText) ? " " : displayText;
             using var layout = dwrite.CreateTextLayout(visibleText, fmt, available, MaxTextLayoutHeight);
             // Apply inline markdown styling so bold/italic/code glyph widths match the rendered layout.
-            ApplyInlineMarkdownSpans(layout, ParseInlineSpans(line.Text).ToList());
+            ApplyInlineMarkdownSpans(null, layout, displaySpans);
             float drawn = MeasureRowHeight(layout, rowH);
 
             if (world.Y >= y && world.Y < y + drawn)
             {
                 SharpGen.Runtime.RawBool isTrailing = false; SharpGen.Runtime.RawBool isInside = false;
                 var hit = layout.HitTestPoint((float)world.X - textX, (float)world.Y - y, out isTrailing, out isInside);
-                int visCol = Math.Clamp((int)hit.TextPosition + (isTrailing ? 1 : 0), 0, line.Text.Length);
-                return line.Start + line.PrefixLength + visCol;
+                int visCol = Math.Clamp((int)hit.TextPosition + (isTrailing ? 1 : 0), 0, displayText.Length);
+                return line.Start + line.PrefixLength + rawDisplayStart + visCol;
             }
 
             lastLine = line;
@@ -463,7 +698,7 @@ internal sealed class OutlineDocument
     /// edit mode that's raw line.Text; for view mode that's the cleaned text returned by
     /// <see cref="BuildDisplay"/>.
     /// </summary>
-    private static void ApplyInlineMarkdownSpans(Vortice.DirectWrite.IDWriteTextLayout layout, IReadOnlyList<InlineSpan> spans)
+    private static void ApplyInlineMarkdownSpans(DrawingContext? ctx, Vortice.DirectWrite.IDWriteTextLayout layout, IReadOnlyList<InlineSpan> spans)
     {
         if (spans.Count == 0) return;
         foreach (var span in spans)
@@ -482,10 +717,26 @@ internal sealed class OutlineDocument
                     break;
                 case InlineKind.Code:
                     layout.SetFontFamilyName("Consolas", contentRange);
+                    if (ctx is not null)
+                        layout.SetDrawingEffect(ctx.GetBrush(CanvasTheme.IsDark
+                            ? WpfColor.FromRgb(0xD7, 0xDA, 0xE0)
+                            : WpfColor.FromRgb(0x45, 0x45, 0x45)), contentRange);
                     break;
                 case InlineKind.Ref:
+                case InlineKind.MarkdownLink:
+                    if (ctx is not null)
+                        layout.SetDrawingEffect(ctx.GetBrush(WpfColor.FromRgb(0x2D, 0x7D, 0xB8)),
+                            new Vortice.DirectWrite.TextRange((uint)span.Start, (uint)span.Length));
+                    break;
+                case InlineKind.Tag:
+                    if (ctx is not null)
+                        layout.SetDrawingEffect(ctx.GetBrush(WpfColor.FromRgb(0x4F, 0x8F, 0xC7)),
+                            new Vortice.DirectWrite.TextRange((uint)span.Start, (uint)span.Length));
+                    break;
                 case InlineKind.BlockRef:
-                    layout.SetUnderline(true, new Vortice.DirectWrite.TextRange((uint)span.Start, (uint)span.Length));
+                    if (ctx is not null)
+                        layout.SetDrawingEffect(ctx.GetBrush(WpfColor.FromRgb(0x2A, 0x9D, 0x8F)),
+                            new Vortice.DirectWrite.TextRange((uint)span.Start, (uint)span.Length));
                     break;
             }
         }
@@ -495,7 +746,7 @@ internal sealed class OutlineDocument
         Math.Max(rowH, layout.Metrics.Height + 2f);
 
     /// <summary>
-    /// Fill the colored pill backgrounds for #tag and [[ref]] spans on a single line.
+    /// Fill subtle inline backgrounds for keycap/code, highlights, and block refs on a single line.
     /// Called BEFORE the text layout is drawn so the text sits on top of the pill.
     /// </summary>
     private static void DrawInlineDecorationsSpans(
@@ -507,25 +758,27 @@ internal sealed class OutlineDocument
         float rowH)
     {
         if (spans.Count == 0) return;
-        var tagBg = ctx.GetBrush(WpfColor.FromArgb(70, 59, 130, 246));      // soft blue
-        var refBg = ctx.GetBrush(WpfColor.FromArgb(70, 139, 92, 246));      // soft purple
-        var blockRefBg = ctx.GetBrush(WpfColor.FromArgb(70, 16, 185, 129)); // soft teal
-        var codeBg = ctx.GetBrush(WpfColor.FromArgb(38, 128, 138, 150));    // neutral tint (themes via alpha)
+        var blockRefBg = ctx.GetBrush(WpfColor.FromArgb(34, 42, 157, 143));
+        var highlightBg = ctx.GetBrush(CanvasTheme.IsDark
+            ? WpfColor.FromArgb(105, 132, 102, 36)
+            : WpfColor.FromArgb(145, 255, 235, 137));
+        var codeBg = ctx.GetBrush(CanvasTheme.IsDark
+            ? WpfColor.FromArgb(95, 70, 76, 86)
+            : WpfColor.FromRgb(0xE7, 0xE7, 0xE7));
 
         foreach (var span in spans)
         {
-            if (span.Kind is not (InlineKind.Tag or InlineKind.Ref or InlineKind.BlockRef or InlineKind.Code)) continue;
+            if (span.Kind is not (InlineKind.BlockRef or InlineKind.Code or InlineKind.Highlight)) continue;
             layout.HitTestTextPosition((uint)span.Start, false, out float sx, out _, out _);
             layout.HitTestTextPosition((uint)(span.Start + span.Length), false, out float ex, out _, out _);
-            float padX = 3f;
+            float padX = span.Kind == InlineKind.Code ? 4f : 3f;
             var rect = new RoundedRectangle(
-                new RectangleF(textX + sx - padX, lineY + 1f, Math.Max(2, ex - sx) + padX * 2, rowH - 2f),
-                4f, 4f);
+                new RectangleF(textX + sx - padX, lineY + 3f, Math.Max(2, ex - sx) + padX * 2, rowH - 6f),
+                3f, 3f);
             var bg = span.Kind switch
             {
-                InlineKind.Tag => tagBg,
-                InlineKind.Ref => refBg,
                 InlineKind.Code => codeBg,
+                InlineKind.Highlight => highlightBg,
                 _ => blockRefBg,
             };
             ctx.RenderTarget.FillRoundedRectangle(rect, bg);
@@ -534,7 +787,7 @@ internal sealed class OutlineDocument
 
     /// <summary>
     /// Build the per-line display string used at draw time. When <paramref name="hideMarkers"/>
-    /// is true (view mode), strips the **/~~/`/* / [[ ]] markers so the user sees clean
+    /// is true (view mode), strips the **/~~/`/* /==/[[ ]] markers so the user sees clean
     /// formatted text. When false (edit mode), leaves the raw markers in so cursor
     /// positions stay 1:1 with the underlying body. Returns the display string and the
     /// span list with positions translated to the display string's coordinate space.
@@ -560,7 +813,9 @@ internal sealed class OutlineDocument
                 case InlineKind.Italic:
                 case InlineKind.Strike:
                 case InlineKind.Code:
+                case InlineKind.Highlight:
                 case InlineKind.Ref:
+                case InlineKind.MarkdownLink:
                 case InlineKind.BlockRef:
                     // Drop the marker chars; only keep the inner content.
                     sb.Append(rawLineText, span.ContentStart, span.ContentLength);
@@ -580,7 +835,33 @@ internal sealed class OutlineDocument
         return (sb.ToString(), spans);
     }
 
-    internal enum InlineKind { Bold, Italic, Strike, Code, Tag, Ref, BlockRef }
+    private static (string DisplayText, List<InlineSpan> Spans, int HeadingLevel, int RawDisplayStart) PrepareDisplayLine(string rawLineText, bool hideMarkers)
+    {
+        if (hideMarkers && TryParseMarkdownHeading(rawLineText, out int headingLevel, out int contentStart))
+        {
+            var (displayText, spans) = BuildDisplay(rawLineText[contentStart..], hideMarkers);
+            return (displayText, spans, headingLevel, contentStart);
+        }
+
+        var (plainDisplay, plainSpans) = BuildDisplay(rawLineText, hideMarkers);
+        return (plainDisplay, plainSpans, 0, 0);
+    }
+
+    private static bool TryParseMarkdownHeading(string text, out int level, out int contentStart)
+    {
+        level = 0;
+        contentStart = 0;
+        int i = 0;
+        while (i < text.Length && text[i] == '#') i++;
+        if (i is < 1 or > 6 || i >= text.Length || text[i] != ' ')
+            return false;
+
+        level = Math.Min(i, 4);
+        contentStart = i + 1;
+        return contentStart < text.Length;
+    }
+
+    internal enum InlineKind { Bold, Italic, Strike, Code, Highlight, Tag, Ref, MarkdownLink, BlockRef }
     internal readonly record struct InlineSpan(int Start, int Length, int ContentStart, int ContentLength, InlineKind Kind);
 
     /// <summary>
@@ -627,6 +908,17 @@ internal sealed class OutlineDocument
                     continue;
                 }
             }
+            // ==highlight==
+            else if (c == '=' && i + 1 < text.Length && text[i + 1] == '=')
+            {
+                int end = text.IndexOf("==", i + 2, StringComparison.Ordinal);
+                if (end > i + 2)
+                {
+                    yield return new InlineSpan(i, end + 2 - i, i + 2, end - (i + 2), InlineKind.Highlight);
+                    i = end + 2;
+                    continue;
+                }
+            }
             // `code`
             else if (c == '`')
             {
@@ -656,6 +948,23 @@ internal sealed class OutlineDocument
                     yield return new InlineSpan(i, end + 2 - i, i + 2, end - (i + 2), InlineKind.Ref);
                     i = end + 2;
                     continue;
+                }
+            }
+            // [label](url)
+            else if (c == '[')
+            {
+                int closeLabel = text.IndexOf(']', i + 1);
+                if (closeLabel > i + 1
+                    && closeLabel + 1 < text.Length
+                    && text[closeLabel + 1] == '(')
+                {
+                    int closeUrl = text.IndexOf(')', closeLabel + 2);
+                    if (closeUrl > closeLabel + 2)
+                    {
+                        yield return new InlineSpan(i, closeUrl + 1 - i, i + 1, closeLabel - (i + 1), InlineKind.MarkdownLink);
+                        i = closeUrl + 1;
+                        continue;
+                    }
                 }
             }
             // ((^anchor)) — block reference (transclusion source)
@@ -750,7 +1059,7 @@ internal sealed class OutlineDocument
         var doc = Parse(block.Body ?? string.Empty, style);
         var content = GetContentRect(block, bounds);
         float fontSize = block.Kind == BlockKind.Note ? Math.Clamp((float)style.FontSize, 8f, 48f) : Math.Clamp((float)style.FontSize, 8f, 96f);
-        float rowH = Math.Max(16f, fontSize * 1.45f);
+        float rowH = Math.Max(18f, fontSize * 1.5f);
         float maxW = (float)content.Width;
 
         Vortice.DirectWrite.IDWriteTextFormat? fmt = null;
@@ -774,12 +1083,9 @@ internal sealed class OutlineDocument
                 if (ClassifyTodo(line.Text) != TodoState.None)
                 {
                     // Mirror Draw's column layout so the hit area lands on the actual
-                    // checkbox glyph (whether it's at the bullet position or shifted
-                    // right of the collapse toggle).
-                    float toggleX = (float)content.X + indent + 1f;
+                    // checkbox glyph at the bullet position.
                     float bulletX = (float)content.X + indent + 12f;
-                    bool hasToggle = line.HasChildren;
-                    float checkboxX = hasToggle ? toggleX + ToggleSize + 2 : bulletX - CheckboxSize * 0.5f + 1;
+                    float checkboxX = bulletX - CheckboxSize * 0.5f + 1;
                     var hit = new Rect(checkboxX - 4, y, CheckboxSize + 8, rowH);
                     if (hit.Contains(world))
                         return line.Index;
@@ -905,6 +1211,8 @@ internal sealed class OutlineDocument
     /// endpoint resolution) share this so they stay pixel-aligned with the rendered text
     /// and don't drift apart as rows wrap or markers are hidden.
     /// </summary>
+    private readonly record struct ActiveBranchRow(float BulletX, float BulletY, bool IsCurrent);
+
     internal readonly record struct BulletRow(
         OutlineLine Line, float RowTop, float RowHeight, float Indent, float BulletMidY);
 
@@ -935,7 +1243,7 @@ internal sealed class OutlineDocument
             float indent = line.Level * IndentWidth;
             float available = Math.Max(8f, maxW - indent - 22f);
 
-            var (displayText, _) = BuildDisplay(line.Text, hideMarkers);
+            var (displayText, _, _, _) = PrepareDisplayLine(line.Text, hideMarkers);
             string visibleText = string.IsNullOrWhiteSpace(displayText) ? " " : displayText;
             using var layout = dwrite.CreateTextLayout(visibleText, fmt, available, MaxTextLayoutHeight);
             float drawn = MeasureRowHeight(layout, rowH);
@@ -1003,20 +1311,6 @@ internal sealed class OutlineDocument
                 return new WpfPoint(anchorX, row.BulletMidY);
         }
         return null;
-    }
-
-    private static void DrawToggle(DrawingContext ctx, float x, float y, bool collapsed, WpfColor color)
-    {
-        var brush = ctx.GetBrush(WpfColor.FromArgb(170, color.R, color.G, color.B));
-        var fill = ctx.GetBrush(WpfColor.FromArgb(32, color.R, color.G, color.B));
-        var rect = new RoundedRectangle(new RectangleF(x, y, ToggleSize, ToggleSize), 2, 2);
-        ctx.RenderTarget.FillRoundedRectangle(rect, fill);
-        ctx.RenderTarget.DrawRoundedRectangle(rect, brush, ctx.InvStroke(0.8f));
-        var p1 = collapsed ? new Vector2(x + 3.4f, y + 2.4f) : new Vector2(x + 2.6f, y + 3.4f);
-        var p2 = collapsed ? new Vector2(x + 6.2f, y + 4.5f) : new Vector2(x + 4.5f, y + 6.2f);
-        var p3 = collapsed ? new Vector2(x + 3.4f, y + 6.6f) : new Vector2(x + 6.4f, y + 3.4f);
-        ctx.RenderTarget.DrawLine(p1, p2, brush, ctx.InvStroke(1.2f));
-        ctx.RenderTarget.DrawLine(p2, p3, brush, ctx.InvStroke(1.2f));
     }
 
     /// <summary>

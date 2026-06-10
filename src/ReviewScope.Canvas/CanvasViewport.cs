@@ -183,7 +183,7 @@ public sealed partial class CanvasViewport : HwndHost
     /// <summary>Invoked on gutter drag-release to toggle reviewed state for the selected line span.</summary>
     public ICommand? ReviewLinesToggledCommand { get; set; }
 
-    internal static readonly string[] ShapeToolIds = { "rectangle", "square", "oval", "circle", "triangle", "diamond", "hexagon", "star", "line", "arrow", "polyline" };
+    internal static readonly string[] ShapeToolIds = { "rectangle", "square", "oval", "circle", "triangle", "diamond", "hexagon", "star", "line", "arrow", "polyline", "freedraw" };
     private static readonly string[] ShapeShortcutToolIds = { "rectangle", "square", "oval", "circle", "triangle", "diamond", "hexagon", "star", "polyline" };
 
     // Logic-only snapshot of the scene, rebuilt on changes
@@ -219,6 +219,19 @@ public sealed partial class CanvasViewport : HwndHost
     internal readonly Dictionary<Guid, ID2D1PathGeometry> _connectionGeoms = new();
     internal readonly Dictionary<string, ImageBitmapResource> _imageBitmaps = new();
     internal ID2D1StrokeStyle? _dashedStrokeStyle;
+    internal ID2D1StrokeStyle? _dottedStrokeStyle;
+    internal ID2D1StrokeStyle? _roundStrokeStyle;
+
+    // Freehand (pencil) in-progress stroke: world-space samples for the stroke currently being
+    // drawn. Non-null only while the left button is held with the Freedraw tool active.
+    internal List<WpfPoint>? _freedrawPoints;
+
+    // "Current item style" memory (Excalidraw-style): the style of the shape the user last worked
+    // on, per category, applied to newly drawn shapes of that category. Captured when a draw
+    // starts while exactly one shape is selected (i.e. the shape that was just created/styled).
+    internal BoardItemStyle? _lastClosedShapeStyle;
+    internal BoardItemStyle? _lastLinearShapeStyle;
+    internal BoardItemStyle? _lastFreedrawStyle;
 
     // Interaction state
     internal WpfPoint? _panPoint;
@@ -334,6 +347,7 @@ public sealed partial class CanvasViewport : HwndHost
         _tools["Selection"] = new SelectionTool(this);
         _tools["Connection"] = new ConnectionTool(this);
         _tools["Shape"] = new ShapeTool(this);
+        _tools["Freedraw"] = new FreedrawTool(this);
         _tools["Pan"] = new PanTool(this);
         _tools["Marquee"] = new MarqueeTool(this);
         _currentTool = _tools["Selection"];
@@ -376,11 +390,26 @@ public sealed partial class CanvasViewport : HwndHost
 
         switch (key)
         {
+            // Excalidraw-compatible tool keys (R/O/A/L/D) alongside the legacy Q/E bindings.
+            case Key.R:
+                ActivateShapeTool("rectangle");
+                return true;
+            case Key.O:
+                ActivateShapeTool("oval");
+                return true;
+            case Key.D:
+                ActivateShapeTool("diamond");
+                return true;
             case Key.Q:
+            case Key.L:
                 ActivateShapeTool("line");
                 return true;
             case Key.E:
+            case Key.A:
                 ActivateShapeTool("arrow");
+                return true;
+            case Key.P:
+                ActivateShapeTool("freedraw");
                 return true;
             case Key.T:
                 ActivatePendingItemPlacement("text");
@@ -632,12 +661,41 @@ public sealed partial class CanvasViewport : HwndHost
     internal static RenderScene ClearSelection(RenderScene scene) =>
         scene with { Blocks = scene.Blocks.Select(b => b with { IsSelected = false }).ToList(), SwimLanes = scene.SwimLanes.Select(l => l with { IsSelected = false }).ToList() };
 
-    internal static RenderScene ToggleSelection(RenderScene scene, string key) =>
-        scene with { Blocks = scene.Blocks.Select(b => b.Key.Equals(key, StringComparison.OrdinalIgnoreCase) ? b with { IsSelected = !b.IsSelected } : b).ToList() };
+    /// <summary>
+    /// Expands a set of block keys to include every block that shares a non-null
+    /// <see cref="RenderBlock.GroupKey"/> with any key in the set. This is what makes a logical
+    /// group select/drag/delete as a single unit: touch one member, get them all.
+    /// </summary>
+    internal static IReadOnlyCollection<string> ExpandKeysToGroups(RenderScene scene, IEnumerable<string> keys)
+    {
+        var result = keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var groupKeys = scene.Blocks
+            .Where(b => !string.IsNullOrEmpty(b.GroupKey) && result.Contains(b.Key))
+            .Select(b => b.GroupKey!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (groupKeys.Count == 0) return result;
+        foreach (var b in scene.Blocks)
+            if (!string.IsNullOrEmpty(b.GroupKey) && groupKeys.Contains(b.GroupKey!))
+                result.Add(b.Key);
+        return result;
+    }
+
+    internal static RenderScene ToggleSelection(RenderScene scene, string key)
+    {
+        var clicked = scene.Blocks.FirstOrDefault(b => b.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+        if (clicked is null) return scene;
+        bool newState = !clicked.IsSelected;
+        // Toggling any member of a group toggles the whole group together.
+        var members = string.IsNullOrEmpty(clicked.GroupKey)
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) { key }
+            : scene.Blocks.Where(b => string.Equals(b.GroupKey, clicked.GroupKey, StringComparison.OrdinalIgnoreCase))
+                .Select(b => b.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return scene with { Blocks = scene.Blocks.Select(b => members.Contains(b.Key) ? b with { IsSelected = newState } : b).ToList() };
+    }
 
     internal static RenderScene SetSelection(RenderScene scene, IEnumerable<string> keys)
     {
-        var set = keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var set = ExpandKeysToGroups(scene, keys);
         return scene with { Blocks = scene.Blocks.Select(b => b with { IsSelected = set.Contains(b.Key) }).ToList() };
     }
 
@@ -652,6 +710,8 @@ public sealed partial class CanvasViewport : HwndHost
         Point bottomRight = ToWorld(new Point(screenRect.Right, screenRect.Bottom));
         Rect worldRect = new(topLeft, bottomRight);
         var hit = _snapshot.QueryBlocks(worldRect).Select(v => v.Block.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // A marquee that touches any group member grabs the whole group (draw.io / Excalidraw-style).
+        hit = ExpandKeysToGroups(Scene, hit).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var blocks = Scene.Blocks.Select(b => b with { IsSelected = append ? b.IsSelected || hit.Contains(b.Key) : hit.Contains(b.Key) }).ToList();
 
         // Connectors whose endpoints both land inside the marquee are pulled into the selection too
@@ -737,6 +797,10 @@ public sealed partial class CanvasViewport : HwndHost
         DisposeRenderTarget();
         _dashedStrokeStyle?.Dispose();
         _dashedStrokeStyle = null;
+        _dottedStrokeStyle?.Dispose();
+        _dottedStrokeStyle = null;
+        _roundStrokeStyle?.Dispose();
+        _roundStrokeStyle = null;
         _dwrite?.Dispose();
         _dwrite = null;
         _factory?.Dispose();

@@ -257,6 +257,7 @@ public partial class MainWindowViewModel : ObservableObject
         _activeCanvas.PropertyChanged += OnActiveCanvasPropertyChanged;
         Sessions.CollectionChanged += (_, _) => RefreshProjectBrowser();
         RefreshProjectBrowser();
+        LoadLibrary();
     }
 
     partial void OnUbwProjectNameChanged(string value) => RefreshProjectBrowser();

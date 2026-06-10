@@ -49,7 +49,11 @@
       "Bash(Select-Object -First 5)",
       "PowerShell(dotnet build src\\\\ReviewScope.App\\\\ReviewScope.App.csproj -clp:ErrorsOnly --nologo)",
       "PowerShell($root = \\(Get-Location\\).Path; $out = Join-Path $root \"artifacts\\\\review-smoke.png\"; New-Item -ItemType Directory -Force \\(Split-Path $out\\) | Out-Null; dotnet run --project src\\\\ReviewScope.App\\\\ReviewScope.App.csproj -- --screenshot $out --workspace $root; if \\(Test-Path $out\\) { \"SHOT_OK $\\(\\(Get-Item $out\\).Length\\) bytes -> $out\" } else { \"NO_SHOT\" })",
-      "Bash(ls \"C:/Users/lic/Desktop/3 SWD\")"
+      "Bash(ls \"C:/Users/lic/Desktop/3 SWD\")",
+      "PowerShell(dotnet build \"src\\\\ReviewScope.App\\\\ReviewScope.App.csproj\" -nologo -clp:NoSummary 2>&1 | Select-String -Pattern \"error|warning CS\" | Select-Object -First 30; \"BUILD-EXIT:$LASTEXITCODE\")",
+      "Bash(cd \"/c/Users/lic/Desktop/3 SWD/ReviewScope\" && wc -l src/ReviewScope.Canvas/*.cs src/ReviewScope.App/Library/*.cs src/ReviewScope.App/ViewModels/MainWindowViewModel.Library.cs src/ReviewScope.Domain/Models.cs 2>/dev/null | sort -rn | head -40)",
+      "PowerShell(dotnet build \"C:\\\\Users\\\\lic\\\\Desktop\\\\3 SWD\\\\ReviewScope\" -v q --nologo 2>&1)",
+      "PowerShell($exe = Get-ChildItem \"C:\\\\Users\\\\lic\\\\Desktop\\\\3 SWD\\\\ReviewScope\\\\src\\\\ReviewScope.App\\\\bin\\\\Debug\" -Recurse -Filter ReviewScope.App.exe | Select-Object -First 1 -ExpandProperty FullName; Write-Output $exe; Start-Process $exe; Start-Sleep -Seconds 10; \\(Get-Process ReviewScope.App | Select-Object Id, MainWindowTitle | Format-Table | Out-String\\))"
     ]
   }
 }

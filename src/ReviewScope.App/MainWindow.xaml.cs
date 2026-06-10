@@ -81,9 +81,9 @@ public partial class MainWindow : Window
 
         // Outline editor (Page/Journal) <-> view-model wiring.
         vm.OutlineDocumentReloadRequested += OnOutlineReloadRequested;
+        vm.OutlineLinkedReferencesChanged += SyncOutlineLinkedReferences;
         OutlineEditor.DocumentChanged += body => _vm.OnOutlineBodyEdited(body);
         OutlineEditor.CollapsedChanged += ids => _vm.OnOutlineCollapsedChanged(ids);
-        OutlineEditor.PageLinkActivated += name => _ = _vm.NavigateToDocumentAsync(name);
 
         // Mode-aware chrome: collapse the right inspector panel and swap the left tab set
         // when the active document switches between Canvas and Outline.
@@ -286,7 +286,11 @@ public partial class MainWindow : Window
     {
         OutlineEditor.Document = _vm.OutlineDocumentBody;
         OutlineEditor.SetCollapsed(SplitCollapsed(_vm.OutlineDocumentCollapsed));
+        SyncOutlineLinkedReferences();
     }
+
+    private void SyncOutlineLinkedReferences() =>
+        OutlineEditor.LinkedReferences = _vm.OutlineLinkedReferences.ToArray();
 
     private async void OnOutlineTitleKeyDown(object sender, KeyEventArgs e)
     {
@@ -903,7 +907,8 @@ public partial class MainWindow : Window
     {
         bool accepts = e.Data.GetDataPresent(DataFormats.FileDrop)
             || e.Data.GetDataPresent(TransclusionDragFormat)
-            || e.Data.GetDataPresent(PageDragFormat);
+            || e.Data.GetDataPresent(PageDragFormat)
+            || e.Data.GetDataPresent(LibraryItemDragFormat);
         e.Effects = accepts ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
@@ -989,6 +994,15 @@ public partial class MainWindow : Window
             vm.OpenTransclusionPickerCommand.Execute(null);
     }
 
+    private void OnShapeToolbarImportExcalidraw(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not ViewModels.MainWindowViewModel vm) return;
+        vm.ActiveCanvasShapeTool = null;
+        vm.PendingCanvasItemPlacement = null;
+        if (vm.ImportExcalidrawLibraryCommand.CanExecute(null))
+            vm.ImportExcalidrawLibraryCommand.Execute(null);
+    }
+
     private async void OnCanvasDrop(object sender, DragEventArgs e)
     {
         Point screen = e.GetPosition(CanvasViewport);
@@ -1010,6 +1024,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Library item dragged out of the right-side Library tab — drop its shapes at the cursor.
+        if (e.Data.GetDataPresent(LibraryItemDragFormat))
+        {
+            if (e.Data.GetData(LibraryItemDragFormat) is string libId && !string.IsNullOrWhiteSpace(libId))
+                await _vm.PlaceLibraryItemAtAsync(libId, world.X, world.Y);
+            return;
+        }
+
         if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
         string[]? files = e.Data.GetData(DataFormats.FileDrop) as string[];
         if (files is null) return;
@@ -1025,6 +1047,7 @@ public partial class MainWindow : Window
     // -------- Block-reference picker: drag a bullet onto the canvas --------
     // A private clipboard format carrying the dragged candidate in-process.
     private const string TransclusionDragFormat = "ReviewScope.TransclusionCandidate";
+    internal const string LibraryItemDragFormat = "ReviewScope.LibraryItemId";
     private Point _transclusionDragStart;
     private TransclusionCandidateViewModel? _transclusionDragCandidate;
 

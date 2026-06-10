@@ -21,11 +21,15 @@ internal sealed class MarqueeTool : CanvasToolBase
 
     public override void HandleLDown(Point screen, Point world, ModifierKeys modifiers)
     {
-        Viewport.ApplySceneChange(CanvasViewport.ClearSelection(Viewport.Scene));
+        // Shift/Ctrl marquee appends to the existing selection (Excalidraw-style), so the
+        // current selection must survive until the marquee completes.
+        bool append = modifiers.HasFlag(ModifierKeys.Control) || modifiers.HasFlag(ModifierKeys.Shift);
+        if (!append)
+            Viewport.ApplySceneChange(CanvasViewport.ClearSelection(Viewport.Scene));
         Viewport._marqueeStart = screen;
         Viewport._marqueeEnd = screen;
         Viewport._isMarquee = true;
-        Viewport._appendMarquee = modifiers.HasFlag(ModifierKeys.Control);
+        Viewport._appendMarquee = append;
         Viewport._dragStartScreen = screen;
         Viewport._didMove = false;
         Viewport.Cursor = Cursors.Cross;

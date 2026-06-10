@@ -134,6 +134,22 @@ internal sealed class UIComponentRenderer
             };
             DrawPolyline(pts, brush, 1.5f, close: false);
         }
+        else if (shape is "freedraw")
+        {
+            // Pencil squiggle: an S-curve sampled from a cubic Bézier.
+            var p0 = new Vector2(r.X, r.Bottom);
+            var c1 = new Vector2(r.X + r.Width * 0.85f, r.Bottom - r.Height * 0.05f);
+            var c2 = new Vector2(r.X + r.Width * 0.15f, r.Y + r.Height * 0.05f);
+            var p3 = new Vector2(r.Right, r.Y);
+            const int samples = 10;
+            var pts = new Vector2[samples + 1];
+            for (int i = 0; i <= samples; i++)
+            {
+                float t = (float)i / samples, u = 1 - t;
+                pts[i] = u * u * u * p0 + 3 * u * u * t * c1 + 3 * u * t * t * c2 + t * t * t * p3;
+            }
+            DrawPolyline(pts, brush, 1.5f, close: false);
+        }
         else if (shape is "rectangle")
             _ctx.RenderTarget.DrawRectangle(new RectangleF(r.X, r.Y + r.Height * 0.18f, r.Width, r.Height * 0.64f), brush, 1.5f);
         else if (shape is "square")

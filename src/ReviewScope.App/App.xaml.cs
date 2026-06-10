@@ -205,7 +205,10 @@ public partial class App : Application
             {
                 var vm = _host.Services.GetService<MainWindowViewModel>();
                 if (vm is not null)
+                {
+                    await vm.FlushPendingOutlineSaveAsync();
                     await vm.FlushPendingSaveAsync();
+                }
             }
             catch (Exception ex)
             {

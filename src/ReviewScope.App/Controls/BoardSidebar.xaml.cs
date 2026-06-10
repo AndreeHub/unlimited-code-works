@@ -204,6 +204,55 @@ public partial class BoardSidebar : UserControl
         await vm.ApplySelectionPropertiesAsync();
     }
 
+    // -------- Library tab: drag-to-canvas + click-to-place --------
+    private Point _libDragStart;
+    private string? _libPointerItemId;
+    private bool _libDragging;
+
+    private void OnLibraryItemMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        _libDragStart = e.GetPosition(this);
+        _libPointerItemId = (sender as FrameworkElement)?.Tag as string;
+        _libDragging = false;
+    }
+
+    private void OnLibraryItemMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_libDragging || _libPointerItemId is null || e.LeftButton != MouseButtonState.Pressed) return;
+        var p = e.GetPosition(this);
+        if (Math.Abs(p.X - _libDragStart.X) < 4 && Math.Abs(p.Y - _libDragStart.Y) < 4) return;
+
+        _libDragging = true;
+        var data = new DataObject(ReviewScope.App.MainWindow.LibraryItemDragFormat, _libPointerItemId);
+        try { DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy); }
+        finally { _libDragging = false; _libPointerItemId = null; }
+    }
+
+    private async void OnLibraryItemMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        // Plain click (no drag) = drop the item at the center of the current canvas view.
+        if (_libDragging || _libPointerItemId is null) { _libPointerItemId = null; return; }
+        string id = _libPointerItemId;
+        _libPointerItemId = null;
+        if (ViewModel is not { } vm) return;
+
+        if (ViewportWidth > 0 && ViewportHeight > 0 && Camera is { Zoom: > 0 } cam)
+        {
+            double cx = (ViewportWidth / 2 - cam.OffsetX) / cam.Zoom;
+            double cy = (ViewportHeight / 2 - cam.OffsetY) / cam.Zoom;
+            await vm.PlaceLibraryItemAtAsync(id, cx, cy);
+            return;
+        }
+        await vm.PlaceLibraryItemAsync(id);
+    }
+
+    private void OnRemoveLibraryItem(object sender, RoutedEventArgs e)
+    {
+        // Inline ContextMenu inherits DataContext from its placement target (the item's Border).
+        if ((sender as FrameworkElement)?.DataContext is LibraryItemViewModel item && ViewModel is { } vm)
+            vm.RemoveLibraryItemCommand.Execute(item.Id);
+    }
+
     private void OnPickColorForActiveInspector(object sender, RoutedEventArgs e)
     {
         if (sender is not Button btn || btn.Tag is not string propName) return;

@@ -970,7 +970,7 @@
                     </TextBlock>
                     <ListBox SelectedValue="{Binding FillStyle, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,0,0,8">
                         <ListBox.Style>
-                            <Style TargetType="ListBox" BasedOn="{StaticResource SegmentedListBoxStyle2}">
+                            <Style TargetType="ListBox" BasedOn="{StaticResource SegmentedListBoxStyle3}">
                                 <Setter Property="Visibility" Value="Visible"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsLinearShape}" Value="True">
@@ -980,6 +980,9 @@
                             </Style>
                         </ListBox.Style>
                         <ListBoxItem Content="Hatched" Tag="hatch"/>
+                        <ListBoxItem Content="Cross" Tag="cross-hatch"/>
+                        <ListBoxItem Content="Zigzag" Tag="zigzag"/>
+                        <ListBoxItem Content="Dots" Tag="dots"/>
                         <ListBoxItem Content="Solid" Tag="solid"/>
                     </ListBox>
 
@@ -993,9 +996,10 @@
 
                     <!-- Stroke Style -->
                     <TextBlock Text="Stroke Style" Foreground="{StaticResource SubtleForeground}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <ListBox SelectedValue="{Binding Dashed, Mode=TwoWay}" Style="{StaticResource SegmentedListBoxStyle2}" SelectedValuePath="Tag" Margin="0,0,0,8">
-                        <ListBoxItem Content="Solid" Tag="{StaticResource BoolFalse}"/>
-                        <ListBoxItem Content="Dashed" Tag="{StaticResource BoolTrue}"/>
+                    <ListBox SelectedValue="{Binding StrokeStyleKind, Mode=TwoWay}" Style="{StaticResource SegmentedListBoxStyle3}" SelectedValuePath="Tag" Margin="0,0,0,8">
+                        <ListBoxItem Content="Solid" Tag="solid"/>
+                        <ListBoxItem Content="Dashed" Tag="dashed"/>
+                        <ListBoxItem Content="Dotted" Tag="dotted"/>
                     </ListBox>
 
                     <!-- Background Color -->

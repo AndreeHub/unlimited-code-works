@@ -549,6 +549,55 @@ public sealed partial class MainWindowViewModel
     }
 
     [RelayCommand]
+    public async Task ImportExcalidrawLibraryAsync()
+    {
+        await ImportExcalidrawLibraryAtAsync(null, null);
+    }
+
+    /// <summary>
+    /// Imports an Excalidraw library (.excalidrawlib) or scene (.excalidraw) file into the
+    /// reusable Library panel. Shapes, freedraw strokes, text, rotation, and embedded images are
+    /// all mapped; only unrenderable element types (frames, embeds, svg/webp images) are skipped.
+    /// </summary>
+    public async Task ImportExcalidrawLibraryAtAsync(double? worldX, double? worldY)
+    {
+        // Imports into the reusable Library panel (right-side tab) rather than dropping straight onto
+        // the board — the user then drags items out as many times as they like. Needs no workspace.
+        var dlg = new OpenFileDialog
+        {
+            Title = "Import Excalidraw Library",
+            Filter = "Excalidraw|*.excalidrawlib;*.excalidraw|All Files|*.*"
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        IReadOnlyList<ExcalidrawLibraryImporter.ImportedItem> items;
+        try
+        {
+            // Embedded images (a .excalidraw scene's `files` map) are decoded into the global
+            // library asset folder so they survive across projects, like the library itself.
+            string imageAssetDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ReviewScope", "library-assets");
+            items = ExcalidrawLibraryImporter.ImportItemsFromFile(dlg.FileName, imageAssetDir);
+        }
+        catch (IOException)
+        {
+            return;
+        }
+
+        int added = AddImportedItemsToLibrary(items);
+        if (added == 0)
+        {
+            StatusMessage = "No importable shapes found in that file.";
+            return;
+        }
+
+        SelectedRightTabIndex = LibraryTabIndex; // reveal the Library tab so the user sees the result
+        StatusMessage = $"Added {added} item(s) to the Library — drag one onto the canvas.";
+        await Task.CompletedTask;
+    }
+
+    [RelayCommand]
     public async Task ImportImageCardAsync()
     {
         if (_currentSnapshot is null) return;
@@ -1061,6 +1110,9 @@ public sealed partial class MainWindowViewModel
         double dx = x.HasValue ? x.Value - minX : 32;
         double dy = y.HasValue ? y.Value - minY : 32;
         var keyMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // Remap each distinct source group to a fresh group key so pasted copies stay grouped
+        // among themselves without re-joining the originals they were copied from.
+        var groupMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var pastedBlocks = new List<RenderBlock>(payload.Blocks.Count);
 
         foreach (var block in payload.Blocks)
@@ -1068,6 +1120,13 @@ public sealed partial class MainWindowViewModel
             var id = Guid.NewGuid();
             string key = $"{block.Kind.ToString().ToLowerInvariant()}::{id:N}";
             keyMap[block.Key] = key;
+            string? newGroup = block.GroupKey;
+            if (!string.IsNullOrEmpty(newGroup))
+            {
+                if (!groupMap.TryGetValue(newGroup, out var remapped))
+                    groupMap[newGroup] = remapped = $"group::{Guid.NewGuid():N}";
+                newGroup = remapped;
+            }
             pastedBlocks.Add(block with
             {
                 Id = id,
@@ -1075,7 +1134,8 @@ public sealed partial class MainWindowViewModel
                 X = block.X + dx,
                 Y = block.Y + dy,
                 IsSelected = true,
-                ZIndex = NextBlockZIndex() + pastedBlocks.Count
+                ZIndex = NextBlockZIndex() + pastedBlocks.Count,
+                GroupKey = newGroup
             });
         }
 

@@ -57,7 +57,12 @@ public sealed partial class MainWindowViewModel
         // syncs the other, which re-fires SelectionChanged. Skip when the selection is already
         // the active document so we don't reactivate (and reset the outline caret/scroll) twice.
         var active = SelectedSession.Kind == DocumentKind.Canvas ? _activeSession : _activeOutlineSession;
-        if (active is not null && active.Id == SelectedSession.Id) return;
+        if (active is not null && active.Id == SelectedSession.Id)
+        {
+            await FlushPendingOutlineSaveAsync();
+            await FlushPendingSaveAsync();
+            return;
+        }
         await ActivateSessionAsync(SelectedSession);
     }
 
@@ -252,7 +257,8 @@ public sealed partial class MainWindowViewModel
             Tags: b.Tags,
             WikiLinks: b.WikiLinks,
             RefAnchorId: b.RefAnchorId,
-            RefPageName: b.RefPageName);
+            RefPageName: b.RefPageName,
+            GroupKey: b.GroupKey);
         }).ToList();
 
         var connections = session.Connections
@@ -527,7 +533,7 @@ public sealed partial class MainWindowViewModel
             b.Id, b.Kind, b.Key, b.Title, b.Subtitle,
             b.FilePath, b.StartLine, b.EndLine,
             b.X, b.Y, b.Width, b.Height, b.IsCollapsed, b.Focused,
-            b.ZIndex, b.LayerKey, b.IsLocked, b.ShapeType, b.Style, b.Source, b.GroupState, PersistedBodyFor(b), b.Tags, b.WikiLinks, b.RefAnchorId, b.RefPageName)).ToList();
+            b.ZIndex, b.LayerKey, b.IsLocked, b.ShapeType, b.Style, b.Source, b.GroupState, PersistedBodyFor(b), b.Tags, b.WikiLinks, b.RefAnchorId, b.RefPageName, b.GroupKey)).ToList();
 
         var connections = scene.Connections
             .Select(c => new ConnectionSnapshot(c.Id, c.SourceKey, c.TargetKey, c.Label,

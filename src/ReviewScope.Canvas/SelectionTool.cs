@@ -218,12 +218,15 @@ internal sealed class SelectionTool : CanvasToolBase
             return;
         }
 
-        // Default: Marquee
-        Viewport.ApplySceneChange(CanvasViewport.ClearSelection(Viewport.Scene));
+        // Default: Marquee. Shift/Ctrl appends to the existing selection (Excalidraw-style),
+        // so don't clear it up front in that case.
+        bool appendMarquee = isCtrl || isShift;
+        if (!appendMarquee)
+            Viewport.ApplySceneChange(CanvasViewport.ClearSelection(Viewport.Scene));
         Viewport._marqueeStart = screen;
         Viewport._marqueeEnd = screen;
         Viewport._isMarquee = true;
-        Viewport._appendMarquee = isCtrl;
+        Viewport._appendMarquee = appendMarquee;
         Viewport._dragStartScreen = screen;
         Viewport._didMove = false;
         Viewport.Cursor = Cursors.Cross;

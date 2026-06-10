@@ -11,7 +11,9 @@ public sealed partial class ShapeInspectorViewModel : InspectorViewModelBase
     [ObservableProperty] private string _fillStyle = "solid";
     [ObservableProperty] private string _stroke = "#2E7DD7";
     [ObservableProperty] private double _strokeWidth = 1.4;
-    [ObservableProperty] private bool _dashed;
+
+    /// <summary>"solid" | "dashed" | "dotted" — projected onto the style's Dashed/Dotted flags.</summary>
+    [ObservableProperty] private string _strokeStyleKind = "solid";
     [ObservableProperty] private double _cornerRadius = 3;
     [ObservableProperty] private double _opacity = 1.0;
     [ObservableProperty] private double _hatchOpacity = 0.6;
@@ -60,7 +62,7 @@ public sealed partial class ShapeInspectorViewModel : InspectorViewModelBase
             FillStyle = style.FillStyle ?? "solid";
             Stroke = style.Stroke;
             StrokeWidth = style.StrokeWidth;
-            Dashed = style.Dashed;
+            StrokeStyleKind = style.Dashed ? "dashed" : style.Dotted ? "dotted" : "solid";
             CornerRadius = style.CornerRadius;
             Opacity = style.Opacity;
             HatchOpacity = style.HatchOpacity;
@@ -95,7 +97,8 @@ public sealed partial class ShapeInspectorViewModel : InspectorViewModelBase
                 FillStyle = FillStyle,
                 Stroke = Stroke,
                 StrokeWidth = StrokeWidth,
-                Dashed = Dashed,
+                Dashed = StrokeStyleKind == "dashed",
+                Dotted = StrokeStyleKind == "dotted",
                 CornerRadius = CornerRadius,
                 Opacity = Opacity,
                 HatchOpacity = HatchOpacity,

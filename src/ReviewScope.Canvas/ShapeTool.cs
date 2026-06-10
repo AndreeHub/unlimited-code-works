@@ -29,6 +29,7 @@ internal sealed class ShapeTool : CanvasToolBase
 
     public override void HandleLDown(Point screen, Point world, ModifierKeys modifiers)
     {
+        Viewport.CaptureSelectedShapeStyle();
         Viewport.ApplySceneChange(CanvasViewport.ClearSelection(Viewport.Scene));
 
         Point snapped = ResolveDraftPoint(world, modifiers, commit: true, out string? attachKey, out WpfPoint? relativeOffset);

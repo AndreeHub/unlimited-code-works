@@ -129,6 +129,20 @@ public sealed partial class CanvasViewport
     private void DrawShapeDraft()
     {
         if (_activeShapeTool is null || _blockRenderer is null) return;
+
+        // Freehand preview: render the in-progress stroke as a freedraw block.
+        if (IsFreedrawTool(_activeShapeTool))
+        {
+            if (_freedrawPoints is not { Count: >= 2 } strokePoints) return;
+            var draft = CreateFreedrawBlock(strokePoints) with { Key = "freedraw::draft", IsSelected = false };
+            var draftBounds = new Rect(draft.X, draft.Y, draft.Width, draft.Height);
+            _blockRenderer.DrawBlock(
+                new SceneBlockVisual(draft, draftBounds), null, null, string.Empty, string.Empty,
+                false, false, 0, -1, false, null, null, false, null, null, null, null,
+                false, _codeScrollLines, GetOrLoadImageBitmap);
+            return;
+        }
+
         if (_shapeDraftCurrentWorld is null) return;
 
         bool isLinear = IsLinearShapeTool(_activeShapeTool);
@@ -188,7 +202,7 @@ public sealed partial class CanvasViewport
                     ShapeToolTitle(_activeShapeTool), string.Empty,
                     bounds.X, bounds.Y, bounds.Width, bounds.Height,
                     IsSelected: true, Body: body, ShapeType: _activeShapeTool,
-                    Style: ShapeToolStyle(_activeShapeTool));
+                    Style: EffectiveShapeStyle(_activeShapeTool));
             }
         }
 
@@ -248,6 +262,41 @@ public sealed partial class CanvasViewport
         return _dashedStrokeStyle;
     }
 
+    private ID2D1StrokeStyle GetDottedStrokeStyle()
+    {
+        if (_dottedStrokeStyle is not null) return _dottedStrokeStyle;
+
+        var props = new StrokeStyleProperties
+        {
+            StartCap = CapStyle.Round,
+            EndCap = CapStyle.Round,
+            DashCap = CapStyle.Round,
+            LineJoin = LineJoin.Round,
+            MiterLimit = 10,
+            DashStyle = Vortice.Direct2D1.DashStyle.Dot,
+            DashOffset = 0
+        };
+        _dottedStrokeStyle = _factory!.CreateStrokeStyle(props);
+        return _dottedStrokeStyle;
+    }
+
+    private ID2D1StrokeStyle GetRoundStrokeStyle()
+    {
+        if (_roundStrokeStyle is not null) return _roundStrokeStyle;
+
+        var props = new StrokeStyleProperties
+        {
+            StartCap = CapStyle.Round,
+            EndCap = CapStyle.Round,
+            DashCap = CapStyle.Round,
+            LineJoin = LineJoin.Round,
+            MiterLimit = 10,
+            DashStyle = Vortice.Direct2D1.DashStyle.Solid
+        };
+        _roundStrokeStyle = _factory!.CreateStrokeStyle(props);
+        return _roundStrokeStyle;
+    }
+
     private bool EnsureRT()
     {
         if (_hwnd == IntPtr.Zero || _disposed) return false;
@@ -270,7 +319,9 @@ public sealed partial class CanvasViewport
                 _rt, _factory, _dwrite!, _camera,
                 GetBrush,
                 GetTextFormatForContext,
-                GetDashedStrokeStyle());
+                GetDashedStrokeStyle(),
+                GetRoundStrokeStyle(),
+                GetDottedStrokeStyle());
 
             _blockRenderer = new BlockRenderer(_drawingContext);
             _connectionRenderer = new ConnectionRenderer(_drawingContext);

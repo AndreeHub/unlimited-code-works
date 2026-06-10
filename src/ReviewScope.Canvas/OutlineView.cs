@@ -17,6 +17,8 @@ using RectangleF = System.Drawing.RectangleF;
 
 namespace ReviewScope.Canvas;
 
+public sealed record OutlineLinkedReference(string DocumentName, string DateText, string Preview);
+
 /*
  * File: OutlineView.cs
  * Purpose: A stripped, dedicated outline editor host — a sibling of CanvasViewport with no
@@ -38,16 +40,16 @@ public sealed partial class OutlineView : HwndHost
     private const float ScrollbarW = 10f;
     // Logseq-style centered writing column: cap the text width and center it in the window
     // rather than letting lines run the full width.
-    private const float MaxContentWidth = 720f;
+    private const float MaxContentWidth = 780f;
     // Body size at 1.0 zoom. The effective size scales with a user-controlled zoom factor; every
     // layout/hit-test/scroll path reads the FontSize property, so they all track zoom in lockstep.
-    private const float BaseFontSize = 15.5f;
+    private const float BaseFontSize = 17f;
     private const float MinZoom = 0.6f;
     private const float MaxZoom = 3.0f;
     private const float ZoomStep = 0.1f;
     private float _zoom = 1f;
     private float FontSize => BaseFontSize * _zoom;
-    private const string FontFamily = "Segoe UI";
+    private const string FontFamily = "Segoe UI Variable Text";
     // Body text + page background are theme-driven (see CanvasTheme) so the outliner
     // tracks the rest of the chrome between light and dark.
     private static WpfColor TextColor => CanvasTheme.OutlineText;
@@ -67,6 +69,7 @@ public sealed partial class OutlineView : HwndHost
     // --- editing / document state --------------------------------------------------
     private readonly OutlineEditController _edit = new();
     private readonly HashSet<string> _collapsed = new(StringComparer.Ordinal);
+    private IReadOnlyList<OutlineLinkedReference> _linkedReferences = Array.Empty<OutlineLinkedReference>();
     private float _scrollY;
     private bool _mouseSelecting;
     private DispatcherTimer? _blinkTimer;
@@ -76,9 +79,6 @@ public sealed partial class OutlineView : HwndHost
 
     /// <summary>Raised after the collapsed-anchor set changes (expand/collapse toggle).</summary>
     public event Action<IReadOnlyCollection<string>>? CollapsedChanged;
-
-    /// <summary>Raised when the user Ctrl+Clicks a <c>[[Page]]</c> link; carries the page name.</summary>
-    public event Action<string>? PageLinkActivated;
 
     public OutlineView()
     {
@@ -118,6 +118,17 @@ public sealed partial class OutlineView : HwndHost
     }
 
     public IReadOnlyCollection<string> CollapsedIds => _collapsed;
+
+    public IReadOnlyList<OutlineLinkedReference> LinkedReferences
+    {
+        get => _linkedReferences;
+        set
+        {
+            _linkedReferences = value ?? Array.Empty<OutlineLinkedReference>();
+            ClampScrollForCurrentView();
+            RenderNative();
+        }
+    }
 
     /// <summary>
     /// Move keyboard focus into the outline body and park the caret on the first editable
@@ -262,7 +273,8 @@ public sealed partial class OutlineView : HwndHost
         ComputeContentLayout(out float contentX, out float contentW);
 
         var block = BuildDocBlock();
-        float docHeight = MeasureDocHeight(block, contentW);
+        float bodyHeight = MeasureDocHeight(block, contentW);
+        float docHeight = bodyHeight + MeasureReferencesHeight(contentW);
         ClampScroll(docHeight, viewH);
 
         // Draw lays rows from content.Y downward and stops at content.Bottom; offsetting Y by
@@ -280,6 +292,7 @@ public sealed partial class OutlineView : HwndHost
             editSelectionAnchor: _edit.SelectionAnchor,
             editCursorVisible: _edit.CursorVisible);
 
+        DrawLinkedReferences(contentX, contentY + bodyHeight + 40f, contentW);
         DrawScrollbar(viewW, viewH, docHeight);
         DrawSlashMenu();
 
@@ -330,6 +343,109 @@ public sealed partial class OutlineView : HwndHost
         if (rows.Count == 0) return 0;
         var last = rows[^1];
         return last.RowTop + last.RowHeight;
+    }
+
+    private float MeasureReferencesHeight(float contentW)
+    {
+        if (_linkedReferences.Count == 0) return 0f;
+        int visibleCount = Math.Min(_linkedReferences.Count, 6);
+        return 48f + visibleCount * 74f + 18f + (_linkedReferences.Count > visibleCount ? 24f : 0f);
+    }
+
+    private void ClampScrollForCurrentView()
+    {
+        if (_hwnd == IntPtr.Zero || _dwrite is null) return;
+        ClientSize(out _, out int viewH);
+        ComputeContentLayout(out _, out float contentW);
+        float docHeight = MeasureDocHeight(BuildDocBlock(), contentW) + MeasureReferencesHeight(contentW);
+        ClampScroll(docHeight, viewH);
+    }
+
+    private void DrawLinkedReferences(float x, float y, float width)
+    {
+        if (_rt is null || _ctx is null || _linkedReferences.Count == 0) return;
+
+        var text = CanvasTheme.OutlineText;
+        var muted = CanvasTheme.IsDark
+            ? WpfColor.FromRgb(0x8D, 0x99, 0xA8)
+            : WpfColor.FromRgb(0x6B, 0x78, 0x8C);
+        var border = CanvasTheme.IsDark
+            ? WpfColor.FromRgb(0x2B, 0x33, 0x3F)
+            : WpfColor.FromRgb(0xDF, 0xE6, 0xEF);
+        var cardFill = CanvasTheme.IsDark
+            ? WpfColor.FromRgb(0x20, 0x25, 0x2E)
+            : WpfColor.FromRgb(0xF7, 0xF9, 0xFC);
+        var accent = CanvasTheme.Accent;
+
+        float ruleY = y - 20f;
+        _rt.DrawLine(new Vector2(x, ruleY), new Vector2(x + width, ruleY), _ctx.GetBrush(border), _ctx.InvStroke(1f));
+
+        DrawTinyLinkIcon(x, y + 4f, muted);
+        _ctx.DrawText("Linked References", x + 22f, y, width - 90f, 11.5f, muted);
+        DrawCountPill(x + 128f, y + 1f, _linkedReferences.Count, accent);
+        DrawTinyFilterIcon(x + width - 16f, y + 5f, muted);
+
+        float cardY = y + 28f;
+        int visibleCount = Math.Min(_linkedReferences.Count, 6);
+        for (int i = 0; i < visibleCount; i++)
+        {
+            var reference = _linkedReferences[i];
+            var rr = new RoundedRectangle(new RectangleF(x, cardY, width, 64f), 6f, 6f);
+            _rt.FillRoundedRectangle(rr, _ctx.GetBrush(cardFill));
+            _rt.DrawRoundedRectangle(rr, _ctx.GetBrush(border), _ctx.InvStroke(1f));
+
+            DrawTinyCalendarIcon(x + 14f, cardY + 13f, accent);
+            _ctx.DrawText(reference.DateText, x + 32f, cardY + 10f, width - 48f, 11.5f, accent);
+            _ctx.DrawText(reference.DocumentName, x + 14f, cardY + 31f, width - 28f, 12f, text);
+            _ctx.DrawText("\u2022 " + reference.Preview, x + 14f, cardY + 46f, width - 28f, 11.5f, muted);
+
+            cardY += 74f;
+        }
+
+        if (_linkedReferences.Count > visibleCount)
+        {
+            string more = $"+ {_linkedReferences.Count - visibleCount} more";
+            _ctx.DrawText(more, x + 14f, cardY, width - 28f, 11.5f, muted);
+        }
+    }
+
+    private void DrawCountPill(float x, float y, int count, WpfColor accent)
+    {
+        if (_rt is null || _ctx is null) return;
+        string text = count.ToString();
+        float width = Math.Max(16f, 10f + text.Length * 6f);
+        var rr = new RoundedRectangle(new RectangleF(x, y, width, 16f), 5f, 5f);
+        _rt.FillRoundedRectangle(rr, _ctx.GetBrush(WpfColor.FromArgb(34, accent.R, accent.G, accent.B)));
+        _ctx.DrawText(text, x + 5f, y + 1f, width - 6f, 10.5f, accent);
+    }
+
+    private void DrawTinyLinkIcon(float x, float y, WpfColor color)
+    {
+        if (_rt is null || _ctx is null) return;
+        var brush = _ctx.GetBrush(color);
+        _rt.DrawLine(new Vector2(x + 3f, y + 9f), new Vector2(x + 8f, y + 4f), brush, _ctx.InvStroke(1.1f));
+        _rt.DrawLine(new Vector2(x + 7f, y + 11f), new Vector2(x + 12f, y + 6f), brush, _ctx.InvStroke(1.1f));
+        _rt.DrawLine(new Vector2(x + 6f, y + 6f), new Vector2(x + 9f, y + 9f), brush, _ctx.InvStroke(1.1f));
+    }
+
+    private void DrawTinyFilterIcon(float x, float y, WpfColor color)
+    {
+        if (_rt is null || _ctx is null) return;
+        var brush = _ctx.GetBrush(color);
+        _rt.DrawLine(new Vector2(x, y), new Vector2(x + 9f, y), brush, _ctx.InvStroke(1.1f));
+        _rt.DrawLine(new Vector2(x + 2f, y + 4f), new Vector2(x + 7f, y + 4f), brush, _ctx.InvStroke(1.1f));
+        _rt.DrawLine(new Vector2(x + 4f, y + 8f), new Vector2(x + 5f, y + 8f), brush, _ctx.InvStroke(1.1f));
+    }
+
+    private void DrawTinyCalendarIcon(float x, float y, WpfColor color)
+    {
+        if (_rt is null || _ctx is null) return;
+        var brush = _ctx.GetBrush(color);
+        var rect = new RoundedRectangle(new RectangleF(x, y, 10f, 10f), 1.8f, 1.8f);
+        _rt.DrawRoundedRectangle(rect, brush, _ctx.InvStroke(1f));
+        _rt.DrawLine(new Vector2(x, y + 3f), new Vector2(x + 10f, y + 3f), brush, _ctx.InvStroke(1f));
+        _rt.DrawLine(new Vector2(x + 3f, y - 1f), new Vector2(x + 3f, y + 2f), brush, _ctx.InvStroke(1f));
+        _rt.DrawLine(new Vector2(x + 7f, y - 1f), new Vector2(x + 7f, y + 2f), brush, _ctx.InvStroke(1f));
     }
 
     private void ClampScroll(float docHeight, int viewH)
@@ -420,14 +536,6 @@ public sealed partial class OutlineView : HwndHost
         var block = BuildDocBlock();
         var content = CurrentContentRect();
 
-        // Ctrl+Click on a [[Page]] link follows it instead of placing the caret.
-        bool ctrl = (NativeMethods.GetKeyState(0x11) & 0x8000) != 0;
-        if (ctrl && TryHitPageLink(block, content, client, out string page))
-        {
-            PageLinkActivated?.Invoke(page);
-            return;
-        }
-
         // Toggle (collapse/expand) takes priority over caret placement.
         if (_dwrite is not null && OutlineDocument.TryHitToggle(block, content, client, out int lineIndex, _dwrite)
             && lineIndex >= 0)
@@ -501,23 +609,6 @@ public sealed partial class OutlineView : HwndHost
         if (_dwrite is null) return _edit.CursorPos;
         int raw = OutlineDocument.HitTestPoint(block, content, _edit.Body, FontSize, FontFamily, false, false, client, _dwrite);
         return OutlineDocument.SnapToVisible(_edit.Body, block.Style, raw, +1);
-    }
-
-    /// <summary>True when <paramref name="client"/> falls on a <c>[[Page]]</c> link; outputs its name.</summary>
-    private bool TryHitPageLink(RenderBlock block, Rect content, WpfPoint client, out string page)
-    {
-        page = string.Empty;
-        if (_dwrite is null) return false;
-        int offset = OutlineDocument.HitTestPoint(block, content, _edit.Body, FontSize, FontFamily, false, false, client, _dwrite);
-        foreach (var (rawStart, rawLength, inner, isRef) in OutlineDocument.ScanTagsAndRefs(_edit.Body))
-        {
-            if (isRef && offset >= rawStart && offset < rawStart + rawLength)
-            {
-                page = inner.Trim();
-                return page.Length > 0;
-            }
-        }
-        return false;
     }
 
     private void ToggleCollapseAt(RenderBlock block, int lineIndex)

@@ -609,7 +609,7 @@ internal sealed class BlockRenderer
 
         var fillBrush = opacityFill.A == 0 ? null : _ctx.GetBrush(opacityFill);
         var strokeBrush = _ctx.GetBrush(opacityStroke);
-        var strokeStyle = dashed ? _ctx.DashedStroke : null;
+        var strokeStyle = _ctx.StrokeStyleFor(style);
         string fillStyle = style.FillStyle ?? "hatch";
         float hatchOp = (float)style.HatchOpacity;
 
@@ -625,10 +625,28 @@ internal sealed class BlockRenderer
 
         if (IsLinearShapeTool(shape))
         {
-            DrawLinearShape(block, outer, stroke, strokeWidth, dashed);
+            DrawLinearShape(block, outer, stroke, strokeWidth, strokeStyle);
             return;
         }
-        else if (shape is "database" or "cache" or "queue")
+        else if (IsFreedraw(shape))
+        {
+            DrawFreedraw(block, outer, opacityStroke, strokeWidth, strokeStyle);
+            if (block.IsSelected) DrawGenericResizeHandle(outer, stroke, block.IsLocked);
+            return;
+        }
+        // Closed shapes honor Style.Rotation: rotate the geometry + label around the block center
+        // while drawing, then restore. Selection handles and connection anchors are drawn AFTER
+        // the restore so they stay axis-aligned, matching the (inverse-rotated) hit-testing.
+        float rotationDeg = (float)(((style.Rotation % 360) + 360) % 360);
+        bool rotated = rotationDeg > 0.01f && rotationDeg < 359.99f;
+        var preRotation = _ctx.RenderTarget.Transform;
+        if (rotated)
+        {
+            var rotCenter = new Vector2((float)(outer.X + outer.Width / 2), (float)(outer.Y + outer.Height / 2));
+            _ctx.RenderTarget.Transform = Matrix3x2.CreateRotation(rotationDeg * MathF.PI / 180f, rotCenter) * preRotation;
+        }
+
+        if (shape is "database" or "cache" or "queue")
         {
             drawer.DrawEllipse(_ctx.RenderTarget, new RectangleF(x, y, w, Math.Min(h, 24f)), fillBrush, strokeBrush, strokeWidth, block.Key.ToString() + "_db_top", strokeStyle, fillStyle, hatchOp);
             drawer.DrawRectangle(_ctx.RenderTarget, new RectangleF(x, y + 12f, w, h - 12f), fillBrush, strokeBrush, strokeWidth, block.Key.ToString() + "_db_body", strokeStyle, fillStyle, hatchOp);
@@ -713,13 +731,14 @@ internal sealed class BlockRenderer
                 DrawShapeText(label, outer, CanvasDrawingUtils.ParseColor(block.Style?.Text ?? "#111827"), block.Style?.TextAlign, sketchyText, block.Style);
             }
         }
+        if (rotated) _ctx.RenderTarget.Transform = preRotation;
         if (ShouldDrawConnectionAnchors(block, connectorsEnabled))
             DrawConnectionAnchors(block, outer, stroke, hoverAnchorBlockKey, hoverAnchorIndex, isDrawingConnection, connectionSourceKey, connectionSourceAnchorIndex, connectionHoverTargetKey, connectionHoverTargetAnchorIndex);
         if (block.IsSelected)
             DrawGenericResizeHandle(outer, stroke, block.IsLocked);
     }
 
-    private void DrawLinearShape(RenderBlock block, Rect outer, WpfColor stroke, float strokeWidth, bool dashed)
+    private void DrawLinearShape(RenderBlock block, Rect outer, WpfColor stroke, float strokeWidth, ID2D1StrokeStyle? strokeStyle)
     {
         var points = CanvasDrawingUtils.ResolveLinearShapePoints(block, outer, BlockLookup);
         if (points.Count < 2) return;
@@ -728,7 +747,6 @@ internal sealed class BlockRenderer
         var curvedFlags = body.CurvedFlags;
 
         var brush = _ctx.GetBrush(stroke);
-        var strokeStyle = dashed ? _ctx.DashedStroke : null;
 
         using var path = _ctx.Factory.CreatePathGeometry();
         using var sink = path.Open();
@@ -803,6 +821,135 @@ internal sealed class BlockRenderer
         // Vertex control dots on selected linear shapes
         if (block.IsSelected && points.Count >= 2)
             DrawElbowDots(points, stroke, curvedFlags);
+    }
+
+    /// <summary>
+    /// Renders a freehand (freedraw) stroke: the point list (stored in the same normalized
+    /// "points:x,y;..." body format as linear shapes) is mapped to world space against the block's
+    /// stored bounds — so the stroke scales when the block is resized — then drawn as a smooth,
+    /// round-capped path. Consecutive points are joined with quadratic Béziers through their
+    /// midpoints, which removes the polyline "kinks" and gives the fluid pen look.
+    /// </summary>
+    private void DrawFreedraw(RenderBlock block, Rect outer, WpfColor stroke, float strokeWidth, ID2D1StrokeStyle? strokeStyle)
+    {
+        var points = CanvasDrawingUtils.ResolveLinearShapePoints(block, outer);
+        var brush = _ctx.GetBrush(stroke);
+
+        if (points.Count == 1)
+        {
+            // A single tap = a dot. Draw a filled disc the width of the stroke.
+            float r = Math.Max(strokeWidth, _ctx.InvStroke(1.5f));
+            _ctx.RenderTarget.FillEllipse(new Ellipse(new Vector2((float)points[0].X, (float)points[0].Y), r, r), brush);
+            return;
+        }
+        if (points.Count < 2) return;
+
+        // Solid strokes get the variable-width "pen" look (speed-based pressure + tapered ends,
+        // perfect-freehand style). Dashed/dotted strokes keep the constant-width path because a
+        // filled outline can't carry a dash pattern.
+        if (strokeStyle is null && points.Count >= 3)
+        {
+            DrawFreedrawPen(points, brush, strokeWidth);
+            return;
+        }
+
+        strokeStyle ??= _ctx.RoundStroke;
+
+        using var path = _ctx.Factory.CreatePathGeometry();
+        using var sink = path.Open();
+        sink.BeginFigure(new Vector2((float)points[0].X, (float)points[0].Y), FigureBegin.Hollow);
+        for (int i = 1; i < points.Count - 1; i++)
+        {
+            var ctrl = new Vector2((float)points[i].X, (float)points[i].Y);
+            var mid = new Vector2((float)((points[i].X + points[i + 1].X) / 2), (float)((points[i].Y + points[i + 1].Y) / 2));
+            sink.AddQuadraticBezier(new QuadraticBezierSegment { Point1 = ctrl, Point2 = mid });
+        }
+        sink.AddLine(new Vector2((float)points[^1].X, (float)points[^1].Y));
+        sink.EndFigure(FigureEnd.Open);
+        sink.Close();
+
+        _ctx.RenderTarget.DrawGeometry(path, brush, strokeWidth, strokeStyle);
+    }
+
+    /// <summary>
+    /// Variable-width freehand rendering: each sample gets a radius from simulated pressure
+    /// (slower movement presses harder = wider ink), smoothed and tapered toward both ends, then
+    /// the left/right offset outlines are filled as one closed geometry with round end caps.
+    /// </summary>
+    private void DrawFreedrawPen(IReadOnlyList<System.Windows.Point> pts, ID2D1SolidColorBrush brush, float strokeWidth)
+    {
+        int n = pts.Count;
+        float baseR = Math.Max(0.75f, strokeWidth * 0.5f);
+
+        // Simulated pressure from inverse speed (distance between consecutive samples).
+        var dists = new float[n];
+        float total = 0;
+        for (int i = 1; i < n; i++)
+        {
+            dists[i] = (float)CanvasDrawingUtils.Distance(pts[i - 1], pts[i]);
+            total += dists[i];
+        }
+        float avg = Math.Max(0.01f, total / (n - 1));
+
+        var radii = new float[n];
+        for (int i = 0; i < n; i++)
+        {
+            float v = i == 0 ? dists[1] : dists[i];
+            float pressure = 1f / (1f + v / (avg * 2f)); // ~0.67 at average speed, →1 when slow
+            radii[i] = baseR * (0.55f + 0.9f * pressure);
+        }
+        for (int pass = 0; pass < 2; pass++)
+            for (int i = 1; i < n - 1; i++)
+                radii[i] = (radii[i - 1] + radii[i] * 2 + radii[i + 1]) / 4f;
+
+        int taper = Math.Min(5, n / 3);
+        for (int i = 0; i < taper; i++)
+        {
+            float t = (i + 1f) / (taper + 1f);
+            radii[i] *= t;
+            radii[n - 1 - i] *= t;
+        }
+
+        var left = new Vector2[n];
+        var right = new Vector2[n];
+        for (int i = 0; i < n; i++)
+        {
+            var prev = pts[Math.Max(0, i - 1)];
+            var next = pts[Math.Min(n - 1, i + 1)];
+            var dir = new Vector2((float)(next.X - prev.X), (float)(next.Y - prev.Y));
+            float len = dir.Length();
+            dir = len < 1e-4f ? Vector2.UnitX : dir / len;
+            var perp = new Vector2(-dir.Y, dir.X);
+            var p = new Vector2((float)pts[i].X, (float)pts[i].Y);
+            left[i] = p + perp * radii[i];
+            right[i] = p - perp * radii[i];
+        }
+
+        using var path = _ctx.Factory.CreatePathGeometry();
+        using var sink = path.Open();
+        sink.SetFillMode(FillMode.Winding);
+        sink.BeginFigure(left[0], FigureBegin.Filled);
+        for (int i = 1; i < n - 1; i++)
+        {
+            var mid = (left[i] + left[i + 1]) * 0.5f;
+            sink.AddQuadraticBezier(new QuadraticBezierSegment { Point1 = left[i], Point2 = mid });
+        }
+        sink.AddLine(left[n - 1]);
+        sink.AddLine(right[n - 1]);
+        for (int i = n - 2; i > 0; i--)
+        {
+            var mid = (right[i] + right[i - 1]) * 0.5f;
+            sink.AddQuadraticBezier(new QuadraticBezierSegment { Point1 = right[i], Point2 = mid });
+        }
+        sink.AddLine(right[0]);
+        sink.EndFigure(FigureEnd.Closed);
+        sink.Close();
+        _ctx.RenderTarget.FillGeometry(path, brush);
+
+        float capStart = Math.Max(0.4f, radii[0]);
+        float capEnd = Math.Max(0.4f, radii[n - 1]);
+        _ctx.RenderTarget.FillEllipse(new Ellipse(new Vector2((float)pts[0].X, (float)pts[0].Y), capStart, capStart), brush);
+        _ctx.RenderTarget.FillEllipse(new Ellipse(new Vector2((float)pts[^1].X, (float)pts[^1].Y), capEnd, capEnd), brush);
     }
 
     private void DrawElbowDots(IReadOnlyList<System.Windows.Point> points, WpfColor accent, IReadOnlyList<bool>? curvedFlags)
@@ -1042,6 +1189,18 @@ internal sealed class BlockRenderer
         var style = block.Style ?? new BoardItemStyle();
         WpfColor stroke = CanvasDrawingUtils.ParseColor(style.Stroke);
         WpfColor fill = CanvasDrawingUtils.ParseColor(style.Fill);
+        // Frameless mode (imported Excalidraw images): the bitmap IS the element — stretched to
+        // the block bounds with no card chrome, honoring rotation. Screenshots keep the card look.
+        if (string.Equals(block.ShapeType, "image-raw", StringComparison.OrdinalIgnoreCase))
+        {
+            DrawRawImage(blockVis, imageLoader, style);
+            if (ShouldDrawConnectionAnchors(block, connectorsEnabled))
+                DrawConnectionAnchors(block, outer, stroke, hoverAnchorBlockKey, hoverAnchorIndex, isDrawingConnection, connectionSourceKey, connectionSourceAnchorIndex, connectionHoverTargetKey, connectionHoverTargetAnchorIndex);
+            if (block.IsSelected)
+                DrawGenericResizeHandle(outer, CanvasDrawingUtils.ParseColor("#2E7DD7"), block.IsLocked);
+            return;
+        }
+
         DrawCardShell(outer, block.IsSelected, stroke, (float)style.CornerRadius, block.Key.ToString(), fill, style.FillStyle ?? "hatch", style.Opacity, (float)style.HatchOpacity);
         _ctx.DrawText(block.Title, x + 14, y + 12, w - 28, 12, WpfColor.FromRgb(30, 41, 59), sketchy: true);
 
@@ -1066,6 +1225,43 @@ internal sealed class BlockRenderer
             DrawConnectionAnchors(block, outer, stroke, hoverAnchorBlockKey, hoverAnchorIndex, isDrawingConnection, connectionSourceKey, connectionSourceAnchorIndex, connectionHoverTargetKey, connectionHoverTargetAnchorIndex);
         if (block.IsSelected)
             DrawGenericResizeHandle(outer, stroke, block.IsLocked);
+    }
+
+    /// <summary>Draws an imported (frameless) image stretched over the block bounds, rotated
+    /// around its center when Style.Rotation is set. Shows a placeholder when the asset is gone.</summary>
+    private void DrawRawImage(SceneBlockVisual blockVis, Func<string?, ImageBitmapResource?> imageLoader, BoardItemStyle style)
+    {
+        var block = blockVis.Block;
+        Rect outer = blockVis.Bounds;
+
+        float rotationDeg = (float)(((style.Rotation % 360) + 360) % 360);
+        bool rotated = rotationDeg > 0.01f && rotationDeg < 359.99f;
+        var preRotation = _ctx.RenderTarget.Transform;
+        if (rotated)
+        {
+            var center = new Vector2((float)(outer.X + outer.Width / 2), (float)(outer.Y + outer.Height / 2));
+            _ctx.RenderTarget.Transform = Matrix3x2.CreateRotation(rotationDeg * MathF.PI / 180f, center) * preRotation;
+        }
+        try
+        {
+            var image = imageLoader(block.Source?.AssetPath ?? block.Source?.SourcePath);
+            if (image is not null)
+            {
+                var target = new Vortice.Mathematics.Rect((float)outer.X, (float)outer.Y, (float)outer.Width, (float)outer.Height);
+                var source = new Vortice.Mathematics.Rect(0, 0, image.PixelWidth, image.PixelHeight);
+                _ctx.RenderTarget.DrawBitmap(image.Bitmap, target, (float)Math.Clamp(style.Opacity, 0.05, 1), BitmapInterpolationMode.Linear, source);
+            }
+            else
+            {
+                _ctx.RenderTarget.FillRectangle(CanvasDrawingUtils.ToRF(outer), _ctx.GetBrush(WpfColor.FromRgb(241, 245, 249)));
+                _ctx.RenderTarget.DrawRectangle(CanvasDrawingUtils.ToRF(outer), _ctx.GetBrush(WpfColor.FromRgb(203, 213, 225)), _ctx.InvStroke(1f));
+                _ctx.DrawText("Image unavailable", (float)outer.X + 10, (float)(outer.Y + outer.Height / 2 - 8), (float)Math.Max(20, outer.Width - 20), 11, WpfColor.FromRgb(100, 116, 139), sketchy: true);
+            }
+        }
+        finally
+        {
+            if (rotated) _ctx.RenderTarget.Transform = preRotation;
+        }
     }
 
     private void DrawContainerBlock(
@@ -1705,6 +1901,9 @@ internal sealed class BlockRenderer
 
     private static bool IsLinearShapeTool(string? shapeType) =>
         shapeType is "line" or "arrow" or "polyline";
+
+    private static bool IsFreedraw(string? shapeType) =>
+        string.Equals(shapeType, "freedraw", StringComparison.OrdinalIgnoreCase);
 
     private static string NormalizeCodeLine(string text) => text.Replace("\t", "    ", StringComparison.Ordinal);
 

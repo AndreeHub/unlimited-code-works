@@ -51,7 +51,7 @@ internal sealed class VectorShapeDrawer : IShapeDrawer
         {
             rt.FillRectangle(rect, fillBrush);
             if (fillStyle != "solid")
-                DrawCleanHatching(rt, RectPoints(rect), strokeBrush, strokeWidth, hatchOpacity);
+                DrawCleanHatching(rt, RectPoints(rect), strokeBrush, strokeWidth, hatchOpacity, fillStyle);
         }
         rt.DrawRectangle(rect, strokeBrush, strokeWidth, strokeStyle);
     }
@@ -64,7 +64,7 @@ internal sealed class VectorShapeDrawer : IShapeDrawer
         {
             rt.FillRoundedRectangle(rr, fillBrush);
             if (fillStyle != "solid")
-                DrawCleanHatching(rt, RectPoints(rect), strokeBrush, strokeWidth, hatchOpacity);
+                DrawCleanHatching(rt, RectPoints(rect), strokeBrush, strokeWidth, hatchOpacity, fillStyle);
         }
         rt.DrawRoundedRectangle(rr, strokeBrush, strokeWidth, strokeStyle);
     }
@@ -79,7 +79,7 @@ internal sealed class VectorShapeDrawer : IShapeDrawer
         {
             rt.FillEllipse(ellipse, fillBrush);
             if (fillStyle != "solid")
-                DrawCleanHatching(rt, EllipsePoints(rect, 36), strokeBrush, strokeWidth, hatchOpacity);
+                DrawCleanHatching(rt, EllipsePoints(rect, 36), strokeBrush, strokeWidth, hatchOpacity, fillStyle);
         }
         rt.DrawEllipse(ellipse, strokeBrush, strokeWidth, strokeStyle);
     }
@@ -100,7 +100,7 @@ internal sealed class VectorShapeDrawer : IShapeDrawer
             }
             rt.FillGeometry(fillPath, fillBrush);
             if (fillStyle != "solid")
-                DrawCleanHatching(rt, pts, strokeBrush, strokeWidth, hatchOpacity);
+                DrawCleanHatching(rt, pts, strokeBrush, strokeWidth, hatchOpacity, fillStyle);
         }
 
         // Crisp outline: stroke the polygon as a single open/closed geometry so corners join cleanly.
@@ -136,8 +136,9 @@ internal sealed class VectorShapeDrawer : IShapeDrawer
         return pts;
     }
 
-    /// <summary>Evenly-spaced straight diagonal hachures clipped to the polygon (no jitter).</summary>
-    private static void DrawCleanHatching(ID2D1RenderTarget rt, Vector2[] polygon, ID2D1Brush brush, float strokeWidth, float hatchOpacity)
+    /// <summary>Evenly-spaced fill patterns clipped to the polygon (no jitter): hachure,
+    /// cross-hatch, zigzag, or dots depending on <paramref name="fillStyle"/>.</summary>
+    private static void DrawCleanHatching(ID2D1RenderTarget rt, Vector2[] polygon, ID2D1Brush brush, float strokeWidth, float hatchOpacity, string fillStyle = "hatch")
     {
         if (polygon.Length < 3) return;
 
@@ -146,34 +147,110 @@ internal sealed class VectorShapeDrawer : IShapeDrawer
         if (Math.Abs(prevOpacity - effective) > 0.001f) brush.Opacity = effective;
         try
         {
-            float minX = polygon.Min(p => p.X), maxX = polygon.Max(p => p.X);
-            float minY = polygon.Min(p => p.Y), maxY = polygon.Max(p => p.Y);
-            if (maxX - minX < 6f || maxY - minY < 6f) return;
-
-            const float spacing = 12f;
-            float hatch = strokeWidth * 0.75f;
-            // Diagonal lines satisfy x + y = c; walk c across the shape's extent.
-            for (float c = minX + minY + spacing; c < maxX + maxY; c += spacing)
+            switch (fillStyle.ToLowerInvariant())
             {
-                var hits = new List<Vector2>();
-                for (int i = 0; i < polygon.Length; i++)
-                {
-                    var p1 = polygon[i];
-                    var p2 = polygon[(i + 1) % polygon.Length];
-                    float denom = (p2.X - p1.X) + (p2.Y - p1.Y);
-                    if (MathF.Abs(denom) <= 1e-4f) continue;
-                    float t = (c - (p1.X + p1.Y)) / denom;
-                    if (t >= 0f && t <= 1f) hits.Add(p1 + t * (p2 - p1));
-                }
-                if (hits.Count < 2) continue;
-                hits.Sort((a, b) => a.X.CompareTo(b.X));
-                for (int k = 0; k + 1 < hits.Count; k += 2)
-                    rt.DrawLine(hits[k], hits[k + 1], brush, hatch);
+                case "cross-hatch":
+                    DrawCleanHatchingPass(rt, polygon, brush, strokeWidth, antiDiagonal: false);
+                    DrawCleanHatchingPass(rt, polygon, brush, strokeWidth, antiDiagonal: true);
+                    break;
+                case "zigzag":
+                    DrawCleanZigzag(rt, polygon, brush, strokeWidth);
+                    break;
+                case "dots":
+                    DrawCleanDots(rt, polygon, brush, strokeWidth);
+                    break;
+                default:
+                    DrawCleanHatchingPass(rt, polygon, brush, strokeWidth, antiDiagonal: false);
+                    break;
             }
         }
         finally
         {
             if (Math.Abs(prevOpacity - effective) > 0.001f) brush.Opacity = prevOpacity;
+        }
+    }
+
+    private static void DrawCleanZigzag(ID2D1RenderTarget rt, Vector2[] polygon, ID2D1Brush brush, float strokeWidth)
+    {
+        float minX = polygon.Min(p => p.X), maxX = polygon.Max(p => p.X);
+        float minY = polygon.Min(p => p.Y), maxY = polygon.Max(p => p.Y);
+        if (maxX - minX < 6f || maxY - minY < 6f) return;
+
+        const float spacing = 13f;
+        float hatch = strokeWidth * 0.75f;
+        Vector2? previousEnd = null;
+        bool flip = false;
+        for (float c = minX + minY + spacing; c < maxX + maxY; c += spacing)
+        {
+            var hits = new List<Vector2>();
+            for (int i = 0; i < polygon.Length; i++)
+            {
+                var p1 = polygon[i];
+                var p2 = polygon[(i + 1) % polygon.Length];
+                float denom = (p2.X - p1.X) + (p2.Y - p1.Y);
+                if (MathF.Abs(denom) <= 1e-4f) continue;
+                float t = (c - (p1.X + p1.Y)) / denom;
+                if (t >= 0f && t <= 1f) hits.Add(p1 + t * (p2 - p1));
+            }
+            if (hits.Count < 2) continue;
+            hits.Sort((a, b) => a.X.CompareTo(b.X));
+            Vector2 start = flip ? hits[1] : hits[0];
+            Vector2 end = flip ? hits[0] : hits[1];
+            if (previousEnd is Vector2 prev)
+                rt.DrawLine(prev, start, brush, hatch);
+            rt.DrawLine(start, end, brush, hatch);
+            previousEnd = end;
+            flip = !flip;
+        }
+    }
+
+    private static void DrawCleanDots(ID2D1RenderTarget rt, Vector2[] polygon, ID2D1Brush brush, float strokeWidth)
+    {
+        float minX = polygon.Min(p => p.X), maxX = polygon.Max(p => p.X);
+        float minY = polygon.Min(p => p.Y), maxY = polygon.Max(p => p.Y);
+        if (maxX - minX < 6f || maxY - minY < 6f) return;
+
+        const float spacing = 12f;
+        float radius = Math.Max(0.8f, strokeWidth * 0.55f);
+        for (float y = minY + spacing / 2; y < maxY; y += spacing)
+            for (float x = minX + spacing / 2; x < maxX; x += spacing)
+            {
+                var p = new Vector2(x, y);
+                if (SketchyDrawer.PointInPolygon(p, polygon))
+                    rt.FillEllipse(new Ellipse(p, radius, radius), brush);
+            }
+    }
+
+    private static void DrawCleanHatchingPass(ID2D1RenderTarget rt, Vector2[] polygon, ID2D1Brush brush, float strokeWidth, bool antiDiagonal)
+    {
+        float minX = polygon.Min(p => p.X), maxX = polygon.Max(p => p.X);
+        float minY = polygon.Min(p => p.Y), maxY = polygon.Max(p => p.Y);
+        if (maxX - minX < 6f || maxY - minY < 6f) return;
+
+        const float spacing = 12f;
+        float hatch = strokeWidth * 0.75f;
+        // One diagonal family per pass: x + y = c, or x - y = c for the cross-hatch second pass.
+        float startC = antiDiagonal ? minX - maxY : minX + minY;
+        float endC = antiDiagonal ? maxX - minY : maxX + maxY;
+        for (float c = startC + spacing; c < endC; c += spacing)
+        {
+            var hits = new List<Vector2>();
+            for (int i = 0; i < polygon.Length; i++)
+            {
+                var p1 = polygon[i];
+                var p2 = polygon[(i + 1) % polygon.Length];
+                float denom = antiDiagonal
+                    ? (p2.X - p1.X) - (p2.Y - p1.Y)
+                    : (p2.X - p1.X) + (p2.Y - p1.Y);
+                if (MathF.Abs(denom) <= 1e-4f) continue;
+                float value = antiDiagonal ? p1.X - p1.Y : p1.X + p1.Y;
+                float t = (c - value) / denom;
+                if (t >= 0f && t <= 1f) hits.Add(p1 + t * (p2 - p1));
+            }
+            if (hits.Count < 2) continue;
+            hits.Sort((a, b) => a.X.CompareTo(b.X));
+            for (int k = 0; k + 1 < hits.Count; k += 2)
+                rt.DrawLine(hits[k], hits[k + 1], brush, hatch);
         }
     }
 }

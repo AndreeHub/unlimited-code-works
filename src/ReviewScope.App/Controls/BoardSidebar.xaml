@@ -22,13 +22,28 @@
             <!-- ===================== Tabbed Inspector ===================== -->
             <Grid Grid.Row="0">
                 <TabControl x:Name="InspectorTabs"
-                            SelectedIndex="{Binding SelectedRightTabIndex, Mode=TwoWay}"
-                            Visibility="{Binding HasBoardSelection, Converter={StaticResource BoolVis}}">
+                            SelectedIndex="{Binding SelectedRightTabIndex, Mode=TwoWay}">
 
                     <!-- 1. Inspector - identity / details (per-type DataTemplate) -->
                     <TabItem Header="Inspector">
                         <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
-                            <ContentControl Content="{Binding ActiveInspector}"/>
+                            <Grid>
+                                <ContentControl Content="{Binding ActiveInspector}"/>
+                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20,40,20,0">
+                                    <StackPanel.Style>
+                                        <Style TargetType="StackPanel">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasBoardSelection}" Value="False">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </StackPanel.Style>
+                                    <TextBlock Text="No Selection" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                    <TextBlock Text="Select a canvas item to inspect it." TextWrapping="Wrap" TextAlignment="Center" FontSize="11" Foreground="{StaticResource MutedForeground}"/>
+                                </StackPanel>
+                            </Grid>
                         </ScrollViewer>
                     </TabItem>
 
@@ -191,25 +206,76 @@
                             </Grid>
                         </ScrollViewer>
                     </TabItem>
+                    <!-- 5. Library - reusable shapes imported from Excalidraw libraries -->
+                    <TabItem Header="Library">
+                        <Grid Margin="0,10,0,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0" Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" Content="Import .excalidrawlib…"
+                                        Command="{Binding ImportExcalidrawLibraryCommand}"
+                                        HorizontalAlignment="Stretch" Margin="0,0,4,0" Padding="0,6"/>
+                                <Button Grid.Column="1" Content="Save selection"
+                                        Command="{Binding AddSelectionToLibraryCommand}"
+                                        ToolTip="Save the selected canvas shapes as a reusable library item"
+                                        HorizontalAlignment="Stretch" Margin="4,0,0,0" Padding="0,6"/>
+                            </Grid>
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                <Grid>
+                                    <ItemsControl ItemsSource="{Binding LibraryItems}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Width="94" Margin="3" Padding="4" CornerRadius="6"
+                                                        Background="{StaticResource HoverBg}"
+                                                        BorderBrush="{StaticResource SoftBorder}" BorderThickness="1"
+                                                        Cursor="Hand" Tag="{Binding Id}"
+                                                        ToolTip="{Binding Name}"
+                                                        MouseMove="OnLibraryItemMouseMove"
+                                                        MouseLeftButtonDown="OnLibraryItemMouseDown"
+                                                        MouseLeftButtonUp="OnLibraryItemMouseUp">
+                                                    <Border.ContextMenu>
+                                                        <ContextMenu>
+                                                            <MenuItem Header="Remove from library" Click="OnRemoveLibraryItem"/>
+                                                        </ContextMenu>
+                                                    </Border.ContextMenu>
+                                                    <StackPanel>
+                                                        <Image Source="{Binding Thumbnail}" Width="82" Height="82" Stretch="Uniform"/>
+                                                        <TextBlock Text="{Binding Name}" FontSize="10" TextTrimming="CharacterEllipsis"
+                                                                   TextAlignment="Center" Foreground="{StaticResource SubtleForeground}" Margin="0,3,0,0"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Text="No library items yet. Click “Import .excalidrawlib…” to add some, then drag them onto the canvas."
+                                               TextWrapping="Wrap" TextAlignment="Center" FontSize="11"
+                                               Foreground="{StaticResource MutedForeground}"
+                                               VerticalAlignment="Top" HorizontalAlignment="Center" Margin="16,40,16,0">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding LibraryItems.Count}" Value="0">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+                            </ScrollViewer>
+                        </Grid>
+                    </TabItem>
                 </TabControl>
-
-                <!-- No-selection placeholder -->
-                <Grid Margin="20" VerticalAlignment="Center">
-                    <Grid.Style>
-                        <Style TargetType="Grid">
-                            <Setter Property="Visibility" Value="Collapsed"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding HasBoardSelection}" Value="False">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Grid.Style>
-                    <StackPanel HorizontalAlignment="Center">
-                        <TextBlock Text="No Selection" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource SubtleForeground}" HorizontalAlignment="Center" Margin="0,0,0,8"/>
-                        <TextBlock Text="Select a canvas item to inspect it." TextWrapping="Wrap" TextAlignment="Center" FontSize="11" Foreground="{StaticResource MutedForeground}"/>
-                    </StackPanel>
-                </Grid>
             </Grid>
 
             <!-- ===================== Overview (always pinned to bottom) ===================== -->

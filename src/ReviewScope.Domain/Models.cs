@@ -106,7 +106,11 @@ public sealed record BlockPlacement(
     string? RefAnchorId = null,
     // For a Transclusion that embeds a WHOLE page (Logseq "page portal"): the referenced page's
     // name. When set, the block mirrors that page's entire outline (re-resolved on load = live).
-    string? RefPageName = null);
+    string? RefPageName = null,
+    // Logical grouping (Excalidraw "groupIds" model): blocks sharing a non-null GroupKey select,
+    // drag, and delete as one unit. null = ungrouped. Independent of the spatial "color-group"
+    // container (which groups by geometric containment, not membership).
+    string? GroupKey = null);
 
 public sealed record FocusedRange(
     int StartLine,
@@ -152,7 +156,14 @@ public sealed record BoardItemStyle(
     double HatchOpacity = 0.6,
     // Per-shape render style override. null = inherit the canvas-wide default; "sketch" / "vector"
     // force that look for this shape regardless of the global setting.
-    string? RenderStyle = null);
+    string? RenderStyle = null,
+    // Dotted outline (Excalidraw's third stroke style). Mutually exclusive with Dashed;
+    // when both are set, Dashed wins.
+    bool Dotted = false,
+    // Rotation in degrees, clockwise around the block's center. Applies to closed shapes only;
+    // linear/freedraw shapes bake rotation into their vertices instead. X/Y/W/H stay the
+    // UNROTATED frame (Excalidraw semantics), so resize/selection handles remain axis-aligned.
+    double Rotation = 0);
 
 public sealed record BoardSourceBinding(
     string? AssetPath = null,
@@ -268,7 +279,10 @@ public sealed record RenderBlock(
     string? RefAnchorId = null,
     // For a page-portal Transclusion: the embedded page's name. Body carries the resolved page
     // outline for rendering; this pointer is what gets persisted.
-    string? RefPageName = null);
+    string? RefPageName = null,
+    // Logical grouping (Excalidraw "groupIds" model): blocks sharing a non-null GroupKey select,
+    // drag, and delete as one unit. null = ungrouped.
+    string? GroupKey = null);
 
 /// <summary>
 /// Reading-progress overlay for a single file, resolved live at render time (not persisted in the

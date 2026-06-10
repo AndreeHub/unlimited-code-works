@@ -82,6 +82,65 @@ public sealed partial class CanvasViewport
     internal static bool IsLinearShapeTool(string? shapeType) =>
         shapeType is "line" or "arrow" or "polyline";
 
+    /// <summary>
+    /// Remembers the style of the (single) selected shape so the next shape drawn in the same
+    /// category starts from it — Excalidraw's "current item style" behavior. Called when a draw
+    /// gesture begins, i.e. right before the draw clears the selection.
+    /// </summary>
+    internal void CaptureSelectedShapeStyle()
+    {
+        RenderBlock? only = null;
+        foreach (var b in Scene.Blocks)
+        {
+            if (!b.IsSelected) continue;
+            if (only is not null) return; // multi-selection: ambiguous, keep current memory
+            only = b;
+        }
+        if (only is null || only.Kind != BlockKind.Shape || only.Style is null) return;
+
+        if (IsFreedrawTool(only.ShapeType)) _lastFreedrawStyle = only.Style;
+        else if (IsLinearShapeTool(only.ShapeType)) _lastLinearShapeStyle = only.Style;
+        else _lastClosedShapeStyle = only.Style;
+    }
+
+    /// <summary>Style for a newly drawn shape: last-used style of the same category, else the default.</summary>
+    internal BoardItemStyle EffectiveShapeStyle(string shapeType)
+    {
+        if (IsFreedrawTool(shapeType)) return _lastFreedrawStyle ?? FreedrawStyle();
+        if (IsLinearShapeTool(shapeType)) return _lastLinearShapeStyle ?? ShapeToolStyle(shapeType);
+        return _lastClosedShapeStyle ?? ShapeToolStyle(shapeType);
+    }
+
+    internal static bool IsFreedrawTool(string? shapeType) =>
+        string.Equals(shapeType, "freedraw", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Default look for a freehand stroke: dark pen on a transparent fill.</summary>
+    internal static BoardItemStyle FreedrawStyle() =>
+        new BoardItemStyle("#00FFFFFF", "#1E1E1E", "#1E1E1E", 2.5, CornerRadius: 0);
+
+    /// <summary>
+    /// Builds a freehand Shape block from world-space stroke samples. Points are stored normalized
+    /// to the stroke's bounding box in the shared "points:x,y;..." body format, so the stroke scales
+    /// with the block and renders via <see cref="BlockRenderer"/>'s freedraw path.
+    /// </summary>
+    internal RenderBlock CreateFreedrawBlock(IReadOnlyList<WpfPoint> points)
+    {
+        Rect bounds = new(points[0], points[0]);
+        foreach (var p in points.Skip(1)) bounds.Union(p);
+        bounds.Inflate(6, 6);
+        if (bounds.Width < 4) bounds = new Rect(bounds.X - 2, bounds.Y, 4, bounds.Height);
+        if (bounds.Height < 4) bounds = new Rect(bounds.X, bounds.Y - 2, bounds.Width, 4);
+
+        string body = CanvasDrawingUtils.BuildLinearShapeBody(bounds, points);
+        var id = Guid.NewGuid();
+        return new RenderBlock(
+            id, $"freedraw::{id:N}", BlockKind.Shape,
+            string.Empty, string.Empty,
+            bounds.X, bounds.Y, bounds.Width, bounds.Height,
+            Body: body, ShapeType: "freedraw",
+            Style: EffectiveShapeStyle("freedraw"));
+    }
+
     internal RenderBlock CreateShapeBlock(string shapeType, WpfPoint start, WpfPoint current)
     {
         Rect bounds = BuildShapeDraftRect(shapeType, start, current);
@@ -102,7 +161,7 @@ public sealed partial class CanvasViewport
             bounds.Height,
             Body: body,
             ShapeType: shapeType,
-            Style: ShapeToolStyle(shapeType));
+            Style: EffectiveShapeStyle(shapeType));
     }
 
     internal RenderBlock CreateLinearShapeFromVertices(
@@ -131,7 +190,7 @@ public sealed partial class CanvasViewport
             ShapeToolTitle(effectiveType), string.Empty,
             bounds.X, bounds.Y, bounds.Width, bounds.Height,
             Body: body, ShapeType: effectiveType,
-            Style: ShapeToolStyle(effectiveType));
+            Style: EffectiveShapeStyle(effectiveType));
     }
 
     private string BuildLinearShapeBody(string shapeType, Rect bounds, (WpfPoint Start, WpfPoint End) endpoints) =>
@@ -214,11 +273,93 @@ public sealed partial class CanvasViewport
 
     internal SceneBlockVisual? HitBlock(WpfPoint world)
     {
+        Dictionary<string, SceneBlockVisual>? lookup = null;
         foreach (var block in _snapshot.Blocks.Reverse<SceneBlockVisual>())
         {
-            if (block.Bounds.Contains(world)) return block;
+            // Rotated shapes are drawn rotated around their center but keep an axis-aligned
+            // frame, so hit-test in the shape's local space by inverse-rotating the probe.
+            WpfPoint probe = InverseRotateProbe(block, world);
+            if (!block.Bounds.Contains(probe)) continue;
+
+            // Excalidraw-style precision: lines, arrows, polylines and pencil strokes only hit
+            // near their actual path — their (often huge) bounding box must not steal clicks
+            // from whatever sits underneath.
+            if (block.Block.Kind == BlockKind.Shape
+                && (IsLinearShapeTool(block.Block.ShapeType) || IsFreedrawTool(block.Block.ShapeType)))
+            {
+                lookup ??= _snapshot.Blocks.ToDictionary(b => b.Block.Key, StringComparer.OrdinalIgnoreCase);
+                if (!HitsLinearShapePath(block, probe, lookup)) continue;
+            }
+            // Hollow (fully transparent) unlabeled shapes hit on their outline only, so clicks
+            // through the empty interior reach blocks behind them (Excalidraw behavior).
+            else if (IsHollowUnlabeledShape(block.Block) && !HitsShapeOutline(block, probe))
+            {
+                continue;
+            }
+
+            return block;
         }
         return null;
+    }
+
+    private static WpfPoint InverseRotateProbe(SceneBlockVisual block, WpfPoint world)
+    {
+        if (block.Block.Kind != BlockKind.Shape) return world;
+        double rotation = (block.Block.Style?.Rotation ?? 0) % 360;
+        if (Math.Abs(rotation) < 0.01) return world;
+        WpfPoint center = CanvasDrawingUtils.CenterOf(block.Bounds);
+        double rad = -rotation * Math.PI / 180.0;
+        double cos = Math.Cos(rad), sin = Math.Sin(rad);
+        double dx = world.X - center.X, dy = world.Y - center.Y;
+        return new WpfPoint(center.X + dx * cos - dy * sin, center.Y + dx * sin + dy * cos);
+    }
+
+    private double StrokeHitThreshold(BoardItemStyle? style)
+    {
+        double strokePx = Math.Clamp(style?.StrokeWidth ?? 2, 0.5, 8);
+        return Math.Max(8.0, strokePx + 5.0) / Math.Max(0.08, _camera.Zoom);
+    }
+
+    private bool HitsLinearShapePath(SceneBlockVisual block, WpfPoint world, Dictionary<string, SceneBlockVisual> lookup)
+    {
+        var points = CanvasDrawingUtils.ResolveLinearShapePoints(block.Block, block.Bounds, lookup);
+        if (points.Count < 2) return true;
+        double threshold = StrokeHitThreshold(block.Block.Style);
+        double thresholdSq = threshold * threshold;
+        for (int i = 0; i + 1 < points.Count; i++)
+        {
+            if (DistanceToSegmentSquared(world, points[i], points[i + 1]) <= thresholdSq)
+                return true;
+        }
+        return false;
+    }
+
+    private static bool IsHollowUnlabeledShape(RenderBlock block)
+    {
+        if (block.Kind != BlockKind.Shape) return false;
+        if (block.IsSelected) return false; // selected shapes stay easy to grab and drag
+        var style = block.Style;
+        if (style is null) return false;
+        if (CanvasDrawingUtils.ParseColor(style.Fill).A != 0) return false;
+        return string.IsNullOrWhiteSpace(block.Body) && string.IsNullOrWhiteSpace(block.Title);
+    }
+
+    /// <summary>Approximate outline-proximity test for hollow closed shapes: the click is a hit when
+    /// it lies near the shape's outline point along the ray from the center through the click.</summary>
+    private bool HitsShapeOutline(SceneBlockVisual block, WpfPoint world)
+    {
+        WpfPoint outline = CanvasDrawingUtils.GetBlockOutlinePoint(block.Block, block.Bounds, world);
+        double threshold = StrokeHitThreshold(block.Block.Style);
+        return CanvasDrawingUtils.DistanceSquared(world, outline) <= threshold * threshold;
+    }
+
+    private static double DistanceToSegmentSquared(WpfPoint p, WpfPoint a, WpfPoint b)
+    {
+        double dx = b.X - a.X, dy = b.Y - a.Y;
+        double lenSq = dx * dx + dy * dy;
+        if (lenSq < 1e-12) return CanvasDrawingUtils.DistanceSquared(p, a);
+        double t = Math.Clamp(((p.X - a.X) * dx + (p.Y - a.Y) * dy) / lenSq, 0, 1);
+        return CanvasDrawingUtils.DistanceSquared(p, new WpfPoint(a.X + t * dx, a.Y + t * dy));
     }
 
     internal LinearShapeVertexHit? HitLinearShapeEndpoint(WpfPoint world)
@@ -500,7 +641,7 @@ public sealed partial class CanvasViewport
 
     internal static bool IsTextEditableBlock(RenderBlock block) =>
         block.Kind is BlockKind.Note or BlockKind.Text
-        || (block.Kind == BlockKind.Shape && !IsLinearShapeTool(block.ShapeType))
+        || (block.Kind == BlockKind.Shape && !IsLinearShapeTool(block.ShapeType) && !IsFreedrawTool(block.ShapeType))
         // Whole-page portals are editable in place — their outline body writes back to the
         // source page (see BeginNoteEdit / CommitNoteEdit → PagePortalEdited).
         || (block.Kind == BlockKind.Transclusion && !string.IsNullOrEmpty(block.RefPageName));

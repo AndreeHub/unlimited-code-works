@@ -64,7 +64,7 @@ public static class CanvasTheme
             HintMuted        = Rgb(119, 132, 150);
 
             OutlineBg        = Rgb(0xFF, 0xFF, 0xFF);
-            OutlineText      = Rgb(0x20, 0x24, 0x2B);
+            OutlineText      = Rgb(0x22, 0x22, 0x22);
 
             PopupBg          = Argb(250, 255, 255, 255);
             PopupBorder      = Argb(235, 207, 215, 226);
@@ -87,8 +87,8 @@ public static class CanvasTheme
             HintSub          = Rgb(0x9B, 0xA5, 0xB3);
             HintMuted        = Rgb(0x6A, 0x74, 0x80);
 
-            OutlineBg        = Rgb(0x1A, 0x1E, 0x25);
-            OutlineText      = Rgb(0xE7, 0xEB, 0xF1);
+            OutlineBg        = Rgb(0x18, 0x1B, 0x21);
+            OutlineText      = Rgb(0xEA, 0xEC, 0xF0);
 
             PopupBg          = Rgb(0x22, 0x27, 0x30);
             PopupBorder      = Rgb(0x3A, 0x43, 0x4F);

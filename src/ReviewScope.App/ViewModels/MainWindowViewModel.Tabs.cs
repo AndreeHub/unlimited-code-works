@@ -80,6 +80,14 @@ public sealed partial class MainWindowViewModel
         if (idx < 0) return;
 
         bool wasActive = tab.IsActive;
+        if (wasActive)
+        {
+            if (tab.Kind == DocumentKind.Canvas)
+                await FlushPendingSaveAsync();
+            else
+                await FlushPendingOutlineSaveAsync();
+        }
+
         tabs.Remove(tab);
 
         if (!wasActive) return;

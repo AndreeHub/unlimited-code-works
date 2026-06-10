@@ -647,6 +647,21 @@
                                         </StackPanel>
                                     </Grid>
                                 </Button>
+                                <Button Style="{StaticResource ToolboxCardButton}" Command="{Binding ImportExcalidrawLibraryCommand}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="34"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="28" Height="28" CornerRadius="6" Background="#F1F0FF" VerticalAlignment="Top">
+                                            <Path Data="M5,5 H11 V11 H5 Z M14,13 a3,3 0 1 0 0.01,0 M13,5 L19,11 M19,5 L13,11" Stroke="#6741D9" StrokeThickness="1.5" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="18" Height="18" Stretch="Uniform"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="Import Excalidraw" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ForegroundBrush}"/>
+                                            <TextBlock Text="Drop shapes from an .excalidrawlib file." FontSize="10.5" Foreground="{StaticResource SubtleForeground}" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Button>
                             </StackPanel>
                         </ScrollViewer>
                     </Grid>
@@ -713,6 +728,11 @@
                             <Path Data="M2,16 Q6,4 10,10 T18,4" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.6" Fill="Transparent"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="16" Height="16" Stretch="Uniform"/>
                         </Button>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Tag="freedraw" Click="OnShapeToolbarClick" ToolTip="Draw / pencil (P)">
+                            <Path Data="M3,17 C4,13 6,8 11,5 L15,9 C12,14 7,16 3,17 Z M11,5 L13,3 L17,7 L15,9"
+                                  Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="16" Height="16" Stretch="Uniform"/>
+                        </Button>
                         <Rectangle Width="1" Margin="4,4" Fill="{StaticResource SoftBorder}"/>
                         <Button Style="{StaticResource ShapeToolbarButton}" Tag="text" Click="OnShapeToolbarAddText" ToolTip="Add Text Card (T)">
                             <Path Data="M3,4 H17 M10,4 V16 M7,16 H13" Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.6"
@@ -733,6 +753,12 @@
                             <Path Data="M9,3 A6,6 0 1 0 9,15 A6,6 0 1 0 9,3 M13.5,13.5 L18,18"
                                   Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.6" Fill="Transparent"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="16" Height="16" Stretch="Uniform"/>
+                        </Button>
+                        <Rectangle Width="1" Margin="4,4" Fill="{StaticResource SoftBorder}"/>
+                        <Button Style="{StaticResource ShapeToolbarButton}" Click="OnShapeToolbarImportExcalidraw" ToolTip="Import Excalidraw library (.excalidrawlib)">
+                            <Path Data="M5,5 H11 V11 H5 Z M14,13 a3,3 0 1 0 0.01,0 M13,5 L19,11 M19,5 L13,11"
+                                  Stroke="{StaticResource ForegroundBrush}" StrokeThickness="1.4" Fill="Transparent"
+                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="16" Height="16" Stretch="Uniform"/>
                         </Button>
                     </StackPanel>
                 </Border>
@@ -871,17 +897,42 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     <ItemsControl Grid.Row="0" Style="{StaticResource DocTabStrip}" ItemsSource="{Binding OutlineTabs}"/>
-                    <!-- Logseq-style page title: a large left-aligned heading whose block matches
-                         the centered ~720px writing column, so its left edge lines up with the
-                         bullets below it. Edit it to rename the page. -->
-                    <TextBox x:Name="OutlineTitleBox" Grid.Row="1"
-                             Text="{Binding OutlineDocumentTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             KeyDown="OnOutlineTitleKeyDown" LostKeyboardFocus="OnOutlineTitleLostFocus"
-                             HorizontalAlignment="Stretch" MaxWidth="720"
-                             Margin="0,30,12,6" Padding="22,0,0,0" BorderThickness="0" Background="Transparent"
-                             FontFamily="Segoe UI" FontSize="32" FontWeight="Bold"
-                             Foreground="{StaticResource ForegroundBrush}"
-                             HorizontalContentAlignment="Left" TextAlignment="Left" />
+                    <Grid Grid.Row="1" HorizontalAlignment="Stretch" MaxWidth="780"
+                          Margin="0,32,10,18">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid Grid.Row="0" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Pages" FontSize="10.5" Foreground="{StaticResource MutedForeground}"/>
+                            <TextBlock Grid.Column="1" Text=" > " FontSize="10.5" Foreground="{StaticResource MutedForeground}" Margin="4,0"/>
+                            <TextBlock Text="{Binding OutlineDocumentDisplayTitle}" FontSize="10.5"
+                                       Grid.Column="2" Foreground="{StaticResource MutedForeground}" TextTrimming="CharacterEllipsis"/>
+                        </Grid>
+                        <!-- Edit it to rename the page. -->
+                        <TextBox x:Name="OutlineTitleBox" Grid.Row="1"
+                                 Text="{Binding OutlineDocumentDisplayTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyDown="OnOutlineTitleKeyDown" LostKeyboardFocus="OnOutlineTitleLostFocus"
+                                 Margin="0,0,0,8" Padding="0" BorderThickness="0" Background="Transparent"
+                                 FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="36" FontWeight="SemiBold"
+                                 Foreground="{StaticResource ForegroundBrush}"
+                                 HorizontalContentAlignment="Left" TextAlignment="Left" />
+                        <WrapPanel Grid.Row="2" Orientation="Horizontal">
+                            <TextBlock Text="type" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource SubtleForeground}" Margin="0,0,5,0"/>
+                            <TextBlock Text="{Binding OutlineDocumentKindLabel}" FontSize="11" Foreground="{StaticResource MutedForeground}" Margin="0,0,14,0"/>
+                            <TextBlock Text="tags" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource SubtleForeground}" Margin="0,0,5,0"/>
+                            <TextBlock Text="{Binding OutlineDocumentTagSummary}" FontSize="11" Foreground="{StaticResource MutedForeground}" Margin="0,0,14,0"
+                                       TextTrimming="CharacterEllipsis" MaxWidth="320"/>
+                            <TextBlock Text="updated" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource SubtleForeground}" Margin="0,0,5,0"/>
+                            <TextBlock Text="{Binding OutlineDocumentUpdatedLabel}" FontSize="11" Foreground="{StaticResource MutedForeground}"/>
+                        </WrapPanel>
+                    </Grid>
                     <canvas:OutlineView x:Name="OutlineEditor" Grid.Row="2"/>
                 </Grid>
             </Grid>

@@ -54,15 +54,23 @@ public sealed partial class CanvasViewport
                 PasteRequestedCommand.Execute(new PasteRequestedArgs(world.X, world.Y));
             return;
         }
+        if (modifiers.HasFlag(ModifierKeys.Control) && key == Key.D) { DuplicateSelection(); return; }
+        if (modifiers.HasFlag(ModifierKeys.Control) && key == Key.A) { SelectAllBlocks(); return; }
+        if (modifiers.HasFlag(ModifierKeys.Control) && key is Key.D0 or Key.NumPad0) { ResetZoom(); return; }
+        if (modifiers.HasFlag(ModifierKeys.Control) && key is Key.OemPlus or Key.Add) { ZoomByStep(1.2); return; }
+        if (modifiers.HasFlag(ModifierKeys.Control) && key is Key.OemMinus or Key.Subtract) { ZoomByStep(1 / 1.2); return; }
 
         if (ActivateBottomToolShortcut(key, modifiers))
             return;
-        
+
         if (key == Key.Delete) { DeleteSelected(); return; }
-        if (key == Key.D) { DetachSelectedNotes(); return; }
-        if (key == Key.F) { FrameAll(); return; }
-        if (key == Key.B) { ToggleBackground(); return; }
-        if (key == Key.Space) { ToggleSelectedGroupCollapse(); return; }
+        if (modifiers == ModifierKeys.Shift && key == Key.D) { DetachSelectedNotes(); return; }
+        if (modifiers == ModifierKeys.None)
+        {
+            if (key == Key.F) { FrameAll(); return; }
+            if (key == Key.B) { ToggleBackground(); return; }
+            if (key == Key.Space) { ToggleSelectedGroupCollapse(); return; }
+        }
         
         if (key == Key.Return)
         {
@@ -155,7 +163,12 @@ public sealed partial class CanvasViewport
             return;
         }
 
-        if (_activeShapeTool is not null) { SetTool("Shape"); _currentTool?.HandleLDown(screen, world, modifiers); return; }
+        if (_activeShapeTool is not null)
+        {
+            SetTool(string.Equals(_activeShapeTool, "freedraw", StringComparison.OrdinalIgnoreCase) ? "Freedraw" : "Shape");
+            _currentTool?.HandleLDown(screen, world, modifiers);
+            return;
+        }
 
         if (_editingNoteKey is not null)
         {
@@ -473,7 +486,7 @@ public sealed partial class CanvasViewport
         var id = Guid.NewGuid();
         int groupNumber = Scene.Blocks.Count(IsColorGroup) + 1;
         var palette = GroupPalette();
-        var group = new RenderBlock(id, $"container::{id:N}", BlockKind.Container, $"Group {groupNumber}", $"{selected.Count} items", bounds.X, bounds.Y, Math.Max(220, bounds.Width), Math.Max(140, bounds.Height), IsSelected: true, ZIndex: Scene.Blocks.Count == 0 ? 0 : Scene.Blocks.Min(b => b.ZIndex) - 1, LayerKey: "layer::architecture", ShapeType: "color-group", Style: palette[(groupNumber - 1) % palette.Length]);
+        var group = new RenderBlock(id, $"container::{id:N}", BlockKind.Container, $"Frame {groupNumber}", $"{selected.Count} items", bounds.X, bounds.Y, Math.Max(220, bounds.Width), Math.Max(140, bounds.Height), IsSelected: true, ZIndex: Scene.Blocks.Count == 0 ? 0 : Scene.Blocks.Min(b => b.ZIndex) - 1, LayerKey: "layer::architecture", ShapeType: "color-group", Style: palette[(groupNumber - 1) % palette.Length]);
         var blocks = Scene.Blocks.Select(b => b with { IsSelected = false }).Append(group).ToList();
         ApplySceneChange(ClearConnectionSelection(Scene with { Blocks = blocks }));
         RebuildSnapshot(); RenderNative();
@@ -622,9 +635,19 @@ public sealed partial class CanvasViewport
 
     private void UngroupSelectedGroups()
     {
+        // Two independent things can be "ungrouped":
+        //  1. spatial color-group containers in the selection (deleted, freeing their members), and
+        //  2. logical GroupKey membership on selected blocks (Excalidraw-style groups, e.g. an
+        //     imported library item) — cleared so the pieces become individually editable.
         var selectedGroupKeys = Scene.Blocks.Where(b => b.IsSelected && IsColorGroup(b) && !b.IsLocked).Select(b => b.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (selectedGroupKeys.Count == 0) return;
-        var blocks = Scene.Blocks.Where(b => !selectedGroupKeys.Contains(b.Key)).Select(b => b with { IsSelected = false }).ToList();
+        bool hasLogicalGroups = Scene.Blocks.Any(b => b.IsSelected && !b.IsLocked && !string.IsNullOrEmpty(b.GroupKey));
+        if (selectedGroupKeys.Count == 0 && !hasLogicalGroups) return;
+
+        var blocks = Scene.Blocks
+            .Where(b => !selectedGroupKeys.Contains(b.Key))
+            .Select(b => b.IsSelected && !b.IsLocked && !string.IsNullOrEmpty(b.GroupKey) ? b with { GroupKey = null } : b)
+            .Select(b => selectedGroupKeys.Count > 0 ? b with { IsSelected = false } : b)
+            .ToList();
         var connections = Scene.Connections.Where(c => !selectedGroupKeys.Contains(c.SourceKey) && !selectedGroupKeys.Contains(c.TargetKey)).ToList();
         ApplySceneChange(Scene with { Blocks = blocks, Connections = connections });
         RebuildSnapshot(); RenderNative();
@@ -657,11 +680,21 @@ public sealed partial class CanvasViewport
         if (selected.Count == 0) { var hit = Scene.Blocks.FirstOrDefault(b => b.Key.Equals(hitKey, StringComparison.OrdinalIgnoreCase)); if (hit is not null) selected.Add(hit); }
         if (selected.Count == 0) return hitKey;
         var keyMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // Remap each distinct source group to a fresh group key so the copies form their own
+        // group(s) instead of staying glued to the originals.
+        var groupMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var duplicates = new List<RenderBlock>(selected.Count);
         foreach (var block in selected)
         {
             var id = Guid.NewGuid(); string key = $"{block.Kind.ToString().ToLowerInvariant()}::{id:N}"; keyMap[block.Key] = key;
-            duplicates.Add(block with { Id = id, Key = key, IsSelected = true, ZIndex = Scene.Blocks.Count + duplicates.Count });
+            string? newGroup = block.GroupKey;
+            if (!string.IsNullOrEmpty(newGroup))
+            {
+                if (!groupMap.TryGetValue(newGroup, out var remapped))
+                    groupMap[newGroup] = remapped = $"group::{Guid.NewGuid():N}";
+                newGroup = remapped;
+            }
+            duplicates.Add(block with { Id = id, Key = key, IsSelected = true, ZIndex = Scene.Blocks.Count + duplicates.Count, GroupKey = newGroup });
         }
         var annotations = Scene.Annotations.Concat(duplicates.Where(b => b.Kind == BlockKind.Note).Select(b => new RenderAnnotation(b.Id, b.Key, b.Body ?? b.Title, b.X, b.Y))).ToList();
         var blocks = Scene.Blocks.Select(b => b with { IsSelected = false }).Concat(duplicates).ToList();
@@ -709,6 +742,46 @@ public sealed partial class CanvasViewport
         var lanes = Scene.SwimLanes.Where(l => !selectedLaneKeys.Contains(l.Key)).ToList();
         ApplySceneChange(ClearConnectionSelection(Scene with { Blocks = blocks, Connections = connections, SwimLanes = lanes }));
         RebuildSnapshot(); RenderNative();
+    }
+
+    /// <summary>Ctrl+D: clone the current selection and nudge the copies down-right (Excalidraw-style).</summary>
+    internal void DuplicateSelection()
+    {
+        var primary = Scene.Blocks.FirstOrDefault(b => b.IsSelected);
+        if (primary is null) return;
+        DuplicateSelectedBlocksForDrag(primary.Key);
+        var duplicateKeys = Scene.Blocks.Where(b => b.IsSelected).Select(b => b.Key).ToList();
+        MoveBlocks(duplicateKeys, 12, 12, applySnap: false);
+    }
+
+    private void SelectAllBlocks()
+    {
+        if (Scene.Blocks.Count == 0) return;
+        ApplySceneChange(SetSelection(Scene, Scene.Blocks.Select(b => b.Key)));
+        RebuildSnapshot(); RenderNative();
+    }
+
+    /// <summary>Zooms by <paramref name="factor"/> keeping the viewport center fixed (Ctrl+= / Ctrl+-).</summary>
+    private void ZoomByStep(double factor)
+    {
+        var center = new WpfPoint(Math.Max(1, ActualWidth) / 2, Math.Max(1, ActualHeight) / 2);
+        WpfPoint anchor = ToWorld(center);
+        double nextZoom = Math.Clamp(_camera.Zoom * factor, 0.02, 8.0);
+        _camera = new CameraState(nextZoom, center.X - anchor.X * nextZoom, center.Y - anchor.Y * nextZoom);
+        SetCurrentValue(CameraProperty, _camera);
+        _visDirty = true;
+        RenderNative();
+    }
+
+    /// <summary>Ctrl+0: back to 100% zoom, keeping the viewport center fixed.</summary>
+    private void ResetZoom()
+    {
+        var center = new WpfPoint(Math.Max(1, ActualWidth) / 2, Math.Max(1, ActualHeight) / 2);
+        WpfPoint anchor = ToWorld(center);
+        _camera = new CameraState(1.0, center.X - anchor.X, center.Y - anchor.Y);
+        SetCurrentValue(CameraProperty, _camera);
+        _visDirty = true;
+        RenderNative();
     }
 
     private IEnumerable<string> GetAttachedNoteKeys(ISet<string> movingKeys)

@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Application.Resources>
         <ResourceDictionary>
-            <FontFamily x:Key="AppFont">JetBrains Mono NL Light, JetBrains Mono NL, JetBrains Mono, Consolas</FontFamily>
+            <FontFamily x:Key="AppFont">Segoe UI Variable Text, Segoe UI</FontFamily>
             <!--
                 Theme tokens. Values below are the LIGHT palette; ThemeManager mutates each
                 brush's Color in place at runtime to swap light/dark (see Theming/ThemeManager.cs).
